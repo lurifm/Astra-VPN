@@ -1,6 +1,8 @@
 package com.astra.vpn
 
 import android.app.Activity
+import android.content.Intent
+import android.net.VpnService
 import android.os.Bundle
 import android.graphics.Color
 import android.view.Gravity
@@ -10,6 +12,12 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
+
+    private lateinit var status: TextView
+
+    companion object {
+        private const val VPN_REQUEST_CODE = 100
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,7 +36,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
 
-        val status = TextView(this).apply {
+        status = TextView(this).apply {
             text = "Отключено"
             textSize = 18f
             setTextColor(Color.LTGRAY)
@@ -37,12 +45,18 @@ class MainActivity : Activity() {
 
         val button = Button(this).apply {
             text = "ПОДКЛЮЧИТЬСЯ"
+
             setOnClickListener {
-                Toast.makeText(
-                    this@MainActivity,
-                    "VPN-движок будет подключён следующим этапом",
-                    Toast.LENGTH_LONG
-                ).show()
+                val intent = VpnService.prepare(this@MainActivity)
+
+                if (intent != null) {
+                    startActivityForResult(
+                        intent,
+                        VPN_REQUEST_CODE
+                    )
+                } else {
+                    showPermissionGranted()
+                }
             }
         }
 
@@ -51,5 +65,38 @@ class MainActivity : Activity() {
         layout.addView(button)
 
         setContentView(layout)
+    }
+
+    @Deprecated("Deprecated in Android API")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == VPN_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                showPermissionGranted()
+            } else {
+                status.text = "Отключено"
+
+                Toast.makeText(
+                    this,
+                    "Разрешение VPN не получено",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    private fun showPermissionGranted() {
+        status.text = "Разрешение получено"
+
+        Toast.makeText(
+            this,
+            "Разрешение VPN получено!",
+            Toast.LENGTH_LONG
+        ).show()
     }
 }
