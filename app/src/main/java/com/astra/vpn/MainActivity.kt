@@ -55,7 +55,7 @@ class MainActivity : Activity() {
                         VPN_REQUEST_CODE
                     )
                 } else {
-                    showPermissionGranted()
+                    startVpnService()
                 }
             }
         }
@@ -77,26 +77,23 @@ class MainActivity : Activity() {
 
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == RESULT_OK) {
-                showPermissionGranted()
+                startVpnService()
             } else {
                 status.text = "Отключено"
-
-                Toast.makeText(
-                    this,
-                    "Разрешение VPN не получено",
-                    Toast.LENGTH_SHORT
-                ).show()
             }
         }
     }
 
-    private fun showPermissionGranted() {
-        status.text = "Разрешение получено"
+    private fun startVpnService() {
+        val intent = Intent(this, AstraVpnService::class.java)
+        startService(intent)
+
+        status.text = "Служба запущена"
 
         Toast.makeText(
             this,
-            "Разрешение VPN получено!",
-            Toast.LENGTH_LONG
+            "Служба Astra VPN запущена",
+            Toast.LENGTH_SHORT
         ).show()
     }
 }
