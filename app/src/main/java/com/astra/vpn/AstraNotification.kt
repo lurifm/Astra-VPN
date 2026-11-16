@@ -30,7 +30,7 @@ object AstraNotification {
             Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle("Astra VPN")
                 .setContentText("Служба работает")
-                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setSmallIcon(R.drawable.ic_vpn)
                 .setOngoing(true)
                 .build()
         } else {
