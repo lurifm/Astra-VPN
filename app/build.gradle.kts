@@ -13,14 +13,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-    }
-
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a")
-            isUniversalApk = false
+        // The current target device is a modern 64-bit Android phone.
+        // Exclude unused native architectures from the APK package.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
