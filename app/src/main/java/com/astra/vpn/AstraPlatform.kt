@@ -17,6 +17,7 @@ import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.Notification
 import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.PlatformUser
+import io.nekohasekai.libbox.RoutePrefix
 import io.nekohasekai.libbox.ShellSession
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.TunOptions
@@ -117,17 +118,16 @@ class AstraPlatform(
     }
 
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
-    private fun addRoute(builder: VpnService.Builder, cidr: String) {
-        val parts = cidr.split("/", limit = 2)
-        require(parts.size == 2) { "Некорректный маршрут: $cidr" }
-        builder.addRoute(parts[0], parts[1].toInt())
+    private fun addRoute(builder: VpnService.Builder, route: RoutePrefix) {
+        builder.addRoute(route.address(), route.prefix())
     }
 
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
-    private fun toIpPrefix(cidr: String): android.net.IpPrefix {
-        val parts = cidr.split("/", limit = 2)
-        require(parts.size == 2) { "Некорректный исключённый маршрут: $cidr" }
-        return android.net.IpPrefix(parts[0], parts[1].toInt())
+    private fun toIpPrefix(route: RoutePrefix): android.net.IpPrefix {
+        return android.net.IpPrefix(
+            java.net.InetAddress.getByName(route.address()),
+            route.prefix()
+        )
     }
 
     override fun findConnectionOwner(
