@@ -78,6 +78,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun stopTunnel() {
+        // Release the Android TUN descriptor before asking sing-box to tear down,
+        // matching the lifecycle used by the upstream sing-box Android client.
+        runCatching { tunDescriptor?.close() }
+            .onFailure { Log.w(TAG, "TUN descriptor close failed", it) }
+        tunDescriptor = null
+
         val server = commandServer
         commandServer = null
         if (server != null) {
@@ -86,8 +92,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { server.close() }
                 .onFailure { Log.w(TAG, "CommandServer close failed", it) }
         }
-        runCatching { tunDescriptor?.close() }
-        tunDescriptor = null
         publishState(STATE_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
