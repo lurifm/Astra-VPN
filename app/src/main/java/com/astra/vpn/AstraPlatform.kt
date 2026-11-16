@@ -52,6 +52,10 @@ class AstraPlatform(
             .setSession("Astra VPN")
             .setMtu(options.mtu)
 
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
+
         val ipv4 = options.inet4Address
         while (ipv4.hasNext()) {
             val address = ipv4.next()
@@ -64,21 +68,45 @@ class AstraPlatform(
             builder.addAddress(address.address(), address.prefix())
         }
 
-        val dns = options.dnsServerAddress
-        while (dns.hasNext()) {
-            builder.addDnsServer(dns.next())
-        }
-
         if (options.autoRoute) {
-            val routes4 = options.inet4RouteRange
-            while (routes4.hasNext()) {
-                val route = routes4.next()
-                builder.addRoute(route.address(), route.prefix())
+            if (options.dnsMode.value != Libbox.DNSModeDisabled) {
+                val dns = options.dnsServerAddress
+                while (dns.hasNext()) {
+                    builder.addDnsServer(dns.next())
+                }
             }
-            val routes6 = options.inet6RouteRange
-            while (routes6.hasNext()) {
-                val route = routes6.next()
-                builder.addRoute(route.address(), route.prefix())
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val routes4 = options.inet4RouteAddress
+                if (routes4.hasNext()) {
+                    while (routes4.hasNext()) addRoute(builder, routes4.next())
+                } else if (options.inet4Address.hasNext()) {
+                    builder.addRoute("0.0.0.0", 0)
+                }
+
+                val routes6 = options.inet6RouteAddress
+                if (routes6.hasNext()) {
+                    while (routes6.hasNext()) addRoute(builder, routes6.next())
+                } else if (options.inet6Address.hasNext()) {
+                    builder.addRoute("::", 0)
+                }
+
+                val excluded4 = options.inet4RouteExcludeAddress
+                while (excluded4.hasNext()) builder.excludeRoute(toIpPrefix(excluded4.next()))
+
+                val excluded6 = options.inet6RouteExcludeAddress
+                while (excluded6.hasNext()) builder.excludeRoute(toIpPrefix(excluded6.next()))
+            } else {
+                val routes4 = options.inet4RouteRange
+                while (routes4.hasNext()) {
+                    val route = routes4.next()
+                    builder.addRoute(route.address(), route.prefix())
+                }
+                val routes6 = options.inet6RouteRange
+                while (routes6.hasNext()) {
+                    val route = routes6.next()
+                    builder.addRoute(route.address(), route.prefix())
+                }
             }
         }
 
@@ -86,6 +114,20 @@ class AstraPlatform(
             ?: error("Android не смог создать VPN-интерфейс")
         onTunCreated(descriptor)
         return descriptor.fd
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
+    private fun addRoute(builder: VpnService.Builder, cidr: String) {
+        val parts = cidr.split("/", limit = 2)
+        require(parts.size == 2) { "Некорректный маршрут: $cidr" }
+        builder.addRoute(parts[0], parts[1].toInt())
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
+    private fun toIpPrefix(cidr: String): android.net.IpPrefix {
+        val parts = cidr.split("/", limit = 2)
+        require(parts.size == 2) { "Некорректный исключённый маршрут: $cidr" }
+        return android.net.IpPrefix(parts[0], parts[1].toInt())
     }
 
     override fun findConnectionOwner(
