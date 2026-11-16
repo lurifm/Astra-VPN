@@ -150,7 +150,7 @@ class MainActivity : Activity() {
     private fun renderProfiles() {
         profileList.removeAllViews()
         val profiles = profileStore.all()
-        if (selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
+        if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         connectButton.isEnabled = selectedProfile != null || connected
         connectButton.text = if (connected) "ОТКЛЮЧИТЬСЯ" else if (selectedProfile != null) "ПОДКЛЮЧИТЬСЯ" else "ВЫБЕРИ СЕРВЕР"
         if (profiles.isEmpty()) {
