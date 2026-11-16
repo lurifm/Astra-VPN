@@ -161,8 +161,8 @@ class AstraPlatform(
             val item = io.nekohasekai.libbox.NetworkInterface()
             item.name = name
             item.index = ni.index
-            item.dnsServer = StringArray(properties.dnsServers.mapNotNull { it.hostAddress }.iterator())
-            item.gateway = StringArray(properties.routes.filter { it.destination.prefixLength == 0 }.mapNotNull { it.gateway }.filterNot { it.isAnyLocalAddress }.mapNotNull { it.hostAddress }.iterator())
+            item.dnsServer = StringArray(properties.dnsServers.mapNotNull { it.hostAddress })
+            item.gateway = StringArray(properties.routes.filter { it.destination.prefixLength == 0 }.mapNotNull { it.gateway }.filterNot { it.isAnyLocalAddress }.mapNotNull { it.hostAddress })
             item.type = when {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
@@ -173,7 +173,7 @@ class AstraPlatform(
             item.addresses = StringArray(ni.interfaceAddresses.map { address ->
                 val ip = if (address.address is Inet6Address) address.address.hostAddress.substringBefore('%') else address.address.hostAddress
                 ip + "/" + address.networkPrefixLength
-            }.iterator())
+            })
             var flags = 0
             if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) flags = flags or OsConstants.IFF_UP or OsConstants.IFF_RUNNING
             if (ni.isLoopback) flags = flags or OsConstants.IFF_LOOPBACK
@@ -190,8 +190,9 @@ class AstraPlatform(
         }
     }
 
-    private class StringArray(private val iterator: Iterator<String>) : StringIterator {
-        override fun len(): Int = 0
+    private class StringArray(private val values: List<String>) : StringIterator {
+        private val iterator = values.iterator()
+        override fun len(): Int = values.size
         override fun hasNext(): Boolean = iterator.hasNext()
         override fun next(): String = iterator.next()
     }
