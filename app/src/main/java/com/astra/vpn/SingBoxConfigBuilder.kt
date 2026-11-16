@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.net.Uri
+import io.nekohasekai.libbox.Libbox
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -63,7 +64,10 @@ object SingBoxConfigBuilder {
                 .put("rules", JSONArray().put(JSONObject()
                     .put("protocol", "dns")
                     .put("action", "hijack-dns"))))
-        return config.toString()
+        val json = config.toString()
+        // Validate against the exact sing-box core bundled in this APK before starting the VPN.
+        Libbox.checkConfig(json)
+        return json
     }
 
     private fun buildVless(uri: Uri, server: String, port: Int): JSONObject {
