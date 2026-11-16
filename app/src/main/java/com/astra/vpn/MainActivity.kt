@@ -1,6 +1,9 @@
 package com.astra.vpn
 
 import android.app.Activity
+import android.content.Intent
+import android.net.VpnService
+import android.os.Build
 import android.app.AlertDialog
 import android.os.Bundle
 import android.graphics.Color
@@ -17,6 +20,10 @@ class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
     private lateinit var status: TextView
+    private lateinit var connectButton: Button
+    private var selectedProfile: String? = null
+    private var pendingConfig: String? = null
+    private var connected = false
     private val importExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +50,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         status = TextView(this).apply {
-            text = "Движок подключения готовится"
+            text = "Выбери сервер для подключения"
             textSize = 14f
             setTextColor(Color.rgb(255, 196, 92))
             gravity = Gravity.CENTER
@@ -55,9 +62,16 @@ class MainActivity : Activity() {
             setOnClickListener { showImportDialog() }
         }
 
-        val connectButton = Button(this).apply {
-            text = "ПОДКЛЮЧЕНИЕ ПОКА НЕДОСТУПНО"
+        connectButton = Button(this).apply {
+            text = "ВЫБЕРИ СЕРВЕР"
             isEnabled = false
+            setOnClickListener {
+                if (connected) {
+                    stopTunnel()
+                } else {
+                    connectSelectedProfile()
+                }
+            }
         }
 
         val listTitle = TextView(this).apply {
@@ -136,6 +150,9 @@ class MainActivity : Activity() {
     private fun renderProfiles() {
         profileList.removeAllViews()
         val profiles = profileStore.all()
+        if (selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
+        connectButton.isEnabled = selectedProfile != null || connected
+        connectButton.text = if (connected) "ОТКЛЮЧИТЬСЯ" else if (selectedProfile != null) "ПОДКЛЮЧИТЬСЯ" else "ВЫБЕРИ СЕРВЕР"
         if (profiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
                 text = "Пока нет добавленных серверов"
@@ -155,10 +172,15 @@ class MainActivity : Activity() {
                 setPadding(0, 8, 0, 8)
             }
             val name = TextView(this).apply {
-                text = label
+                text = (if (link == selectedProfile) "✓ " else "") + label
                 textSize = 15f
                 setTextColor(Color.WHITE)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    selectedProfile = link
+                    status.text = "Выбран сервер: $label"
+                    renderProfiles()
+                }
             }
             val delete = Button(this).apply {
                 text = "Удалить"
@@ -179,6 +201,68 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun connectSelectedProfile() {
+        val link = selectedProfile ?: run {
+            status.text = "Сначала добавь и выбери сервер"
+            return
+        }
+        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse { error ->
+            AlertDialog.Builder(this)
+                .setTitle("Не удалось подготовить сервер")
+                .setMessage(error.message ?: "Неподдерживаемая конфигурация")
+                .setPositiveButton("ОК", null)
+                .show()
+            return
+        }
+        pendingConfig = config
+        val permissionIntent = VpnService.prepare(this)
+        if (permissionIntent != null) {
+            startActivityForResult(permissionIntent, REQUEST_VPN_PERMISSION)
+        } else {
+            startTunnel(config)
+        }
+    }
+
+    @Deprecated("Deprecated in Android API, retained for compatibility with minSdk")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) {
+                pendingConfig?.let { startTunnel(it) }
+            } else {
+                pendingConfig = null
+                status.text = "Разрешение VPN не выдано"
+            }
+        }
+    }
+
+    private fun startTunnel(config: String) {
+        val intent = Intent(this, AstraVpnService::class.java)
+            .setAction(AstraVpnService.ACTION_START)
+            .putExtra(AstraVpnService.EXTRA_CONFIG, config)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+            else startService(intent)
+            connected = true
+            pendingConfig = null
+            status.text = "Запрос на подключение отправлен"
+            renderProfiles()
+        } catch (error: Exception) {
+            connected = false
+            status.text = "Не удалось запустить VPN"
+            Toast.makeText(this, error.message ?: "Ошибка запуска VPN", Toast.LENGTH_LONG).show()
+            renderProfiles()
+        }
+    }
+
+    private fun stopTunnel() {
+        val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
+        runCatching { startService(intent) }
+        connected = false
+        status.text = "VPN отключён"
+        renderProfiles()
+    }
+
     override fun onDestroy() {
         importExecutor.shutdownNow()
         super.onDestroy()
@@ -188,4 +272,8 @@ class MainActivity : Activity() {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT
     )
+
+    companion object {
+        private const val REQUEST_VPN_PERMISSION = 7001
+    }
 }
