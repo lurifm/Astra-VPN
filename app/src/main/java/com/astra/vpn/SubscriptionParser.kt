@@ -92,12 +92,14 @@ object SubscriptionParser {
         if (compact.isEmpty() || compact.length % 4 == 1) return value
         val looksEncoded = compact.matches(Regex("[A-Za-z0-9_+/=-]+"))
         if (!looksEncoded) return value
+        val flags = if ('-' in compact || '_' in compact) {
+            Base64.URL_SAFE or Base64.NO_WRAP
+        } else {
+            Base64.DEFAULT
+        }
         return runCatching {
-            Base64.decode(compact, Base64.DEFAULT)
-        }.recoverCatching {
-            Base64.decode(compact, Base64.URL_SAFE or Base64.NO_WRAP)
-        }.map { String(it, Charset.forName("UTF-8")) }
-            .getOrDefault(value)
+            String(Base64.decode(compact, flags), Charset.forName("UTF-8"))
+        }.getOrDefault(value)
     }
 
     private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
