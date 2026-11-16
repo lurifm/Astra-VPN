@@ -58,12 +58,14 @@ class AstraPlatform(
         }
 
         val ipv4 = options.inet4Address
+        val hasIpv4Address = ipv4.hasNext()
         while (ipv4.hasNext()) {
             val address = ipv4.next()
             builder.addAddress(address.address(), address.prefix())
         }
 
         val ipv6 = options.inet6Address
+        val hasIpv6Address = ipv6.hasNext()
         while (ipv6.hasNext()) {
             val address = ipv6.next()
             builder.addAddress(address.address(), address.prefix())
@@ -81,14 +83,14 @@ class AstraPlatform(
                 val routes4 = options.inet4RouteAddress
                 if (routes4.hasNext()) {
                     while (routes4.hasNext()) addRoute(builder, routes4.next())
-                } else if (options.inet4Address.hasNext()) {
+                } else if (hasIpv4Address) {
                     builder.addRoute("0.0.0.0", 0)
                 }
 
                 val routes6 = options.inet6RouteAddress
                 if (routes6.hasNext()) {
                     while (routes6.hasNext()) addRoute(builder, routes6.next())
-                } else if (options.inet6Address.hasNext()) {
+                } else if (hasIpv6Address) {
                     builder.addRoute("::", 0)
                 }
 
