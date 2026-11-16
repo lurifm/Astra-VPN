@@ -3,8 +3,6 @@ package com.astra.vpn
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Converts imported share links into the JSON format consumed by sing-box.
@@ -34,7 +32,7 @@ object SingBoxConfigBuilder {
         val config = JSONObject()
             .put("log", JSONObject().put("level", "warn"))
             .put("dns", JSONObject().put("servers", JSONArray()
-                .put(JSONObject().put("tag", "dns-remote").put("address", "https://1.1.1.1/dns-query").put("detour", "proxy"))
+                .put(JSONObject().put("tag", "dns-remote").put("address", "https://1.1.1.1/dns-query").put("detour", "direct"))
                 .put(JSONObject().put("tag", "dns-direct").put("address", "local"))))
             .put("inbounds", JSONArray().put(JSONObject()
                 .put("type", "tun")
