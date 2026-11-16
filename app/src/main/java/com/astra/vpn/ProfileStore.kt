@@ -30,6 +30,15 @@ class ProfileStore(context: Context) {
         prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).apply()
     }
 
+    fun addAll(links: List<String>) {
+        val existing = all().toSet()
+        val editor = prefs.edit()
+        links.distinct().filterNot { it in existing }.forEach { link ->
+            editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
+        }
+        editor.apply()
+    }
+
     fun remove(link: String) {
         val entry = prefs.all.entries.firstOrNull { (_, value) ->
             runCatching { decrypt(value as String) == link }.getOrDefault(false)
