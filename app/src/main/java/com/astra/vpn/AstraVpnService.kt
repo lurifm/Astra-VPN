@@ -26,8 +26,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (config.isNullOrBlank()) {
             val message = "Не передана конфигурация sing-box"
             Log.e(TAG, message)
-            publishState(STATE_ERROR, message)
             stopTunnel()
+            publishState(STATE_ERROR, message)
             return START_NOT_STICKY
         }
         if (commandServer != null) {
@@ -35,8 +35,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 .onSuccess { publishState(STATE_CONNECTED) }
                 .onFailure {
                     Log.e(TAG, "Не удалось перезапустить VPN", it)
-                    publishState(STATE_ERROR, it.message ?: "Не удалось перезапустить VPN")
                     stopTunnel()
+                    publishState(STATE_ERROR, it.message ?: "Не удалось перезапустить VPN")
                 }
             return START_NOT_STICKY
         }
@@ -53,8 +53,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             publishState(STATE_CONNECTED)
         } catch (error: Exception) {
             Log.e(TAG, "Не удалось запустить sing-box VPN", error)
-            publishState(STATE_ERROR, error.message ?: "Не удалось запустить VPN")
             stopTunnel()
+            publishState(STATE_ERROR, error.message ?: "Не удалось запустить VPN")
         }
         return START_NOT_STICKY
     }
