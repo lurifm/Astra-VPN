@@ -2,7 +2,6 @@ package com.astra.vpn
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.net.VpnService
 import android.os.Bundle
 import android.graphics.Color
 import android.view.Gravity
@@ -83,7 +82,7 @@ class MainActivity : Activity() {
 
     private fun showImportDialog() {
         val input = EditText(this).apply {
-            hint = "vless://… или hysteria2://…"
+            hint = "Ссылка сервера или HTTPS-подписка"
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
             setPadding(24, 18, 24, 18)
