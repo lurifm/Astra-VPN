@@ -3,6 +3,7 @@ package com.astra.vpn
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.graphics.Color
 import android.view.Gravity
@@ -86,7 +87,12 @@ class MainActivity : Activity() {
 
     private fun startVpnService() {
         val intent = Intent(this, AstraVpnService::class.java)
-        startService(intent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
 
         status.text = "Служба запущена"
 
