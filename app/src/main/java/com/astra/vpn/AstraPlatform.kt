@@ -2,8 +2,6 @@ package com.astra.vpn
 
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import io.nekohasekai.libbox.AutoRedirectHandler
-import io.nekohasekai.libbox.AutoRedirectSession
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
@@ -27,6 +25,8 @@ class AstraPlatform(
     private val vpnService: VpnService,
     private val onTunCreated: (ParcelFileDescriptor) -> Unit
 ) : PlatformInterface {
+
+    override fun useProcFS(): Boolean = false
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
@@ -131,13 +131,6 @@ class AstraPlatform(
 
     override fun createBridge(options: BridgeOptions?): BridgeSession =
         error("Системный bridge не поддерживается")
-
-    override fun usePlatformAutoRedirect(): Boolean = false
-
-    override fun createAutoRedirect(
-        options: ByteArray?,
-        handler: AutoRedirectHandler?
-    ): AutoRedirectSession = error("Автоматическое перенаправление не поддерживается")
 
     override fun lookupUser(username: String?): PlatformUser =
         error("Поиск системных пользователей не поддерживается")
