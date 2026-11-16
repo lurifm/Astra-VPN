@@ -3,6 +3,7 @@ package com.astra.vpn
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import io.nekohasekai.libbox.PlatformInterface
+import io.nekohasekai.libbox.Notification
 import io.nekohasekai.libbox.TunOptions
 
 /**
@@ -67,4 +68,8 @@ class AstraPlatform(
     override fun includeAllNetworks(): Boolean = false
 
     override fun clearDNSCache() = Unit
+
+    override fun sendNotification(notification: Notification) = Unit
+
+    override fun cancelNotification(identifier: String, typeID: Int) = Unit
 }
