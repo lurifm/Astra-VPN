@@ -10,10 +10,10 @@ import java.nio.charset.Charset
  * Network downloads are deliberately restricted to HTTPS.
  */
 object SubscriptionParser {
+    // Keep imports limited to protocols that SingBoxConfigBuilder can actually launch.
+    // Other URI schemes must not appear as selectable profiles until their builders exist.
     private val supportedSchemes = setOf(
-        "vless", "vmess", "trojan", "ss",
-        "hysteria2", "hy2", "tuic", "anytls",
-        "wireguard", "wg"
+        "vless", "hysteria2", "hy2", "tuic"
     )
 
     fun importText(input: String): List<String> {
