@@ -12,11 +12,13 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
     private lateinit var status: TextView
+    private val importExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,7 +90,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Импорт сервера")
-            .setMessage("Вставь ссылку подключения. Она будет сохранена в зашифрованном виде на этом устройстве.")
+            .setMessage("Вставь ссылку сервера, несколько ссылок или HTTPS-ссылку подписки. Данные сохраняются зашифрованно на устройстве.")
             .setView(input)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Добавить", null)
@@ -96,25 +98,40 @@ class MainActivity : Activity() {
             .also { dialog ->
                 dialog.setOnShowListener {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val link = input.text.toString().trim()
-                        if (!isSupportedLink(link)) {
-                            input.error = "Проверь ссылку и её протокол"
+                        val value = input.text.toString().trim()
+                        if (value.isEmpty()) {
+                            input.error = "Вставь ссылку"
                             return@setOnClickListener
                         }
-                        profileStore.add(link)
-                        dialog.dismiss()
-                        renderProfiles()
-                        Toast.makeText(this, "Сервер сохранён", Toast.LENGTH_SHORT).show()
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                        input.isEnabled = false
+                        status.text = "Импорт подписки…"
+                        importExecutor.execute {
+                            val result = runCatching { SubscriptionParser.importText(value) }
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
+                                dialog.dismiss()
+                                input.isEnabled = true
+                                if (result.isSuccess) {
+                                    val links = result.getOrThrow()
+                                    profileStore.addAll(links)
+                                    renderProfiles()
+                                    status.text = "Импортировано серверов: ${links.size}"
+                                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                                } else {
+                                    status.text = "Импорт не выполнен"
+                                    AlertDialog.Builder(this)
+                                        .setTitle("Ошибка импорта")
+                                        .setMessage(result.exceptionOrNull()?.message ?: "Неизвестная ошибка")
+                                        .setPositiveButton("ОК", null)
+                                        .show()
+                                }
+                            }
+                        }
                     }
                 }
                 dialog.show()
             }
-    }
-
-    private fun isSupportedLink(link: String): Boolean {
-        val scheme = link.substringBefore("://", "").lowercase()
-        return link.length in 12..16_384 &&
-            scheme in setOf("vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2", "tuic")
     }
 
     private fun renderProfiles() {
@@ -161,6 +178,11 @@ class MainActivity : Activity() {
             row.addView(delete)
             profileList.addView(row)
         }
+    }
+
+    override fun onDestroy() {
+        importExecutor.shutdownNow()
+        super.onDestroy()
     }
 
     private fun matchWidth() = LinearLayout.LayoutParams(
