@@ -162,7 +162,6 @@ class AstraPlatform(
             item.name = name
             item.index = ni.index
             item.dnsServer = StringArray(properties.dnsServers.mapNotNull { it.hostAddress }.iterator())
-            item.dnsSearchDomain = StringArray(properties.domains?.split(' ')?.filter { it.isNotBlank() }.orEmpty().iterator())
             item.gateway = StringArray(properties.routes.filter { it.destination.prefixLength == 0 }.mapNotNull { it.gateway }.filterNot { it.isAnyLocalAddress }.mapNotNull { it.hostAddress }.iterator())
             item.type = when {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
