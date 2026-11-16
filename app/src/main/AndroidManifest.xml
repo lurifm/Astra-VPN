@@ -11,6 +11,7 @@
         android:name=".AstraApplication"
         android:allowBackup="false"
         android:label="Astra VPN"
+        android:icon="@drawable/ic_vpn"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
 
