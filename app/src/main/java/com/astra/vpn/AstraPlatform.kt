@@ -117,7 +117,6 @@ class AstraPlatform(
         return descriptor.fd
     }
 
-    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
     private fun addRoute(builder: VpnService.Builder, route: RoutePrefix) {
         builder.addRoute(route.address(), route.prefix())
     }
