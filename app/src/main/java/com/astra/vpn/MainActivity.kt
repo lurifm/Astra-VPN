@@ -2,6 +2,9 @@ package com.astra.vpn
 
 import android.app.Activity
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.app.AlertDialog
@@ -25,6 +28,31 @@ class MainActivity : Activity() {
     private var pendingConfig: String? = null
     private var connected = false
     private val importExecutor = Executors.newSingleThreadExecutor()
+    private var receiverRegistered = false
+    private val vpnStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AstraVpnService.ACTION_STATE) return
+            when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
+                AstraVpnService.STATE_CONNECTED -> {
+                    connected = true
+                    status.text = "VPN подключён"
+                }
+                AstraVpnService.STATE_DISCONNECTED -> {
+                    connected = false
+                    status.text = "VPN отключён"
+                }
+                AstraVpnService.STATE_ERROR -> {
+                    connected = false
+                    status.text = "Ошибка подключения"
+                    val message = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
+                    if (!message.isNullOrBlank()) {
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            renderProfiles()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -236,6 +264,28 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!receiverRegistered) {
+            val filter = IntentFilter(AstraVpnService.ACTION_STATE)
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(vpnStateReceiver, filter)
+            }
+            receiverRegistered = true
+        }
+    }
+
+    override fun onStop() {
+        if (receiverRegistered) {
+            unregisterReceiver(vpnStateReceiver)
+            receiverRegistered = false
+        }
+        super.onStop()
+    }
+
     private fun startTunnel(config: String) {
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
@@ -243,9 +293,9 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
             else startService(intent)
-            connected = true
+            connected = false
             pendingConfig = null
-            status.text = "Запрос на подключение отправлен"
+            status.text = "Подключаемся к серверу…"
             renderProfiles()
         } catch (error: Exception) {
             connected = false
