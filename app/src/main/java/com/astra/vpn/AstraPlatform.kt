@@ -129,10 +129,24 @@ class AstraPlatform(
             listener.updateDefaultInterface("", -1, false, false)
             return
         }
-        val properties = connectivity.getLinkProperties(network) ?: return
+        val initialCaps = connectivity.getNetworkCapabilities(network)
+        val selectedNetwork = if (initialCaps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
+            connectivity.allNetworks.firstOrNull { candidate ->
+                val caps = connectivity.getNetworkCapabilities(candidate)
+                caps != null &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } else {
+            network
+        } ?: run {
+            listener.updateDefaultInterface("", -1, false, false)
+            return
+        }
+        val properties = connectivity.getLinkProperties(selectedNetwork) ?: return
         val name = properties.interfaceName ?: return
         val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
-        val caps = connectivity.getNetworkCapabilities(network)
+        val caps = connectivity.getNetworkCapabilities(selectedNetwork)
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
         listener.updateDefaultInterface(name, index, metered, false)
     }
