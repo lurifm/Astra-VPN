@@ -2,7 +2,7 @@ package com.astra.vpn
 
 import io.nekohasekai.libbox.PlatformInterface
 
-abstract class AstraPlatform : PlatformInterface {
+interface AstraPlatform : PlatformInterface {
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean {
         return true
