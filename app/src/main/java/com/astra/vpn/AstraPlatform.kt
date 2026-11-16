@@ -10,4 +10,15 @@ abstract class AstraPlatform : PlatformInterface {
 
     override fun autoDetectInterfaceControl(fd: Int) {
     }
+
+    override fun underNetworkExtension(): Boolean {
+        return false
+    }
+
+    override fun includeAllNetworks(): Boolean {
+        return false
+    }
+
+    override fun clearDNSCache() {
+    }
 }
