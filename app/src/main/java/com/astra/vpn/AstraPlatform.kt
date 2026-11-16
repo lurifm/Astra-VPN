@@ -1,12 +1,17 @@
 package com.astra.vpn
 
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.system.OsConstants
 import android.os.ParcelFileDescriptor
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.LocalDNSTransport
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.NeighborUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.Notification
@@ -16,6 +21,8 @@ import io.nekohasekai.libbox.ShellSession
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
+import java.net.Inet6Address
+import java.net.NetworkInterface as JavaNetworkInterface
 
 /**
  * Android adapter used by libbox to create the system VPN TUN interface.
@@ -25,6 +32,10 @@ class AstraPlatform(
     private val vpnService: VpnService,
     private val onTunCreated: (ParcelFileDescriptor) -> Unit
 ) : PlatformInterface {
+
+    private val connectivity = vpnService.getSystemService(ConnectivityManager::class.java)
+    private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var interfaceListener: InterfaceUpdateListener? = null
 
     override fun useProcFS(): Boolean = false
 
@@ -85,13 +96,91 @@ class AstraPlatform(
         destinationPort: Int
     ): ConnectionOwner = error("Определение владельца соединения пока не поддерживается")
 
-    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) = Unit
+    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+        interfaceListener = listener
+        if (defaultNetworkCallback != null) {
+            updateDefaultInterface(connectivity.activeNetwork)
+            return
+        }
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                updateDefaultInterface(network)
+            }
+            override fun onLost(network: Network) {
+                val active = connectivity.activeNetwork
+                if (active == null) listener.updateDefaultInterface("", -1, false, false)
+                else updateDefaultInterface(active)
+            }
+        }
+        defaultNetworkCallback = callback
+        connectivity.registerDefaultNetworkCallback(callback)
+        updateDefaultInterface(connectivity.activeNetwork)
+    }
 
-    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) = Unit
+    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+        defaultNetworkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
+        defaultNetworkCallback = null
+        interfaceListener = null
+    }
 
-    override fun getInterfaces(): NetworkInterfaceIterator = object : NetworkInterfaceIterator {
-        override fun hasNext(): Boolean = false
-        override fun next(): io.nekohasekai.libbox.NetworkInterface = error("Нет доступных интерфейсов")
+    private fun updateDefaultInterface(network: Network?) {
+        val listener = interfaceListener ?: return
+        if (network == null) {
+            listener.updateDefaultInterface("", -1, false, false)
+            return
+        }
+        val properties = connectivity.getLinkProperties(network) ?: return
+        val name = properties.interfaceName ?: return
+        val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
+        val caps = connectivity.getNetworkCapabilities(network)
+        val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+        listener.updateDefaultInterface(name, index, metered, false)
+    }
+
+    override fun getInterfaces(): NetworkInterfaceIterator {
+        val items = mutableListOf<io.nekohasekai.libbox.NetworkInterface>()
+        for (network in connectivity.allNetworks) {
+            val properties = connectivity.getLinkProperties(network) ?: continue
+            val caps = connectivity.getNetworkCapabilities(network) ?: continue
+            val name = properties.interfaceName ?: continue
+            val ni = runCatching { JavaNetworkInterface.getByName(name) }.getOrNull() ?: continue
+            val item = io.nekohasekai.libbox.NetworkInterface()
+            item.name = name
+            item.index = ni.index
+            item.dnsServer = StringArray(properties.dnsServers.mapNotNull { it.hostAddress }.iterator())
+            item.dnsSearchDomain = StringArray(properties.domains?.split(' ')?.filter { it.isNotBlank() }.orEmpty().iterator())
+            item.gateway = StringArray(properties.routes.filter { it.destination.prefixLength == 0 }.mapNotNull { it.gateway }.filterNot { it.isAnyLocalAddress }.mapNotNull { it.hostAddress }.iterator())
+            item.type = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> Libbox.InterfaceTypeEthernet
+                else -> Libbox.InterfaceTypeOther
+            }
+            item.metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            item.addresses = StringArray(ni.interfaceAddresses.map { address ->
+                val ip = if (address.address is Inet6Address) address.address.hostAddress.substringBefore('%') else address.address.hostAddress
+                ip + "/" + address.networkPrefixLength
+            }.iterator())
+            var flags = 0
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) flags = flags or OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+            if (ni.isLoopback) flags = flags or OsConstants.IFF_LOOPBACK
+            if (ni.isPointToPoint) flags = flags or OsConstants.IFF_POINTOPOINT
+            if (ni.supportsMulticast()) flags = flags or OsConstants.IFF_MULTICAST
+            item.flags = flags
+            item.mtu = runCatching { ni.mtu }.getOrDefault(0)
+            items.add(item)
+        }
+        val iterator = items.iterator()
+        return object : NetworkInterfaceIterator {
+            override fun hasNext(): Boolean = iterator.hasNext()
+            override fun next(): io.nekohasekai.libbox.NetworkInterface = iterator.next()
+        }
+    }
+
+    private class StringArray(private val iterator: Iterator<String>) : StringIterator {
+        override fun len(): Int = 0
+        override fun hasNext(): Boolean = iterator.hasNext()
+        override fun next(): String = iterator.next()
     }
 
     override fun underNetworkExtension(): Boolean = false
