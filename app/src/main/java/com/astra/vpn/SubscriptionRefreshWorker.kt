@@ -39,7 +39,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 .orEmpty().map { SubscriptionSourceFingerprint.fromStoredValue(it) }.toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
                 .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
-            val targets = SubscriptionRefreshTargets.select(
+            val targets = SubscriptionRefreshTargets.selectSources(
                 sources,
                 pending,
                 known
