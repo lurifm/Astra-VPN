@@ -11,6 +11,13 @@ object SubscriptionUsageCalculator {
         return if (Long.MAX_VALUE - upload < download) Long.MAX_VALUE else upload + download
     }
 
+    /** Remaining quota without risking underflow; negative limits are unavailable. */
+    fun remainingBytes(usedBytes: Long, totalBytes: Long): Long? {
+        if (totalBytes < 0L) return null
+        val safeUsed = usedBytes.coerceAtLeast(0L)
+        return if (safeUsed >= totalBytes) 0L else totalBytes - safeUsed
+    }
+
     /** Returns a clamped 0..100 percentage, or null when no valid limit exists. */
     fun percentage(usedBytes: Long, totalBytes: Long): Int? {
         if (totalBytes <= 0L) return null
