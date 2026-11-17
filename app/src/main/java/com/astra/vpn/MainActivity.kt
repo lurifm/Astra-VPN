@@ -337,6 +337,7 @@ class MainActivity : Activity() {
         updateNetworkLabel()
         // Check the open-app option immediately and keep a lightweight scheduler alive
         // while this screen is active; the worker checks settings every minute.
+        SubscriptionRefreshScheduler.sync(this)
         maybeAutoUpdateSubscriptions(true)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
@@ -1214,6 +1215,7 @@ class MainActivity : Activity() {
                     .putBoolean("auto_update", autoUpdate.isChecked)
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
                     .apply()
+                SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
                 maybeAutoUpdateSubscriptions(true)
             }
