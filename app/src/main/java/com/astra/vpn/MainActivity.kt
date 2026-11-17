@@ -59,7 +59,6 @@ class MainActivity : Activity() {
     private var connected = false
     private var connecting = false
     private var receiverRegistered = false
-    private var lastRecordedVpnState: String? = null
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var sortMode = "original"
@@ -99,26 +98,7 @@ class MainActivity : Activity() {
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AstraVpnService.ACTION_STATE) return
-            val receivedState = intent.getStringExtra(AstraVpnService.EXTRA_STATE)
-            if (receivedState != null && receivedState != lastRecordedVpnState) {
-                val historyState = when (receivedState) {
-                    AstraVpnService.STATE_CONNECTING -> "connecting"
-                    AstraVpnService.STATE_CONNECTED -> "connected"
-                    AstraVpnService.STATE_DISCONNECTED -> "disconnected"
-                    AstraVpnService.STATE_ERROR -> "error"
-                    else -> null
-                }
-                if (historyState != null) {
-                    val profile = activeProfile ?: selectedProfile
-                    connectionHistory.record(
-                        state = historyState,
-                        serverName = profile?.let { profileName(it) } ?: "Сервер не выбран",
-                        protocol = profile?.let { protocolName(it) } ?: "—"
-                    )
-                    lastRecordedVpnState = receivedState
-                }
-            }
-            when (receivedState) {
+            when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
                     connecting = true
@@ -1164,6 +1144,8 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
             .putExtra(AstraVpnService.EXTRA_CONFIG, config)
+            .putExtra(AstraVpnService.EXTRA_PROFILE_NAME, activeProfile?.let { profileName(it) } ?: "Сервер не выбран")
+            .putExtra(AstraVpnService.EXTRA_PROTOCOL, activeProfile?.let { protocolName(it) } ?: "—")
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
             pendingConfig = null
