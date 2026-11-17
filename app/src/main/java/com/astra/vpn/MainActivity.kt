@@ -735,12 +735,17 @@ class MainActivity : Activity() {
         val profiles = safeProfiles()
         val allCountries = profiles.map { CountryFlagResolver.flagFor(profileName(it)) }
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
-        val filterOptions = listOf("Все страны") + allCountries
+        val countryOptions = allCountries.map { "${it} ${CountryFlagResolver.countryNameForFlag(it)}" }
+        val filterOptions = listOf("🌍 Все страны") + countryOptions
         val currentOptions = (0 until countryFilter.count).mapNotNull { countryFilter.getItemAtPosition(it)?.toString() }
         if (currentOptions != filterOptions) {
+            val previousSelection = countryFilter.selectedItem?.toString()
             countryFilter.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, filterOptions)
+            val restoreIndex = filterOptions.indexOf(previousSelection).takeIf { it >= 0 } ?: 0
+            countryFilter.setSelection(restoreIndex, false)
         }
-        val selectedCountry = countryFilter.selectedItem?.toString()?.takeIf { it != "Все страны" }
+        val selectedCountry = countryFilter.selectedItem?.toString()
+            ?.takeIf { !it.startsWith("🌍") }?.substringBefore(" ")
         val query = serverSearch.text?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
         val filteredProfiles = profiles.filter { link ->
             val name = profileName(link)
