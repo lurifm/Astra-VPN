@@ -446,7 +446,7 @@ class MainActivity : Activity() {
      * Refresh each previously imported HTTPS subscription independently.
      * The previous server set is kept whenever download, parsing or storage fails.
      */
-    private fun refreshSubscriptions() {
+    private fun refreshSubscriptions(showResult: Boolean = true) {
         // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
@@ -495,11 +495,13 @@ class MainActivity : Activity() {
                     if (errors.isNotEmpty()) append("\n\n").append(errors.joinToString("\n"))
                     append("\n\nПри ошибке предыдущие серверы этой подписки сохранены.")
                 }
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Обновление подписок")
-                    .setMessage(summary)
-                    .setPositiveButton("ОК", null)
-                    .show()
+                if (showResult) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Обновление подписок")
+                        .setMessage(summary)
+                        .setPositiveButton("ОК", null)
+                        .show()
+                }
             }
         }
     }
@@ -1756,7 +1758,7 @@ class MainActivity : Activity() {
         if (!shouldUpdate) return
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
-        refreshSubscriptions()
+        refreshSubscriptions(showResult = false)
     }
 
     private fun profileName(link: String): String {
