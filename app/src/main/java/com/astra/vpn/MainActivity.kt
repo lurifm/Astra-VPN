@@ -12,6 +12,13 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
+import android.telephony.TelephonyManager
+import android.os.Handler
+import android.os.Looper
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
+import org.json.JSONObject
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -47,6 +54,27 @@ class MainActivity : Activity() {
     private var receiverRegistered = false
     private var refreshingSubscriptions = false
     private var sortByPing = false
+    private lateinit var monitorNetwork: TextView
+    private lateinit var monitorOperator: TextView
+    private lateinit var monitorDownload: TextView
+    private lateinit var monitorUpload: TextView
+    private lateinit var monitorLocation: TextView
+    private lateinit var speedGraph: SpeedGraphView
+    private val monitorExecutor = Executors.newSingleThreadExecutor()
+    private val monitorHandler = Handler(Looper.getMainLooper())
+    private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
+    private var lastTxBytes = TrafficStats.UNSUPPORTED.toLong()
+    private var lastTrafficAt = 0L
+    private var originalCountry = "Определяем…"
+    private var vpnCountry = "—"
+    private var lastGeoConnectedState: Boolean? = null
+    private val monitorTick = object : Runnable {
+        override fun run() {
+            updateTrafficMonitor()
+            updateNetworkLabel()
+            monitorHandler.postDelayed(this, 1000L)
+        }
+    }
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -85,6 +113,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
+            updateGeoLocationForState()
             renderProfiles()
         }
     }
@@ -216,11 +245,69 @@ class MainActivity : Activity() {
         root.addView(header)
         root.addView(subtitle)
         root.addView(connectCard, matchWidth())
+        val monitorCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(CARD, 20)
+        }
+        monitorCard.addView(TextView(this).apply {
+            text = "МОНИТОРИНГ СОЕДИНЕНИЯ"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .08f
+            setTextColor(LIGHT_ACCENT)
+        }, matchWidth())
+        monitorNetwork = TextView(this).apply {
+            text = "Сеть: определяем…"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        monitorOperator = TextView(this).apply {
+            text = "Оператор: —"
+            textSize = 13f
+            setTextColor(MUTED)
+        }
+        val speedRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        monitorDownload = TextView(this).apply {
+            text = "↓ — Мбит/с"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(GREEN)
+        }
+        monitorUpload = TextView(this).apply {
+            text = "↑ — Мбит/с"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.RIGHT
+        }
+        speedRow.addView(monitorDownload, LinearLayout.LayoutParams(0, dp(30), 1f))
+        speedRow.addView(monitorUpload, LinearLayout.LayoutParams(0, dp(30), 1f))
+        speedGraph = SpeedGraphView(this)
+        monitorCard.addView(monitorNetwork)
+        monitorCard.addView(monitorOperator)
+        monitorCard.addView(speedRow)
+        monitorCard.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
+        monitorLocation = TextView(this).apply {
+            text = "IP-геолокация: определяем…"
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(0, dp(6), 0, 0)
+        }
+        monitorCard.addView(monitorLocation)
+        root.addView(monitorCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+            bottomMargin = dp(4)
+        })
         root.addView(listHeader)
         root.addView(scroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
+        requestPhoneStatePermissionIfNeeded()
         renderProfiles()
+        updateNetworkLabel()
+        requestGeoLocation(false)
         // Populate visible latency information as soon as saved profiles are loaded.
         checkAllLatencies()
     }
@@ -663,6 +750,8 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        monitorHandler.removeCallbacks(monitorTick)
+        monitorHandler.post(monitorTick)
         if (!receiverRegistered) {
             val filter = IntentFilter(AstraVpnService.ACTION_STATE)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -708,6 +797,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        monitorHandler.removeCallbacks(monitorTick)
         if (receiverRegistered) {
             unregisterReceiver(vpnStateReceiver)
             receiverRegistered = false
@@ -748,6 +838,134 @@ class MainActivity : Activity() {
         renderProfiles()
     }
 
+    private fun underlyingNetworkCapabilities(): NetworkCapabilities? {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        return connectivity.allNetworks
+            .asSequence()
+            .mapNotNull { network -> connectivity.getNetworkCapabilities(network) }
+            .firstOrNull { caps ->
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+            }
+    }
+
+    private fun updateNetworkLabel() {
+        val caps = underlyingNetworkCapabilities()
+        val telephony = getSystemService(TelephonyManager::class.java)
+        when {
+            caps == null -> {
+                monitorNetwork.text = "Сеть: не определена"
+                monitorOperator.text = "Оператор: —"
+            }
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                monitorNetwork.text = "Сеть: Wi-Fi"
+                monitorOperator.text = "Оператор: не используется через Wi-Fi"
+            }
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
+                val networkType = if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    runCatching {
+                        when (telephony.dataNetworkType) {
+                            TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
+                            TelephonyManager.NETWORK_TYPE_NR -> "5G"
+                            TelephonyManager.NETWORK_TYPE_HSPAP,
+                            TelephonyManager.NETWORK_TYPE_HSPA,
+                            TelephonyManager.NETWORK_TYPE_HSUPA,
+                            TelephonyManager.NETWORK_TYPE_HSDPA -> "3G"
+                            TelephonyManager.NETWORK_TYPE_EDGE,
+                            TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
+                            else -> "мобильная сеть"
+                        }
+                    }.getOrDefault("мобильная сеть")
+                } else "мобильная сеть"
+                val operator = if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    runCatching { telephony.networkOperatorName }.getOrNull().orEmpty()
+                } else ""
+                monitorNetwork.text = "Сеть: мобильная · $networkType"
+                monitorOperator.text = "Оператор: " + operator.ifBlank { "разрешение не предоставлено" }
+            }
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
+                monitorNetwork.text = "Сеть: Ethernet"
+                monitorOperator.text = "Оператор: —"
+            }
+            else -> {
+                monitorNetwork.text = "Сеть: другое подключение"
+                monitorOperator.text = "Оператор: —"
+            }
+        }
+    }
+
+    private fun updateTrafficMonitor() {
+        // Android exposes aggregate device counters without special usage-access
+        // permission. These include background apps, so label them as device-wide.
+        val now = System.currentTimeMillis()
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        if (rx == TrafficStats.UNSUPPORTED.toLong() || tx == TrafficStats.UNSUPPORTED.toLong()) {
+            monitorDownload.text = "↓ недоступно"
+            monitorUpload.text = "↑ недоступно"
+            return
+        }
+        if (lastTrafficAt > 0L && lastRxBytes >= 0L && lastTxBytes >= 0L) {
+            val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
+            val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
+            val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
+            monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
+            monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
+            speedGraph.addSample(down, up)
+        }
+        lastRxBytes = rx
+        lastTxBytes = tx
+        lastTrafficAt = now
+    }
+
+    private fun updateGeoLocationForState() {
+        if (lastGeoConnectedState == connected) return
+        lastGeoConnectedState = connected
+        requestGeoLocation(connected)
+    }
+
+    private fun requestGeoLocation(isVpn: Boolean) {
+        monitorExecutor.execute {
+            val countryResult = runCatching {
+                val connection = (URL("https://ipwho.is/").openConnection() as HttpsURLConnection).apply {
+                    connectTimeout = 6000
+                    readTimeout = 6000
+                    requestMethod = "GET"
+                }
+                try {
+                    val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    if (!json.optBoolean("success", false)) error("GeoIP service returned no result")
+                    val country = json.optString("country", "").ifBlank { "Не определено" }
+                    val countryCode = json.optString("country_code", "")
+                    val flag = if (countryCode.length == 2) {
+                        countryCode.uppercase().map { Character.toString(0x1F1E6 + it.code - 'A'.code) }.joinToString("")
+                    } else "🌍"
+                    "$flag $country"
+                } finally {
+                    connection.disconnect()
+                }
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                countryResult.onSuccess { country ->
+                    if (isVpn) vpnCountry = country else originalCountry = country
+                    monitorLocation.text = "До VPN: $originalCountry  ·  Сейчас: " +
+                        if (connected) vpnCountry else originalCountry
+                }.onFailure {
+                    monitorLocation.text = "Геолокация по IP временно недоступна"
+                }
+            }
+        }
+    }
+
+    private fun requestPhoneStatePermissionIfNeeded() {
+        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
+        }
+    }
+
     private fun profileName(link: String): String {
         val fragment = Uri.parse(link).fragment?.let { Uri.decode(it) }?.trim().orEmpty()
         if (fragment.isNotBlank()) return fragment
@@ -783,6 +1001,8 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun onDestroy() {
+        monitorHandler.removeCallbacks(monitorTick)
+        monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
@@ -792,6 +1012,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
+        private const val REQUEST_PHONE_STATE_PERMISSION = 7003
         private const val BG = 0xFF0B1020.toInt()
         private const val CARD = 0xFF171F35.toInt()
         private const val SELECTED_CARD = 0xFF202D50.toInt()
