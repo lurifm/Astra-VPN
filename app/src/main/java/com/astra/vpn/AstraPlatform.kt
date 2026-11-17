@@ -151,7 +151,7 @@ class AstraPlatform(
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                updateDefaultInterface(network)
+                refreshDefaultInterface()
             }
 
             // Android can deliver onAvailable before LinkProperties are ready.
@@ -161,30 +161,35 @@ class AstraPlatform(
                 network: Network,
                 networkCapabilities: NetworkCapabilities
             ) {
-                updateDefaultInterface(network)
+                refreshDefaultInterface()
             }
 
             override fun onLinkPropertiesChanged(
                 network: Network,
                 linkProperties: android.net.LinkProperties
             ) {
-                updateDefaultInterface(network)
+                refreshDefaultInterface()
             }
 
             override fun onLost(network: Network) {
                 // Do not rely on Context.getMainExecutor(): it is API 28+,
                 // while this application supports Android 7.0 (API 24).
-                val active = runCatching { connectivity.activeNetwork }.getOrNull()
-                if (active == null || active == network) {
-                    notifyNoDefaultInterface(listener)
-                } else {
-                    updateDefaultInterface(active)
-                }
+                refreshDefaultInterface()
             }
         }
         defaultNetworkCallback = callback
         connectivity.registerDefaultNetworkCallback(callback)
-        updateDefaultInterface(connectivity.activeNetwork)
+        refreshDefaultInterface()
+    }
+
+    /**
+     * Always resolve the current default network instead of trusting a callback's
+     * Network argument. A delayed callback for a previous Wi-Fi/cellular network
+     * must not overwrite the interface selected after a handover.
+     */
+    private fun refreshDefaultInterface() {
+        val active = runCatching { connectivity.activeNetwork }.getOrNull()
+        updateDefaultInterface(active)
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
