@@ -27,7 +27,7 @@ object SubscriptionParser {
         }
 
         val decoded = decodeIfBase64(content)
-        val links = decoded
+        val candidates = decoded
             .lineSequence()
             .map { it.trim() }
             .filter { line ->
@@ -37,8 +37,23 @@ object SubscriptionParser {
             .distinct()
             .toList()
 
-        require(links.isNotEmpty()) {
+        require(candidates.isNotEmpty()) {
             "В подписке не найдены поддерживаемые ссылки серверов"
+        }
+
+        // Validate every imported profile with the exact sing-box core shipped
+        // in the app. This catches malformed credentials/TLS/transport options
+        // before the user selects a server and presses Connect.
+        var firstValidationError: String? = null
+        val links = candidates.filter { link ->
+            runCatching { SingBoxConfigBuilder.build(link) }
+                .onFailure { if (firstValidationError == null) firstValidationError = it.message }
+                .isSuccess
+        }
+
+        require(links.isNotEmpty()) {
+            "Ссылки найдены, но конфигурации серверов не прошли проверку sing-box" +
+                (firstValidationError?.let { ": $it" } ?: "")
         }
         return links
     }
