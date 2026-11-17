@@ -65,6 +65,27 @@ class SubscriptionRefreshTargetsTest {
             SubscriptionRefreshTargets.select(listOf(first, second, third), setOf(third, first))
         )
     }
+
+    @Test fun periodicRefreshFallsBackToAllKnownSourcesWhenNothingIsPending() {
+        val sources = listOf("one", "two")
+        assertEquals(sources, SubscriptionRefreshTargets.select(sources, emptySet(), sources.toSet()))
+    }
+
+    @Test fun duplicateSourcesKeepTheirOriginalOrder() {
+        val sources = listOf("one", "two", "one", "three")
+        assertEquals(listOf("one", "one", "three"), SubscriptionRefreshTargets.select(sources, setOf("one", "three"), sources.toSet()))
+    }
+
+    @Test fun storedFingerprintIsNotHashedAgain() {
+        val fingerprint = SubscriptionSourceFingerprint.of("https://provider.example/sub?token=secret")
+        assertEquals(fingerprint, SubscriptionSourceFingerprint.fromStoredValue(fingerprint))
+    }
+
+    @Test fun legacyStoredUrlIsConvertedToFingerprint() {
+        val legacyUrl = "https://provider.example/sub?token=secret"
+        assertEquals(SubscriptionSourceFingerprint.of(legacyUrl), SubscriptionSourceFingerprint.fromStoredValue(legacyUrl))
+    }
+
 }
 
 class SubscriptionRefreshIntervalTest {
