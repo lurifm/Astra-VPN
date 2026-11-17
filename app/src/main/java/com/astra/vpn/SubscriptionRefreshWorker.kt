@@ -31,10 +31,9 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             var failures = 0
             sources.forEach { source ->
                 try {
-                    val parsed = SubscriptionParser.importDetailed(source)
-                    store.replaceSubscription(source, parsed.links, parsed.metadata)
+                    val count = SubscriptionRefreshCoordinator.refresh(store, source)
                     updated++
-                    serverCount += parsed.links.size
+                    serverCount += count
                 } catch (_: Exception) {
                     failures++
                 }
