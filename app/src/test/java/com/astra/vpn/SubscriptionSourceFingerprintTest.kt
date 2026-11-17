@@ -2,6 +2,7 @@ package com.astra.vpn
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class SubscriptionSourceFingerprintTest {
@@ -19,8 +20,8 @@ class SubscriptionSourceFingerprintTest {
         val fingerprint = SubscriptionSourceFingerprint.of(source)
 
         assertEquals(64, fingerprint.length)
-        assertEquals(null, fingerprint.contains("secret").takeIf { it })
-        assertEquals(null, fingerprint.contains("private").takeIf { it })
+        assertFalse(fingerprint.contains("secret"))
+        assertFalse(fingerprint.contains("private"))
         assertNotEquals(source, fingerprint)
     }
 
