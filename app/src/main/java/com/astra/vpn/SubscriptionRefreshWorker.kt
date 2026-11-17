@@ -69,18 +69,18 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
-                    persistRefreshState(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 } catch (_: java.util.concurrent.CancellationException) {
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
-                    persistRefreshState(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 } catch (_: Exception) {
                     failures++
                     failedSources += SubscriptionSourceFingerprint.of(source)
                 }
             }
-            persistRefreshState(settings, failedSources, sources)
+            SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
