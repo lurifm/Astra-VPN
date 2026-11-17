@@ -1,22 +1,29 @@
 package com.astra.vpn
 
 import android.app.Activity
-import android.content.Intent
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
-import android.app.AlertDialog
 import android.os.Bundle
-import android.graphics.Color
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -24,29 +31,40 @@ class MainActivity : Activity() {
     private lateinit var profileList: LinearLayout
     private lateinit var status: TextView
     private lateinit var connectButton: Button
+    private lateinit var selectedInfo: TextView
+    private val pingInfo = mutableMapOf<String, String>()
+    private val importExecutor = Executors.newSingleThreadExecutor()
+    private val pingExecutor = Executors.newFixedThreadPool(3)
     private var selectedProfile: String? = null
     private var pendingConfig: String? = null
     private var connected = false
-    private val importExecutor = Executors.newSingleThreadExecutor()
     private var receiverRegistered = false
+
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AstraVpnService.ACTION_STATE) return
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTED -> {
                     connected = true
-                    status.text = "VPN подключён"
+                    status.text = "Подключено"
+                    status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
                     connected = false
-                    status.text = "VPN отключён"
+                    status.text = "Отключено"
+                    status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
-                    status.text = "Ошибка подключения"
                     val message = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
+                    status.text = "Ошибка подключения"
+                    status.setTextColor(RED)
                     if (!message.isNullOrBlank()) {
-                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Не удалось подключиться")
+                            .setMessage(message)
+                            .setPositiveButton("Понятно", null)
+                            .show()
                     }
                 }
             }
@@ -57,97 +75,128 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
-        requestNotificationPermissionIfNeeded()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            setPadding(28, 48, 28, 28)
-            setBackgroundColor(Color.rgb(13, 17, 28))
+            setPadding(dp(20), dp(18), dp(20), dp(16))
+            setBackgroundColor(BG)
         }
 
-        val title = TextView(this).apply {
-            text = "ASTRA VPN"
-            textSize = 30f
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = TextView(this).apply {
+            text = "ASTRA"
+            textSize = 27f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
+            letterSpacing = .12f
         }
-        val subtitle = TextView(this).apply {
-            text = "Защищённое подключение"
-            textSize = 15f
-            setTextColor(Color.LTGRAY)
+        val addButton = TextView(this).apply {
+            text = "+"
+            textSize = 34f
             gravity = Gravity.CENTER
-        }
-        status = TextView(this).apply {
-            text = "Выбери сервер для подключения"
-            textSize = 14f
-            setTextColor(Color.rgb(255, 196, 92))
-            gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 20)
-        }
-
-        val importButton = Button(this).apply {
-            text = "ДОБАВИТЬ СЕРВЕР"
+            setTextColor(Color.WHITE)
+            background = rounded(CARD, 18)
             setOnClickListener { showImportDialog() }
         }
+        header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f))
+        header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
+        val subtitle = TextView(this).apply {
+            text = "Быстрый и защищённый интернет"
+            textSize = 14f
+            setTextColor(MUTED)
+            setPadding(0, dp(3), 0, dp(20))
+        }
+
+        val connectCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(18), dp(22), dp(18), dp(20))
+            background = rounded(CARD, 26)
+        }
+        status = TextView(this).apply {
+            text = "Выбери сервер"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(AMBER)
+        }
+        selectedInfo = TextView(this).apply {
+            text = "Сервер не выбран"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(MUTED)
+            setPadding(0, dp(7), 0, dp(17))
+        }
         connectButton = Button(this).apply {
-            text = "ВЫБЕРИ СЕРВЕР"
+            text = "ПОДКЛЮЧИТЬСЯ"
+            isAllCaps = false
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = rounded(ACCENT, 18)
             isEnabled = false
             setOnClickListener {
-                if (connected) {
-                    stopTunnel()
-                } else {
-                    connectSelectedProfile()
-                }
+                if (connected) stopTunnel() else connectSelectedProfile()
             }
         }
+        connectCard.addView(status, matchWidth())
+        connectCard.addView(selectedInfo, matchWidth())
+        connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
 
+        val listHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(24), 0, dp(12))
+        }
         val listTitle = TextView(this).apply {
             text = "Мои серверы"
-            textSize = 18f
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(0, 28, 0, 10)
         }
+        val refresh = TextView(this).apply {
+            text = "Проверить задержку"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+            setOnClickListener { checkAllLatencies() }
+        }
+        listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
+        listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
+
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        root.addView(title)
-        root.addView(subtitle)
-        root.addView(status)
-        root.addView(importButton, matchWidth())
-        root.addView(connectButton, matchWidth())
-        root.addView(listTitle)
-        root.addView(profileList)
-
-        setContentView(root)
-        renderProfiles()
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_NOTIFICATION_PERMISSION
-            )
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            addView(profileList)
         }
+
+        root.addView(header)
+        root.addView(subtitle)
+        root.addView(connectCard, matchWidth())
+        root.addView(listHeader)
+        root.addView(scroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
+        setContentView(root)
+        requestNotificationPermissionIfNeeded()
+        renderProfiles()
     }
 
     private fun showImportDialog() {
         val input = EditText(this).apply {
-            hint = "Ссылка сервера или HTTPS-подписка"
+            hint = "Вставь ссылку или HTTPS-подписку"
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
-            setPadding(24, 18, 24, 18)
+            setHintTextColor(MUTED)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         AlertDialog.Builder(this)
-            .setTitle("Импорт сервера")
-            .setMessage("Вставь ссылку сервера, несколько ссылок или HTTPS-ссылку подписки. Данные сохраняются зашифрованно на устройстве.")
+            .setTitle("Добавить серверы")
+            .setMessage("Можно вставить одну ссылку или ссылку подписки Velvet VPN. Импортированные профили хранятся зашифрованно на устройстве.")
             .setView(input)
             .setNegativeButton("Отмена", null)
-            .setPositiveButton("Добавить", null)
+            .setPositiveButton("Импортировать", null)
             .create()
             .also { dialog ->
                 dialog.setOnShowListener {
@@ -159,26 +208,26 @@ class MainActivity : Activity() {
                         }
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         input.isEnabled = false
-                        status.text = "Импорт подписки…"
+                        status.text = "Импортируем серверы…"
                         importExecutor.execute {
                             val result = runCatching { SubscriptionParser.importText(value) }
                             runOnUiThread {
                                 if (isFinishing || isDestroyed) return@runOnUiThread
                                 dialog.dismiss()
-                                input.isEnabled = true
                                 if (result.isSuccess) {
                                     val links = result.getOrThrow()
                                     profileStore.addAll(links)
                                     renderProfiles()
-                                    status.text = "Импортировано серверов: ${links.size}"
+                                    status.text = "Импортировано: ${links.size}"
+                                    status.setTextColor(GREEN)
                                     Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
                                 } else {
-                                    status.text = "Импорт не выполнен"
+                                    status.text = "Ошибка импорта"
+                                    status.setTextColor(RED)
                                     AlertDialog.Builder(this)
-                                        .setTitle("Ошибка импорта")
+                                        .setTitle("Не удалось импортировать")
                                         .setMessage(result.exceptionOrNull()?.message ?: "Неизвестная ошибка")
-                                        .setPositiveButton("ОК", null)
-                                        .show()
+                                        .setPositiveButton("ОК", null).show()
                                 }
                             }
                         }
@@ -192,87 +241,128 @@ class MainActivity : Activity() {
         profileList.removeAllViews()
         val profiles = profileStore.all()
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
-        connectButton.isEnabled = selectedProfile != null || connected
-        connectButton.text = if (connected) "ОТКЛЮЧИТЬСЯ" else if (selectedProfile != null) "ПОДКЛЮЧИТЬСЯ" else "ВЫБЕРИ СЕРВЕР"
+        val selected = selectedProfile
+        connectButton.isEnabled = selected != null || connected
+        connectButton.text = if (connected) "ОТКЛЮЧИТЬ VPN" else "ПОДКЛЮЧИТЬСЯ"
+        selectedInfo.text = selected?.let { profileName(it) + "  ·  " + protocolName(it) } ?: "Сначала добавь сервер"
+
         if (profiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
-                text = "Пока нет добавленных серверов"
-                setTextColor(Color.LTGRAY)
+                text = "Пока нет серверов. Нажми + и импортируй ссылку подписки."
                 textSize = 14f
+                setTextColor(MUTED)
+                setPadding(dp(4), dp(12), dp(4), dp(12))
             })
             return
         }
 
         profiles.forEach { link ->
-            val label = link.substringAfter('#', "").ifBlank {
-                link.substringBefore("://").uppercase()
-            }.take(48)
+            val isSelected = link == selected
+            val name = profileName(link)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 8, 0, 8)
+                setPadding(dp(14), dp(12), dp(10), dp(12))
+                background = rounded(if (isSelected) SELECTED_CARD else CARD, 18)
+                setOnClickListener {
+                    if (!connected) {
+                        selectedProfile = link
+                        renderProfiles()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-            val name = TextView(this).apply {
-                text = (if (link == selectedProfile) "✓ " else "") + label
-                textSize = 15f
+            val flag = TextView(this).apply {
+                text = countryFlag(name)
+                textSize = 25f
+                gravity = Gravity.CENTER
+            }
+            val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val title = TextView(this).apply {
+                text = name
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener {
-                    selectedProfile = link
-                    status.text = "Выбран сервер: $label"
-                    renderProfiles()
-                }
+                maxLines = 1
             }
-            val delete = Button(this).apply {
-                text = "Удалить"
-                setOnClickListener {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setMessage("Удалить этот сервер?")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Удалить") { _, _ ->
-                            profileStore.remove(link)
-                            renderProfiles()
-                        }
-                        .show()
-                }
+            val meta = TextView(this).apply {
+                val latency = pingInfo[link] ?: "Задержка не проверена"
+                text = "${protocolName(link)}  ·  $latency"
+                textSize = 12f
+                setTextColor(if (latency.contains("мс")) GREEN else MUTED)
+                setPadding(0, dp(4), 0, 0)
             }
-            row.addView(name)
-            row.addView(delete)
-            profileList.addView(row)
+            details.addView(title)
+            details.addView(meta)
+            val selectMark = TextView(this).apply {
+                text = if (isSelected) "✓" else "›"
+                textSize = 23f
+                setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
+                gravity = Gravity.CENTER
+            }
+            row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
+            row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(8)
+            })
+            row.addView(selectMark, LinearLayout.LayoutParams(dp(28), dp(42)))
+            profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(9)
+            })
+        }
+    }
+
+    private fun checkAllLatencies() {
+        val profiles = profileStore.all()
+        if (profiles.isEmpty()) return
+        Toast.makeText(this, "Проверяем доступность серверов…", Toast.LENGTH_SHORT).show()
+        profiles.forEach { link ->
+            val uri = Uri.parse(link)
+            val scheme = uri.scheme.orEmpty().lowercase()
+            if (scheme != "vless") {
+                pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic")
+                    "UDP • тест не поддерживается" else "—"
+                runOnUiThread { renderProfiles() }
+                return@forEach
+            }
+            val host = uri.host ?: return@forEach
+            val port = uri.port
+            pingExecutor.execute {
+                val started = System.nanoTime()
+                val result = runCatching {
+                    Socket().use { socket -> socket.connect(InetSocketAddress(host, port), 3000) }
+                    ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
+                }
+                pingInfo[link] = result.fold({ "${it} мс (TCP)" }, { "Недоступен" })
+                runOnUiThread { if (!isFinishing) renderProfiles() }
+            }
         }
     }
 
     private fun connectSelectedProfile() {
-        val link = selectedProfile ?: run {
-            status.text = "Сначала добавь и выбери сервер"
-            return
-        }
+        val link = selectedProfile ?: return
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse { error ->
-            AlertDialog.Builder(this)
-                .setTitle("Не удалось подготовить сервер")
-                .setMessage(error.message ?: "Неподдерживаемая конфигурация")
-                .setPositiveButton("ОК", null)
-                .show()
+            AlertDialog.Builder(this).setTitle("Ошибка конфигурации")
+                .setMessage(error.message ?: "Не удалось подготовить сервер")
+                .setPositiveButton("ОК", null).show()
             return
         }
         pendingConfig = config
         val permissionIntent = VpnService.prepare(this)
         if (permissionIntent != null) {
             startActivityForResult(permissionIntent, REQUEST_VPN_PERMISSION)
-        } else {
-            startTunnel(config)
-        }
+        } else startTunnel(config)
     }
 
-    @Deprecated("Deprecated in Android API, retained for compatibility with minSdk")
+    @Deprecated("Deprecated in Android API, retained for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_VPN_PERMISSION) {
-            if (resultCode == RESULT_OK) {
-                pendingConfig?.let { startTunnel(it) }
-            } else {
+            if (resultCode == RESULT_OK) pendingConfig?.let { startTunnel(it) }
+            else {
                 pendingConfig = null
                 status.text = "Разрешение VPN не выдано"
+                status.setTextColor(RED)
             }
         }
     }
@@ -281,12 +371,8 @@ class MainActivity : Activity() {
         super.onStart()
         if (!receiverRegistered) {
             val filter = IntentFilter(AstraVpnService.ACTION_STATE)
-            if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                @Suppress("DEPRECATION")
-                registerReceiver(vpnStateReceiver, filter)
-            }
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
             receiverRegistered = true
         }
     }
@@ -304,40 +390,89 @@ class MainActivity : Activity() {
             .setAction(AstraVpnService.ACTION_START)
             .putExtra(AstraVpnService.EXTRA_CONFIG, config)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
-            else startService(intent)
-            connected = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
             pendingConfig = null
-            status.text = "Подключаемся к серверу…"
-            renderProfiles()
+            status.text = "Подключаемся…"
+            status.setTextColor(AMBER)
         } catch (error: Exception) {
-            connected = false
             status.text = "Не удалось запустить VPN"
+            status.setTextColor(RED)
             Toast.makeText(this, error.message ?: "Ошибка запуска VPN", Toast.LENGTH_LONG).show()
-            renderProfiles()
         }
+        renderProfiles()
     }
 
     private fun stopTunnel() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         runCatching { startService(intent) }
         connected = false
-        status.text = "VPN отключён"
+        status.text = "Отключаемся…"
+        status.setTextColor(MUTED)
         renderProfiles()
     }
 
-    override fun onDestroy() {
-        importExecutor.shutdownNow()
-        super.onDestroy()
+    private fun profileName(link: String): String {
+        val fragment = Uri.parse(link).fragment?.trim().orEmpty()
+        if (fragment.isNotBlank()) return fragment
+        val host = Uri.parse(link).host.orEmpty()
+        return host.ifBlank { "Сервер" }
     }
 
-    private fun matchWidth() = LinearLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.WRAP_CONTENT
-    )
+    private fun protocolName(link: String): String = when (Uri.parse(link).scheme?.lowercase()) {
+        "vless" -> "VLESS"
+        "hysteria2", "hy2" -> "Hysteria2"
+        "tuic" -> "TUIC"
+        else -> "VPN"
+    }
+
+    private fun countryFlag(label: String): String {
+        val value = label.lowercase()
+        return when {
+            "швец" in value || "sweden" in value -> "🇸🇪"
+            "нидер" in value || "голланд" in value || "nether" in value -> "🇳🇱"
+            "англ" in value || "британ" in value || "united kingdom" in value || "england" in value -> "🇬🇧"
+            "герман" in value || "german" in value -> "🇩🇪"
+            "франц" in value || "france" in value -> "🇫🇷"
+            "росс" in value || "russia" in value -> "🇷🇺"
+            "финлянд" in value || "finland" in value -> "🇫🇮"
+            "польш" in value || "poland" in value -> "🇵🇱"
+            "турц" in value || "turkey" in value -> "🇹🇷"
+            "сша" in value || "united states" in value || "usa" in value -> "🇺🇸"
+            else -> "🌐"
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATION_PERMISSION)
+    }
+
+    private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    override fun onDestroy() {
+        importExecutor.shutdownNow()
+        pingExecutor.shutdownNow()
+        super.onDestroy()
+    }
 
     companion object {
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
+        private const val BG = 0xFF0B1020.toInt()
+        private const val CARD = 0xFF171F35.toInt()
+        private const val SELECTED_CARD = 0xFF202D50.toInt()
+        private const val ACCENT = 0xFF526FE8.toInt()
+        private const val LIGHT_ACCENT = 0xFF9EAEFF.toInt()
+        private const val GREEN = 0xFF55D69A.toInt()
+        private const val AMBER = 0xFFFFC66D.toInt()
+        private const val RED = 0xFFFF7777.toInt()
+        private const val MUTED = 0xFF9AA6BF.toInt()
     }
 }
