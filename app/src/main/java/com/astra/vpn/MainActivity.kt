@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
+        requestNotificationPermissionIfNeeded()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -120,6 +121,18 @@ class MainActivity : Activity() {
 
         setContentView(root)
         renderProfiles()
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_NOTIFICATION_PERMISSION
+            )
+        }
     }
 
     private fun showImportDialog() {
@@ -325,5 +338,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_VPN_PERMISSION = 7001
+        private const val REQUEST_NOTIFICATION_PERMISSION = 7002
     }
 }
