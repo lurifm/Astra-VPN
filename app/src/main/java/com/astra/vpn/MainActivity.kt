@@ -723,11 +723,13 @@ class MainActivity : Activity() {
             return
         }
 
-        val displayProfiles = when (sortMode) {
+        val favorites = settingsPrefs.getStringSet("favorite_servers", emptySet()) ?: emptySet()
+        val sortedProfiles = when (sortMode) {
             "ping" -> profiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
             "alphabet" -> profiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
             else -> profiles
         }
+        val displayProfiles = sortedProfiles.sortedByDescending { it in favorites }
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
@@ -794,6 +796,14 @@ class MainActivity : Activity() {
             }
             details.addView(title)
             details.addView(meta)
+            val favoriteButton = TextView(this).apply {
+                text = if (link in favorites) "★" else "☆"
+                textSize = 22f
+                setTextColor(if (link in favorites) AMBER else MUTED)
+                gravity = Gravity.CENTER
+                contentDescription = if (link in favorites) "Убрать из избранного" else "Добавить в избранное"
+                setOnClickListener { toggleFavoriteServer(link) }
+            }
             val selectMark = TextView(this).apply {
                 text = if (isSelected) "✓" else "›"
                 textSize = 23f
@@ -804,11 +814,23 @@ class MainActivity : Activity() {
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
+            row.addView(favoriteButton, LinearLayout.LayoutParams(dp(34), dp(42)))
             row.addView(selectMark, LinearLayout.LayoutParams(dp(28), dp(42)))
             profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
             })
         }
+    }
+
+    private fun toggleFavoriteServer(link: String) {
+        val favorites = (settingsPrefs.getStringSet("favorite_servers", emptySet()) ?: emptySet()).toMutableSet()
+        val added = if (favorites.add(link)) true else {
+            favorites.remove(link)
+            false
+        }
+        settingsPrefs.edit().putStringSet("favorite_servers", favorites).apply()
+        renderProfiles()
+        Toast.makeText(this, if (added) "Добавлено в избранное" else "Убрано из избранного", Toast.LENGTH_SHORT).show()
     }
 
     private fun checkAllLatencies() {
