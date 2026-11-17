@@ -60,14 +60,30 @@ object SubscriptionParser {
         return ParsedSubscription(links, parseMetadata(downloaded?.headers.orEmpty()))
     }
 
-    private fun parseMetadata(headers: Map<String, String>): SubscriptionMetadata {
+    internal fun parseMetadata(headers: Map<String, String>): SubscriptionMetadata {
         val info = headers.entries.firstOrNull { it.key.equals("subscription-userinfo", true) }?.value.orEmpty()
         val values = info.split(';').mapNotNull { part ->
             val pair = part.trim().split('=', limit = 2)
-            if (pair.size != 2) null else pair[0].trim().lowercase() to pair[1].trim().toLongOrNull()
+            if (pair.size != 2) return@mapNotNull null
+            val key = pair[0].trim().lowercase()
+            val value = pair[1].trim().toLongOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+            key to value
         }.toMap()
-        val title = headers.entries.firstOrNull { it.key.equals("profile-title", true) }?.value?.trim()?.takeIf { it.isNotBlank() }
-        return SubscriptionMetadata(title, values["upload"], values["download"], values["total"], values["expire"])
+        // Provider-controlled headers are untrusted input. Remove control
+        // characters and cap the title before it reaches persistent storage/UI.
+        val rawTitle = headers.entries.firstOrNull { it.key.equals("profile-title", true) }?.value
+        val title = rawTitle
+            ?.filterNot { it.isISOControl() }
+            ?.trim()
+            ?.take(120)
+            ?.takeIf { it.isNotBlank() }
+        return SubscriptionMetadata(
+            title,
+            values["upload"],
+            values["download"],
+            values["total"],
+            values["expire"]?.takeIf { it > 0 }
+        )
     }
 
     /**
