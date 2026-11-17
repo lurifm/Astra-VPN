@@ -43,7 +43,7 @@ object SingBoxConfigBuilder {
                         .put("tls", JSONObject()
                             .put("enabled", true)
                             .put("server_name", "cloudflare-dns.com"))
-                        .put("detour", "direct"))
+                        )
                     .put(JSONObject()
                         .put("type", "local")
                         .put("tag", "dns-direct")))
