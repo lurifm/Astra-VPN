@@ -313,6 +313,12 @@ class MainActivity : Activity() {
         monitorCard.addView(monitorVpnCountry)
         monitorCard.addView(monitorNetwork)
         monitorCard.addView(monitorOperator)
+        monitorCard.addView(TextView(this).apply {
+            text = "Скорость всего устройства"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(6), 0, 0)
+        })
         monitorCard.addView(speedRow)
         monitorCard.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorLocation = TextView(this).apply {
@@ -822,6 +828,7 @@ class MainActivity : Activity() {
         }
         renderProfiles()
         updateGeoLocationForState()
+        updateProtectionLabels()
     }
 
     override fun onStop() {
@@ -890,7 +897,10 @@ class MainActivity : Activity() {
             }
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
                 monitorNetwork.text = "Сеть: Wi-Fi"
-                monitorOperator.text = "Оператор: не используется через Wi-Fi"
+                val simOperator = if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    runCatching { telephony.simOperatorName }.getOrNull().orEmpty()
+                } else ""
+                monitorOperator.text = "Оператор SIM: " + simOperator.ifBlank { "не определён" }
             }
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
                 val networkType = if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -1001,6 +1011,7 @@ class MainActivity : Activity() {
     private fun showNetworkMonitorDialog() {
         val content = ScrollView(this).apply {
             setPadding(dp(16), dp(8), dp(16), dp(8))
+            (monitorCard.parent as? ViewGroup)?.removeView(monitorCard)
             addView(monitorCard)
         }
         AlertDialog.Builder(this)
