@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private var selectedProfile: String? = null
     private var pendingConfig: String? = null
     private var connected = false
+    private var connecting = false
     private var receiverRegistered = false
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
@@ -49,21 +50,25 @@ class MainActivity : Activity() {
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
+                    connecting = true
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
                     connected = true
+                    connecting = false
                     status.text = "Подключено"
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
                     connected = false
+                    connecting = false
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
+                    connecting = false
                     val message = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
@@ -253,8 +258,12 @@ class MainActivity : Activity() {
         val profiles = profileStore.all()
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
-        connectButton.isEnabled = selected != null || connected
-        connectButton.text = if (connected) "ОТКЛЮЧИТЬ VPN" else "ПОДКЛЮЧИТЬСЯ"
+        connectButton.isEnabled = connected || (selected != null && !connecting)
+        connectButton.text = when {
+            connected -> "ОТКЛЮЧИТЬ VPN"
+            connecting -> "ПОДКЛЮЧАЕМСЯ…"
+            else -> "ПОДКЛЮЧИТЬСЯ"
+        }
         selectedInfo.text = selected?.let { profileSummary(it) } ?: "Сначала добавь сервер"
 
         if (profiles.isEmpty()) {
@@ -491,11 +500,13 @@ class MainActivity : Activity() {
             }
             connectingIsRecent -> {
                 connected = false
+                connecting = true
                 status.text = "Подключаемся…"
                 status.setTextColor(AMBER)
             }
             else -> {
                 connected = false
+                connecting = false
                 status.text = "Отключено"
                 status.setTextColor(MUTED)
             }
@@ -518,6 +529,7 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
             pendingConfig = null
+            connecting = true
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
         } catch (error: Exception) {
@@ -532,6 +544,7 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         runCatching { startService(intent) }
         connected = false
+        connecting = false
         status.text = "Отключаемся…"
         status.setTextColor(MUTED)
         renderProfiles()
