@@ -6,7 +6,13 @@ package com.astra.vpn
  */
 internal object AppRoutingPolicy {
     fun validate(mode: String, selectedCount: Int, appliedCount: Int) {
-        if (mode != "include") return
+        require(mode == "include" || mode == "exclude") {
+            "Неизвестный режим маршрутизации приложений"
+        }
+        require(selectedCount >= 0 && appliedCount >= 0 && appliedCount <= selectedCount) {
+            "Некорректное количество правил маршрутизации"
+        }
+        if (mode == "exclude") return
         require(selectedCount > 0) {
             "Режим «Только выбранные приложения» включён, но список пуст"
         }
