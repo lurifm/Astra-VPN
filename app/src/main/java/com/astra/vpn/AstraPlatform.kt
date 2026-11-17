@@ -299,9 +299,10 @@ class AstraPlatform(
         // When the active network is this VPN, prefer the underlay Android has
         // already associated with this VpnService. allNetworks has no ordering
         // guarantee and can contain both Wi-Fi and cellular at the same time.
-        val configuredUnderlay = runCatching {
-            vpnService.underlyingNetworks?.firstOrNull()
-        }.getOrNull()
+        // Keep our own last successfully assigned underlay. VpnService
+        // exposes setUnderlyingNetworks(), but has no public getter on all
+        // supported Android SDK surfaces.
+        val configuredUnderlay = lastUnderlyingNetwork
         if (isUsablePhysicalNetwork(configuredUnderlay)) return configuredUnderlay
 
         // The configured underlay may have just disappeared. Fall back to the
