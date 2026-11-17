@@ -14,8 +14,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 /** Periodic refresh continues when the activity is closed; WorkManager handles Doze and reboot. */
 class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
@@ -36,14 +36,14 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // fingerprints in preferences, never the original URLs. Normalize legacy
             // entries once so upgrades also remove previously stored plaintext URLs.
             val pending = settings.getStringSet("subscription_retry_sources", emptySet())
-                .orEmpty().map(::storedSourceFingerprint).toSet()
+                .orEmpty().map(SubscriptionSourceFingerprint.fromStoredValue).toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
                 .orEmpty().map(::storedSourceFingerprint).toSet()
             val targets = sources.filter { source ->
-                val fingerprint = sourceFingerprint(source)
+                val fingerprint = SubscriptionSourceFingerprint.of(source)
                 fingerprint in pending || fingerprint !in known
             }.ifEmpty {
-                sources.filter { sourceFingerprint(it) in pending }.ifEmpty { sources }
+                sources.filter { SubscriptionSourceFingerprint.of(it) in pending }.ifEmpty { sources }
             }
             if (targets.isEmpty()) {
                 settings.edit().remove("subscription_retry_sources").apply()
@@ -61,14 +61,14 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                     serverCount += count
                 } catch (_: Exception) {
                     failures++
-                    failedSources += sourceFingerprint(source)
+                    failedSources += SubscriptionSourceFingerprint.of(source)
                 }
             }
             settings.edit().apply {
                 if (failedSources.isEmpty()) remove("subscription_retry_sources")
                 else putStringSet("subscription_retry_sources", failedSources)
                 // Mark sources as seen only after selected refreshes finish.
-                putStringSet("subscription_known_sources", sources.map(::sourceFingerprint).toSet())
+                putStringSet("subscription_known_sources", sources.map(SubscriptionSourceFingerprint::of).toSet())
             }.apply()
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
@@ -94,17 +94,18 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
 }
 
 /**
- * Accept old plaintext entries only for migration; all newly persisted values are hashes.
- * A 64-character lowercase hex value is already a SHA-256 fingerprint.
+ * Stable non-reversible identifiers for subscription sources stored in preferences.
+ * Legacy plaintext entries are converted on read so the next successful write migrates them.
  */
-private fun storedSourceFingerprint(value: String): String =
-    if (value.matches(Regex("[0-9a-f]{64}"))) value else sourceFingerprint(value)
+internal object SubscriptionSourceFingerprint {
+    fun fromStoredValue(value: String): String =
+        if (value.matches(Regex("[0-9a-f]{64}"))) value else of(value)
 
-private fun sourceFingerprint(source: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(source.toByteArray(Charsets.UTF_8))
-        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-
+    fun of(source: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(source.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
 private fun postRefreshNotification(context: Context, title: String, message: String, warning: Boolean) {
     try {
         val settings = context.getSharedPreferences("astra_settings", Context.MODE_PRIVATE)
