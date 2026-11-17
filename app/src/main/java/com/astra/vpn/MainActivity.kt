@@ -593,8 +593,17 @@ class MainActivity : Activity() {
             listOf("🇮🇳", "инд", "india", "ind"),
             listOf("🇧🇷", "браз", "brazil", "bra")
         )
+        // ISO alpha-3 aliases must match as standalone tokens. A plain substring
+        // check mislabels unrelated names (for example, "can" inside "scan").
+        val normalized = value.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
         return flags.firstOrNull { entry ->
-            entry.drop(1).any { token -> value.contains(token) || label.contains(token) }
+            entry.drop(1).any { token ->
+                when {
+                    token.length <= 3 && token.all { it.isLetter() } ->
+                        Regex("(^|\\\\s)${Regex.escape(token)}($|\\\\s)").containsMatchIn(normalized)
+                    else -> normalized.contains(token)
+                }
+            }
         }?.first() ?: "🌐"
     }
 
