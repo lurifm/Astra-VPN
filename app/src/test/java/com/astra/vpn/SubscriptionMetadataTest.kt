@@ -50,6 +50,23 @@ class SubscriptionMetadataTest {
         assertNull(metadata.expiresAtEpochSeconds)
     }
 
+    @Test fun ignoresUnknownAndMalformedUsageFields() {
+        val metadata = SubscriptionParser.parseMetadata(
+            mapOf("subscription-userinfo" to "upload=15; unknown=999; download=oops; total=500")
+        )
+        assertEquals(15L, metadata.uploadBytes)
+        assertNull(metadata.downloadBytes)
+        assertEquals(500L, metadata.totalBytes)
+        assertNull(metadata.expiresAtEpochSeconds)
+    }
+
+    @Test fun blankProviderTitleIsIgnored() {
+        val metadata = SubscriptionParser.parseMetadata(
+            mapOf("profile-title" to "   \t  ")
+        )
+        assertNull(metadata.title)
+    }
+
     @Test fun emptyHeadersProduceEmptyMetadata() {
         val metadata = SubscriptionParser.parseMetadata(emptyMap())
         assertNull(metadata.title)
