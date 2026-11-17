@@ -429,9 +429,17 @@ class MainActivity : Activity() {
                                 }.onFailure { error ->
                                     status.text = "Ошибка импорта"
                                     status.setTextColor(RED)
+                                    // Network/parser errors can echo the submitted URL, which may
+                                    // contain access credentials. Only storage errors have safe,
+                                    // user-facing recovery text.
+                                    val message = if (error is ProfileStorageException) {
+                                        error.message ?: "Не удалось открыть защищённое хранилище."
+                                    } else {
+                                        "Не удалось прочитать ссылку или получить серверы. Проверь адрес и подключение к интернету."
+                                    }
                                     AlertDialog.Builder(this)
                                         .setTitle("Не удалось импортировать")
-                                        .setMessage(error.message ?: "Неизвестная ошибка")
+                                        .setMessage(message)
                                         .setPositiveButton("ОК", null).show()
                                 }
                             }
