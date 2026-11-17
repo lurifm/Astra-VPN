@@ -358,12 +358,6 @@ class MainActivity : Activity() {
 
         // Android permits only one active VpnService at a time. Make this
         // explicit so users understand why their previous VPN will disconnect.
-        val statePrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
-        val stateAge = System.currentTimeMillis() - statePrefs.getLong(AstraVpnService.PREF_UPDATED_AT, 0L)
-        val connectingIsRecent = saved == AstraVpnService.STATE_CONNECTING && stateAge in 0..30_000L
-        val statePrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
-        val stateAge = System.currentTimeMillis() - statePrefs.getLong(AstraVpnService.PREF_UPDATED_AT, 0L)
-        val connectingIsRecent = saved == AstraVpnService.STATE_CONNECTING && stateAge in 0..30_000L
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val activeNetwork = connectivity.activeNetwork
         val activeCapabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
