@@ -1055,9 +1055,11 @@ class MainActivity : Activity() {
     private fun connectSelectedProfile() {
         if (connecting) return
         val link = selectedProfile ?: return
-        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse { error ->
+        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+            // Config/parser diagnostics may include the original proxy URI and credentials.
+            // Keep the user-facing error actionable without exposing the imported profile.
             AlertDialog.Builder(this).setTitle("Ошибка конфигурации")
-                .setMessage(error.message ?: "Не удалось подготовить сервер")
+                .setMessage("Не удалось подготовить конфигурацию сервера. Проверь ссылку и параметры подключения.")
                 .setPositiveButton("ОК", null).show()
             return
         }
