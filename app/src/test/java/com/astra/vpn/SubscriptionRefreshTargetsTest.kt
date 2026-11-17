@@ -1,0 +1,41 @@
+package com.astra.vpn
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class SubscriptionRefreshTargetsTest {
+    @Test fun emptyRetryQueueRefreshesAllCurrentSources() {
+        val sources = listOf("https://one.example/sub", "https://two.example/sub")
+        assertEquals(sources, SubscriptionRefreshTargets.select(sources, emptySet()))
+    }
+
+    @Test fun retryQueueSelectsOnlySourcesThatPreviouslyFailed() {
+        val first = "https://one.example/sub"
+        val second = "https://two.example/sub"
+        val third = "https://three.example/sub"
+        assertEquals(
+            listOf(second),
+            SubscriptionRefreshTargets.select(listOf(first, second, third), setOf(second))
+        )
+    }
+
+    @Test fun removedFailedSourcesDoNotBlockCurrentSubscriptions() {
+        val current = listOf("https://new.example/sub")
+        val removedFailures = setOf("https://removed.example/sub")
+        assertEquals(current, SubscriptionRefreshTargets.select(current, removedFailures))
+    }
+
+    @Test fun emptySourceListRemainsEmpty() {
+        assertEquals(emptyList<String>(), SubscriptionRefreshTargets.select(emptyList(), setOf("https://old.example/sub")))
+    }
+
+    @Test fun preservesCurrentSourceOrderWhenSeveralNeedRetry() {
+        val first = "https://one.example/sub"
+        val second = "https://two.example/sub"
+        val third = "https://three.example/sub"
+        assertEquals(
+            listOf(first, third),
+            SubscriptionRefreshTargets.select(listOf(first, second, third), setOf(third, first))
+        )
+    }
+}
