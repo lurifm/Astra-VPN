@@ -35,11 +35,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     activeConfig = config
-                    if (tunDescriptor != null) {
-                        publishState(STATE_CONNECTED)
-                    } else {
-                        publishState(STATE_CONNECTING)
-                    }
+                    if (tunDescriptor == null) publishState(STATE_CONNECTING)
                 }
                 .onFailure {
                     Log.e(TAG, "Не удалось перезапустить VPN", it)
@@ -50,8 +46,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         try {
             val platform = AstraPlatform(this) { descriptor ->
-                tunDescriptor?.close()
+                runCatching { tunDescriptor?.close() }
                 tunDescriptor = descriptor
+                // openTun may be called after startOrReloadService returns.
+                // Publish the state from the actual Android TUN creation callback.
+                publishState(STATE_CONNECTED)
             }
             val server = CommandServer(this, platform)
             commandServer = server
@@ -59,11 +58,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             server.startOrReloadService(config, OverrideOptions())
             activeConfig = config
             Log.i(TAG, "sing-box service accepted configuration")
-            if (tunDescriptor != null) {
-                publishState(STATE_CONNECTED)
-            } else {
+            if (tunDescriptor == null) {
                 publishState(STATE_CONNECTING)
-                Log.w(TAG, "sing-box accepted config but Android TUN is not established yet")
+                Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
             }
         } catch (error: Exception) {
             Log.e(TAG, "Не удалось запустить sing-box VPN", error)
