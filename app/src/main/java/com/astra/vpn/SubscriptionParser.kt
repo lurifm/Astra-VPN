@@ -9,23 +9,25 @@ import java.nio.charset.Charset
  * Imports one proxy URI, a multiline subscription, or an HTTPS subscription URL.
  * Network downloads are deliberately restricted to HTTPS.
  */
+data class SubscriptionMetadata(val title: String? = null, val uploadBytes: Long? = null, val downloadBytes: Long? = null, val totalBytes: Long? = null, val expiresAtEpochSeconds: Long? = null)
+data class ParsedSubscription(val links: List<String>, val metadata: SubscriptionMetadata)
+
 object SubscriptionParser {
+    private data class DownloadResult(val content: String, val headers: Map<String, String>)
     // Keep imports limited to protocols that SingBoxConfigBuilder can actually launch.
     // Other URI schemes must not appear as selectable profiles until their builders exist.
     private val supportedSchemes = setOf(
         "vless", "hysteria2", "hy2", "tuic"
     )
 
-    fun importText(input: String): List<String> {
+    fun importText(input: String): List<String> = importDetailed(input).links
+
+    fun importDetailed(input: String): ParsedSubscription {
         val text = input.trim()
         require(text.isNotEmpty()) { "Пустая ссылка или подписка" }
 
-        val content = if (text.startsWith("https://", ignoreCase = true)) {
-            download(text)
-        } else {
-            text
-        }
-
+        val downloaded = if (text.startsWith("https://", ignoreCase = true)) download(text) else null
+        val content = downloaded?.content ?: text
         val decoded = decodeIfBase64(content)
         val candidates = decoded
             .lineSequence()
@@ -55,7 +57,17 @@ object SubscriptionParser {
             "Ссылки найдены, но конфигурации серверов не прошли проверку sing-box" +
                 (firstValidationError?.let { ": $it" } ?: "")
         }
-        return links
+        return ParsedSubscription(links, parseMetadata(downloaded?.headers.orEmpty()))
+    }
+
+    private fun parseMetadata(headers: Map<String, String>): SubscriptionMetadata {
+        val info = headers.entries.firstOrNull { it.key.equals("subscription-userinfo", true) }?.value.orEmpty()
+        val values = info.split(';').mapNotNull { part ->
+            val pair = part.trim().split('=', limit = 2)
+            if (pair.size != 2) null else pair[0].trim().lowercase() to pair[1].trim().toLongOrNull()
+        }.toMap()
+        val title = headers.entries.firstOrNull { it.key.equals("profile-title", true) }?.value?.trim()?.takeIf { it.isNotBlank() }
+        return SubscriptionMetadata(title, values["upload"], values["download"], values["total"], values["expire"])
     }
 
     /**
@@ -67,7 +79,7 @@ object SubscriptionParser {
         !uri.host.isNullOrBlank() && uri.port in 1..65535
     }.getOrDefault(false)
 
-    private fun download(address: String): String {
+    private fun download(address: String): DownloadResult {
         var current = URL(address)
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
             require(current.protocol.equals("https", ignoreCase = true)) {
@@ -106,7 +118,11 @@ object SubscriptionParser {
                     }
                     output.toByteArray()
                 }
-                return String(bytes, Charset.forName("UTF-8"))
+                val headers = mutableMapOf<String, String>()
+                listOf("subscription-userinfo", "profile-title", "profile-update-interval").forEach { name ->
+                    connection.getHeaderField(name)?.let { headers[name] = it }
+                }
+                return DownloadResult(String(bytes, Charset.forName("UTF-8")), headers)
             } finally {
                 connection.disconnect()
             }
