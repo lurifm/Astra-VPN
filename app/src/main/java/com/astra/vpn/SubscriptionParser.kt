@@ -46,16 +46,14 @@ object SubscriptionParser {
         // Validate every imported profile with the exact sing-box core shipped
         // in the app. This catches malformed credentials/TLS/transport options
         // before the user selects a server and presses Connect.
-        var firstValidationError: String? = null
         val links = candidates.filter { link ->
-            runCatching { SingBoxConfigBuilder.build(link) }
-                .onFailure { if (firstValidationError == null) firstValidationError = it.message }
-                .isSuccess
+            // Parser exceptions may contain the full proxy URI and credentials.
+            // Validation only needs the success/failure result; never retain diagnostics.
+            runCatching { SingBoxConfigBuilder.build(link) }.isSuccess
         }
 
         require(links.isNotEmpty()) {
-            "Ссылки найдены, но конфигурации серверов не прошли проверку sing-box" +
-                (firstValidationError?.let { ": $it" } ?: "")
+            "Ссылки найдены, но конфигурации серверов не прошли проверку sing-box"
         }
         return ParsedSubscription(links, parseMetadata(downloaded?.headers.orEmpty()))
     }
