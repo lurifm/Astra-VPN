@@ -69,9 +69,10 @@ object SingBoxConfigBuilder {
     }
 
     private fun buildVless(uri: Uri, server: String, port: Int): JSONObject {
-        val uuid = uri.userInfo?.substringBefore(':')?.takeIf { it.isNotBlank() }
+        val userInfo = uri.userInfo?.let(Uri::decode)
+        val uuid = userInfo?.substringBefore(':')?.takeIf { it.isNotBlank() }
             ?: error("В ссылке VLESS отсутствует UUID")
-        val security = uri.getQueryParameter("security").orEmpty()
+        val security = uri.getQueryParameter("security").orEmpty().lowercase()
         val tls = security == "tls" || security == "reality"
         val outbound = JSONObject()
             .put("type", "vless")
@@ -98,7 +99,7 @@ object SingBoxConfigBuilder {
             outbound.put("tls", tlsOptions)
         }
 
-        when (uri.getQueryParameter("type") ?: "tcp") {
+        when ((uri.getQueryParameter("type") ?: "tcp").lowercase()) {
             "tcp" -> Unit
             "ws" -> outbound.put("transport", JSONObject()
                 .put("type", "ws")
@@ -106,14 +107,16 @@ object SingBoxConfigBuilder {
                 .put("headers", JSONObject().put("Host", uri.getQueryParameter("host") ?: server)))
             "grpc" -> outbound.put("transport", JSONObject()
                 .put("type", "grpc")
-                .put("service_name", uri.getQueryParameter("serviceName") ?: ""))
+                .put("service_name", uri.getQueryParameter("serviceName")
+                    ?: uri.getQueryParameter("service_name") ?: ""))
             else -> error("Этот тип транспорта VLESS пока не поддерживается")
         }
         return outbound
     }
 
     private fun buildHysteria2(uri: Uri, server: String, port: Int): JSONObject {
-        val password = uri.userInfo?.substringAfter(':', uri.userInfo ?: "")
+        val userInfo = uri.userInfo?.let(Uri::decode)
+        val password = userInfo?.substringAfter(':', userInfo)
             ?.takeIf { it.isNotBlank() } ?: error("В Hysteria2-ссылке отсутствует пароль")
         val outbound = JSONObject()
             .put("type", "hysteria2")
@@ -123,8 +126,8 @@ object SingBoxConfigBuilder {
             .put("tls", JSONObject()
                 .put("enabled", true)
                 .put("server_name", uri.getQueryParameter("sni") ?: server)
-                .put("insecure", uri.getQueryParameter("insecure") == "1"))
-        if (uri.getQueryParameter("obfs") == "salamander") {
+                .put("insecure", uri.getQueryParameter("insecure").isTruthy()))
+        if (uri.getQueryParameter("obfs")?.lowercase() == "salamander") {
             val obfsPassword = uri.getQueryParameter("obfs-password")
                 ?: error("Для Salamander не указан пароль обфускации")
             outbound.put("obfs", JSONObject().put("type", "salamander").put("password", obfsPassword))
@@ -132,8 +135,12 @@ object SingBoxConfigBuilder {
         return outbound
     }
 
+    private fun String?.isTruthy(): Boolean =
+        this?.lowercase() in setOf("1", "true", "yes")
+
     private fun buildTuic(uri: Uri, server: String, port: Int): JSONObject {
-        val credentials = uri.userInfo ?: error("В TUIC-ссылке отсутствуют данные входа")
+        val credentials = uri.userInfo?.let(Uri::decode)
+            ?: error("В TUIC-ссылке отсутствуют данные входа")
         val uuid = credentials.substringBefore(':')
         val password = credentials.substringAfter(':', "")
         require(uuid.isNotBlank() && password.isNotBlank()) { "В TUIC-ссылке неверные данные входа" }
