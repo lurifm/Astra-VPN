@@ -130,7 +130,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
     override fun triggerNativeCrash() = Unit
-    override fun writeDebugMessage(message: String?) { Log.d(TAG, message.orEmpty()) }
+    override fun writeDebugMessage(message: String?) {
+        // libbox diagnostics may contain server addresses or other connection details.
+        // Keep the callback observable without writing its raw payload to logcat.
+        Log.d(TAG, "sing-box diagnostic message received")
+    }
     override fun connectSSHAgent(): Int = -1
 
     override fun onRevoke() {
@@ -155,7 +159,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // Never resurrect a stopped service or publish CONNECTED in that race.
             if (stopping) {
                 runCatching { descriptor.close() }
-                    .onFailure { Log.w(TAG, "Late TUN descriptor close failed", it) }
+                    .onFailure { Log.w(TAG, "Late TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
                 return
             }
             runCatching { tunDescriptor?.close() }
@@ -176,14 +180,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         activeConfig = null
 
         runCatching { tunDescriptor?.close() }
-            .onFailure { Log.w(TAG, "TUN descriptor close failed", it) }
+            .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
         tunDescriptor = null
 
         if (server != null) {
             runCatching { server.closeService() }
-                .onFailure { Log.w(TAG, "closeService failed", it) }
+                .onFailure { Log.w(TAG, "closeService failed (" + it.javaClass.simpleName + ")") }
             runCatching { server.close() }
-                .onFailure { Log.w(TAG, "CommandServer close failed", it) }
+                .onFailure { Log.w(TAG, "CommandServer close failed (" + it.javaClass.simpleName + ")") }
         }
         publishState(STATE_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -208,7 +212,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (historyState != null && historyState != lastHistoryState) {
             runCatching {
                 ConnectionHistoryStore(this).record(historyState, activeProfileName, activeProtocol)
-            }.onFailure { Log.w(TAG, "Не удалось сохранить историю подключений", it) }
+            }.onFailure { Log.w(TAG, "Не удалось сохранить историю подключений (" + it.javaClass.simpleName + ")") }
             lastHistoryState = historyState
         }
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
@@ -220,7 +224,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 NOTIFICATION_ID,
                 AstraNotification.create(this, state, activeProfileName)
             )
-        }.onFailure { Log.w(TAG, "Не удалось обновить уведомление VPN", it) }
+        }.onFailure { Log.w(TAG, "Не удалось обновить уведомление VPN (" + it.javaClass.simpleName + ")") }
     }
 
     companion object {
