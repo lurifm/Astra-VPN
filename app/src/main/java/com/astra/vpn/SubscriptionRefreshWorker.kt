@@ -34,8 +34,6 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty().toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet()).orEmpty().toSet()
             val targets = SubscriptionRefreshTargets.select(sources, pending, known)
-            // Include subscriptions added since the previous run, even if another source keeps failing.
-            settings.edit().putStringSet("subscription_known_sources", sources.toSet()).apply()
             if (targets.isEmpty()) {
                 settings.edit().remove("subscription_retry_sources").apply()
                 return Result.success()
@@ -58,6 +56,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             settings.edit().apply {
                 if (failedSources.isEmpty()) remove("subscription_retry_sources")
                 else putStringSet("subscription_retry_sources", failedSources)
+                // Mark sources as seen only after selected refreshes finish.
+                putStringSet("subscription_known_sources", sources.toSet())
             }.apply()
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
