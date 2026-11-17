@@ -1342,10 +1342,9 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         val active = activeProfile
         val latency = selected?.let { pingInfo[it] } ?: "Нет данных"
-        val version = runCatching {
-            if (Build.VERSION.SDK_INT >= 33) packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-            else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0)
-        }.getOrNull()?.versionName ?: "неизвестно"
+        @Suppress("DEPRECATION")
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
+            .getOrNull() ?: "неизвестно"
         val report = buildString {
             appendLine("ASTRA VPN — диагностика")
             appendLine("Версия: $version")
