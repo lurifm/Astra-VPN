@@ -38,6 +38,9 @@ class MainActivity : Activity() {
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
+    // Keep auto-selection probes isolated from background list refresh probes.
+    private val autoSelectExecutor = Executors.newFixedThreadPool(3)
+    private var selectingFastest = false
     private var selectedProfile: String? = null
     private var pendingConfig: String? = null
     private var connected = false
@@ -463,6 +466,10 @@ class MainActivity : Activity() {
      * Hysteria2/TUIC availability or actual VPN tunnel latency.
      */
     private fun selectFastestServer() {
+        if (selectingFastest) {
+            Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (connected || connecting) {
             Toast.makeText(this, "Дождись завершения подключения или отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
             return
@@ -475,12 +482,13 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Для автовыбора пока нужны VLESS-серверы. UDP-серверы не оцениваем TCP-тестом.", Toast.LENGTH_LONG).show()
             return
         }
+        selectingFastest = true
         Toast.makeText(this, "Ищем самый быстрый VLESS-сервер…", Toast.LENGTH_SHORT).show()
         candidates.forEach { latencyMs.remove(it); pingInfo[it] = "Проверяем…" }
         renderProfiles()
         val latch = java.util.concurrent.CountDownLatch(candidates.size)
         candidates.forEach { link ->
-            pingExecutor.execute {
+            autoSelectExecutor.execute {
                 val uri = Uri.parse(link)
                 val started = System.nanoTime()
                 val result = runCatching {
@@ -496,12 +504,20 @@ class MainActivity : Activity() {
             }
         }
         importExecutor.execute {
-            val completed = runCatching { latch.await(4, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)
+            // Three probes run concurrently; allow one full 3-second timeout
+            // per batch so large subscriptions are not ranked from only the
+            // first few servers.
+            val batches = (candidates.size + 2) / 3
+            val waitSeconds = batches * 3L + 1L
+            val completed = runCatching {
+                latch.await(waitSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            }.getOrDefault(false)
             val fastest = synchronized(latencyMs) {
                 candidates.mapNotNull { link -> latencyMs[link]?.let { link to it } }
                     .minByOrNull { it.second }?.first
             }
             runOnUiThread {
+                selectingFastest = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (fastest != null) {
                     selectedProfile = fastest
@@ -742,6 +758,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         importExecutor.shutdownNow()
         pingExecutor.shutdownNow()
+        autoSelectExecutor.shutdownNow()
         super.onDestroy()
     }
 
