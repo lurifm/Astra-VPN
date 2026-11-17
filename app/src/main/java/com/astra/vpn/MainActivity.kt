@@ -1324,6 +1324,59 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showConnectionDiagnostics() {
+        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivity.activeNetwork
+        val capabilities = network?.let { connectivity.getNetworkCapabilities(it) }
+        val networkType = when {
+            capabilities == null -> "Нет активной сети"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Мобильная сеть"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+            else -> "Другая сеть"
+        }
+        val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val vpnTransport = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        val selected = selectedProfile
+        val active = activeProfile
+        val latency = selected?.let { pingInfo[it] } ?: "Нет данных"
+        val version = runCatching {
+            if (Build.VERSION.SDK_INT >= 33) packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+            else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0)
+        }.getOrNull()?.versionName ?: "неизвестно"
+        val report = buildString {
+            appendLine("ASTRA VPN — диагностика")
+            appendLine("Версия: $version")
+            appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("Состояние VPN: ${if (connected) "Подключено" else if (connecting) "Подключение" else "Отключено"}")
+            appendLine("Активный VPN-профиль: ${active?.let { profileName(it) } ?: "—"}")
+            appendLine("Выбранный сервер: ${selected?.let { profileName(it) } ?: "—"}")
+            appendLine("Протокол: ${selected?.let { protocolName(it) } ?: "—"}")
+            appendLine("Проверка сервера: $latency")
+            appendLine("Сеть устройства: $networkType")
+            appendLine("Интернет доступен: ${if (internet) "да" else "нет"}")
+            appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
+            appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
+            appendLine("Количество серверов: ${safeProfiles().size}")
+            appendLine("Время отчёта: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Диагностика соединения")
+            .setMessage(report)
+            .setPositiveButton("Поделиться") { _, _ ->
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — диагностика")
+                    putExtra(Intent.EXTRA_TEXT, report)
+                }
+                startActivity(Intent.createChooser(share, "Отправить отчёт"))
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1362,6 +1415,16 @@ class MainActivity : Activity() {
             setOnClickListener { showNetworkMonitorDialog() }
         }
         panel.addView(monitorEntry)
+
+        val diagnosticsEntry = TextView(this).apply {
+            text = "🧰  Диагностика соединения  ›"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(12), 0, dp(14))
+            setOnClickListener { showConnectionDiagnostics() }
+        }
+        panel.addView(diagnosticsEntry)
 
         val appRoutingEntry = TextView(this).apply {
             text = "📱  Приложения через VPN  ›"
