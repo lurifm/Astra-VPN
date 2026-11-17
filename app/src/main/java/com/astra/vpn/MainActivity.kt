@@ -414,6 +414,9 @@ class MainActivity : Activity() {
     private fun restoreVpnState() {
         val saved = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
             .getString(AstraVpnService.PREF_STATE, AstraVpnService.STATE_DISCONNECTED)
+        val statePrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
+        val stateAge = System.currentTimeMillis() - statePrefs.getLong(AstraVpnService.PREF_UPDATED_AT, 0L)
+        val connectingIsRecent = saved == AstraVpnService.STATE_CONNECTING && stateAge in 0..30_000L
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val activeNetwork = connectivity.activeNetwork
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
