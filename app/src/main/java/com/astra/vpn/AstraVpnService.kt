@@ -77,10 +77,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         publishState(STATE_CONNECTED)
                     }
                 }
-                .onFailure {
-                    Log.e(TAG, "Не удалось перезапустить VPN", it)
+                .onFailure { error ->
+                    Log.e(TAG, "Не удалось перезапустить VPN (" + error.javaClass.simpleName + ")")
                     stopTunnel()
-                    publishState(STATE_ERROR, it.message ?: "Не удалось перезапустить VPN")
+                    publishState(STATE_ERROR, "Не удалось перезапустить VPN. Проверь выбранный сервер и подключение.")
                 }
             return START_NOT_STICKY
         }
@@ -100,9 +100,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
             }
         } catch (error: Exception) {
-            Log.e(TAG, "Не удалось запустить sing-box VPN", error)
+            Log.e(TAG, "Не удалось запустить sing-box VPN (" + error.javaClass.simpleName + ")")
             stopTunnel()
-            publishState(STATE_ERROR, error.message ?: "Не удалось запустить VPN")
+            publishState(STATE_ERROR, "Не удалось запустить VPN. Проверь конфигурацию сервера и разрешение на VPN.")
         }
         return START_NOT_STICKY
     }
@@ -121,10 +121,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     publishState(STATE_CONNECTED)
                 }
             }
-            .onFailure {
-                Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box", it)
+            .onFailure { error ->
+                Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
                 stopTunnel()
-                publishState(STATE_ERROR, it.message ?: "Не удалось обновить VPN")
+                publishState(STATE_ERROR, "Не удалось обновить VPN. Проверь конфигурацию сервера.")
             }
     }
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
