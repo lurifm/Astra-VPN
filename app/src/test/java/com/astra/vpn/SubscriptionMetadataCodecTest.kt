@@ -39,6 +39,24 @@ class SubscriptionMetadataCodecTest {
         assertEquals(",2,,", SubscriptionMetadataCodec.encode(metadata))
     }
 
+    @Test fun truncatedMetadataKeepsAvailableCounters() {
+        assertEquals(
+            StoredSubscriptionUsage(uploadBytes = 25L, downloadBytes = 75L),
+            SubscriptionMetadataCodec.decode("25,75")
+        )
+    }
+
+    @Test fun expiryMustBeWithinSupportedCalendarRange() {
+        assertEquals(
+            StoredSubscriptionUsage(expiresAtEpochSeconds = 253402300799L),
+            SubscriptionMetadataCodec.decode(",,,253402300799")
+        )
+        assertEquals(
+            StoredSubscriptionUsage(),
+            SubscriptionMetadataCodec.decode(",,,0")
+        )
+    }
+
     @Test fun oldEmptyMetadataRepresentationRemainsReadable() {
         assertEquals(StoredSubscriptionUsage(), SubscriptionMetadataCodec.decode(",,,"))
     }
