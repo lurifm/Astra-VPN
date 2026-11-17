@@ -285,7 +285,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
-        val sources = profileStore.subscriptionSources()
+        val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) {
             Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
             return
@@ -331,9 +331,38 @@ class MainActivity : Activity() {
         }
     }
 
+    private var storageErrorShown = false
+
+    private fun showStorageError(error: ProfileStorageException) {
+        status.text = "Хранилище недоступно"
+        status.setTextColor(RED)
+        if (!storageErrorShown && !isFinishing && !isDestroyed) {
+            storageErrorShown = true
+            AlertDialog.Builder(this)
+                .setTitle("Проблема защищённого хранилища")
+                .setMessage(error.message ?: "Не удалось прочитать сохранённые серверы.")
+                .setPositiveButton("Понятно", null)
+                .show()
+        }
+    }
+
+    private fun safeProfiles(): List<String> = try {
+        profileStore.all()
+    } catch (error: ProfileStorageException) {
+        showStorageError(error)
+        emptyList()
+    }
+
+    private fun safeSubscriptionSources(): List<String>? = try {
+        profileStore.subscriptionSources()
+    } catch (error: ProfileStorageException) {
+        showStorageError(error)
+        null
+    }
+
     private fun renderProfiles() {
         profileList.removeAllViews()
-        val profiles = profileStore.all()
+        val profiles = safeProfiles()
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
@@ -379,7 +408,12 @@ class MainActivity : Activity() {
                             .setMessage("Профиль «$name» будет удалён с этого устройства.")
                             .setNegativeButton("Отмена", null)
                             .setPositiveButton("Удалить") { _, _ ->
-                                profileStore.remove(link)
+                                try {
+                                    profileStore.remove(link)
+                                } catch (error: ProfileStorageException) {
+                                    showStorageError(error)
+                                    return@setPositiveButton
+                                }
                                 pingInfo.remove(link)
                                 latencyMs.remove(link)
                                 if (selectedProfile == link) selectedProfile = null
@@ -431,7 +465,7 @@ class MainActivity : Activity() {
     }
 
     private fun checkAllLatencies() {
-        val profiles = profileStore.all()
+        val profiles = safeProfiles()
         if (profiles.isEmpty()) return
         Toast.makeText(this, "Проверяем доступность серверов…", Toast.LENGTH_SHORT).show()
         profiles.forEach { link ->
@@ -473,7 +507,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Дождись завершения подключения или отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
             return
         }
-        val candidates = profileStore.all().filter {
+        val candidates = safeProfiles().filter {
             Uri.parse(it).scheme.equals("vless", ignoreCase = true) &&
                 !Uri.parse(it).host.isNullOrBlank() && Uri.parse(it).port > 0
         }
