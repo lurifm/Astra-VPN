@@ -75,7 +75,7 @@ class ProfileStore(context: Context) {
         }
         editor.putString(sourceKey, encrypt(sourceUrl))
         val metadataKey = SUBSCRIPTION_META_PREFIX + sourceId
-        editor.putString(metadataKey, listOf(metadata.uploadBytes, metadata.downloadBytes, metadata.totalBytes, metadata.expiresAtEpochSeconds).joinToString(",") { it?.toString().orEmpty() })
+        editor.putString(metadataKey, SubscriptionMetadataCodec.encode(metadata))
         // Provider metadata and the user's custom label are stored separately.
         // Missing title headers must not erase a name the user chose themselves.
         metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, it.take(120)) }
@@ -126,21 +126,14 @@ class ProfileStore(context: Context) {
             val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
             val count = prefs.all.keys.count { it.startsWith(SUBSCRIPTION_PROFILE_PREFIX + id + "_") }
             val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
-            val meta = prefs.getString(SUBSCRIPTION_META_PREFIX + id, null)?.split(",").orEmpty()
-            fun number(index: Int): Long? {
-                val value = meta.getOrNull(index)?.takeIf { it.isNotBlank() }?.toLongOrNull()
-                    ?: return null
-                return when (index) {
-                    0, 1, 2 -> value.takeIf { it >= 0L }
-                    3 -> value.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS }
-                    else -> null
-                }
-            }
+            val usage = SubscriptionMetadataCodec.decode(
+                prefs.getString(SUBSCRIPTION_META_PREFIX + id, null)
+            )
             val title = prefs.getString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, null)
                 ?: prefs.getString(SUBSCRIPTION_TITLE_PREFIX + id, null) // legacy custom/provider title
                 ?: prefs.getString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, null)
                 ?: host?.takeIf { it.isNotBlank() } ?: "Подписка"
-            SubscriptionSummary(source, title, count, number(0), number(1), number(2), number(3))
+            SubscriptionSummary(source, title, count, usage.uploadBytes, usage.downloadBytes, usage.totalBytes, usage.expiresAtEpochSeconds)
         }
         .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
 
@@ -244,7 +237,6 @@ class ProfileStore(context: Context) {
         private const val KEY_ALIAS = "astra_profile_key"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L
         private val SUBSCRIPTION_MUTATION_LOCK = Any()
     }
 }
