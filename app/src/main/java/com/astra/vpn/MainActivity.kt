@@ -43,6 +43,7 @@ class MainActivity : Activity() {
     private var connected = false
     private var connecting = false
     private var receiverRegistered = false
+    private var refreshingSubscriptions = false
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -234,28 +235,32 @@ class MainActivity : Activity() {
                         input.isEnabled = false
                         status.text = "Импортируем серверы…"
                         importExecutor.execute {
-                            val result = runCatching { SubscriptionParser.importText(value) }
+                            // Keep network, parsing and encrypted persistence off the UI thread.
+                            // A storage failure is reported in the dialog instead of crashing Activity.
+                            val result = runCatching {
+                                val links = SubscriptionParser.importText(value)
+                                if (value.startsWith("https://", ignoreCase = true)) {
+                                    profileStore.replaceSubscription(value, links)
+                                } else {
+                                    profileStore.addAll(links)
+                                }
+                                links
+                            }
                             runOnUiThread {
                                 if (isFinishing || isDestroyed) return@runOnUiThread
                                 dialog.dismiss()
-                                if (result.isSuccess) {
-                                    val links = result.getOrThrow()
-                                    if (value.startsWith("https://", ignoreCase = true)) {
-                                        profileStore.replaceSubscription(value, links)
-                                    } else {
-                                        profileStore.addAll(links)
-                                    }
+                                result.onSuccess { links ->
                                     renderProfiles()
                                     checkAllLatencies()
                                     status.text = "Импортировано: ${links.size}"
                                     status.setTextColor(GREEN)
                                     Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
-                                } else {
+                                }.onFailure { error ->
                                     status.text = "Ошибка импорта"
                                     status.setTextColor(RED)
                                     AlertDialog.Builder(this)
                                         .setTitle("Не удалось импортировать")
-                                        .setMessage(result.exceptionOrNull()?.message ?: "Неизвестная ошибка")
+                                        .setMessage(error.message ?: "Неизвестная ошибка")
                                         .setPositiveButton("ОК", null).show()
                                 }
                             }
@@ -275,11 +280,16 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Отключи VPN перед обновлением подписок", Toast.LENGTH_SHORT).show()
             return
         }
+        if (refreshingSubscriptions) {
+            Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
         val sources = profileStore.subscriptionSources()
         if (sources.isEmpty()) {
             Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
             return
         }
+        refreshingSubscriptions = true
         status.text = "Обновляем подписки…"
         status.setTextColor(AMBER)
         importExecutor.execute {
@@ -300,6 +310,7 @@ class MainActivity : Activity() {
                 }
             }
             runOnUiThread {
+                refreshingSubscriptions = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 renderProfiles()
                 checkAllLatencies()
