@@ -252,7 +252,7 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         connectButton.isEnabled = selected != null || connected
         connectButton.text = if (connected) "ОТКЛЮЧИТЬ VPN" else "ПОДКЛЮЧИТЬСЯ"
-        selectedInfo.text = selected?.let { profileName(it) + "  ·  " + protocolName(it) } ?: "Сначала добавь сервер"
+        selectedInfo.text = selected?.let { profileSummary(it) } ?: "Сначала добавь сервер"
 
         if (profiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
@@ -398,7 +398,7 @@ class MainActivity : Activity() {
                     selectedProfile = fastest
                     status.text = if (completed) "Выбран быстрый сервер" else "Выбран лучший из проверенных"
                     status.setTextColor(GREEN)
-                    selectedInfo.text = profileName(fastest) + "  ·  " + protocolName(fastest)
+                    selectedInfo.text = profileSummary(fastest)
                     Toast.makeText(this, "Выбран сервер: ${profileName(fastest)}", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(this, "Не удалось проверить доступность VLESS-серверов", Toast.LENGTH_LONG).show()
@@ -539,6 +539,12 @@ class MainActivity : Activity() {
         if (fragment.isNotBlank()) return fragment
         val host = Uri.parse(link).host.orEmpty()
         return host.ifBlank { "Сервер" }
+    }
+
+    private fun profileSummary(link: String): String {
+        val flag = countryFlag(profileName(link))
+        val latency = pingInfo[link] ?: "Задержка не проверена"
+        return "$flag  ${profileName(link)}  ·  ${protocolName(link)}\\n$latency"
     }
 
     private fun protocolName(link: String): String = when (Uri.parse(link).scheme?.lowercase()) {
