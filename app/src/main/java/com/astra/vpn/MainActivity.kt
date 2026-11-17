@@ -713,7 +713,7 @@ class MainActivity : Activity() {
                 })
                 val totalBytes = subscription.totalBytes ?: 0L
                 if (totalBytes > 0L && (subscription.uploadBytes != null || subscription.downloadBytes != null)) {
-                    val usedBytes = ((subscription.uploadBytes ?: 0L) + (subscription.downloadBytes ?: 0L)).coerceAtLeast(0L)
+                    val usedBytes = subscriptionUsedBytes(subscription)
                     val percent = ((usedBytes.toDouble() / totalBytes.toDouble()) * 100.0).toInt().coerceIn(0, 100)
                     val progress = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100
