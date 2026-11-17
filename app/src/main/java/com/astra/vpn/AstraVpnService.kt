@@ -54,6 +54,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     if (tunDescriptor == null) {
                         publishState(STATE_CONNECTING)
                         awaitTunCreation()
+                    } else {
+                        // A reload can reuse an already established TUN. In that
+                        // case no new openTun callback is guaranteed, so restore
+                        // the connected state explicitly instead of leaving the UI
+                        // stuck on "connecting".
+                        publishState(STATE_CONNECTED)
                     }
                 }
                 .onFailure {
@@ -100,6 +106,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 if (tunDescriptor == null) {
                     publishState(STATE_CONNECTING)
                     awaitTunCreation()
+                } else {
+                    publishState(STATE_CONNECTED)
                 }
             }
             .onFailure {
