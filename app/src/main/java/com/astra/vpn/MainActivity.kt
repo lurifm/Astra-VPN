@@ -120,16 +120,13 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
                     connecting = false
-                    val message = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
-                    if (!message.isNullOrBlank()) {
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("Не удалось подключиться")
-                            .setMessage(message)
-                            .setPositiveButton("Понятно", null)
-                            .show()
-                    }
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Не удалось подключиться")
+                        .setMessage("VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету.")
+                        .setPositiveButton("Понятно", null)
+                        .show()
                 }
             }
             updateGeoLocationForState()
@@ -612,7 +609,12 @@ class MainActivity : Activity() {
             .setPositiveButton("Сохранить") { _, _ ->
                 runCatching { profileStore.renameSubscription(item.sourceUrl, input.text.toString()) }
                     .onSuccess { renderProfiles(); Toast.makeText(this, "Название сохранено", Toast.LENGTH_SHORT).show() }
-                    .onFailure { error -> AlertDialog.Builder(this).setMessage(error.message ?: "Не удалось переименовать").setPositiveButton("ОК", null).show() }
+                    .onFailure {
+                        AlertDialog.Builder(this)
+                            .setMessage("Не удалось сохранить название подписки.")
+                            .setPositiveButton("ОК", null)
+                            .show()
+                    }
             }
             .setNegativeButton("Отмена", null)
             .show()
@@ -632,7 +634,12 @@ class MainActivity : Activity() {
                         checkAllLatencies()
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
                     }
-                    .onFailure { error -> AlertDialog.Builder(this).setMessage(error.message ?: "Не удалось удалить подписку").setPositiveButton("ОК", null).show() }
+                    .onFailure {
+                        AlertDialog.Builder(this)
+                            .setMessage("Не удалось удалить подписку. Проверь доступность защищённого хранилища.")
+                            .setPositiveButton("ОК", null)
+                            .show()
+                    }
             }
             .setNegativeButton("Отмена", null)
             .show()
@@ -1187,7 +1194,7 @@ class MainActivity : Activity() {
             connected = false
             status.text = "Не удалось запустить VPN"
             status.setTextColor(RED)
-            Toast.makeText(this, error.message ?: "Ошибка запуска VPN", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Не удалось запустить VPN. Проверь выбранный сервер и разрешение на VPN.", Toast.LENGTH_LONG).show()
         }
         renderProfiles()
     }
