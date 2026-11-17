@@ -307,7 +307,7 @@ class MainActivity : Activity() {
         requestPhoneStatePermissionIfNeeded()
         renderProfiles()
         updateNetworkLabel()
-        requestGeoLocation(false)
+        // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Populate visible latency information as soon as saved profiles are loaded.
         checkAllLatencies()
     }
@@ -794,6 +794,7 @@ class MainActivity : Activity() {
             }
         }
         renderProfiles()
+        updateGeoLocationForState()
     }
 
     override fun onStop() {
