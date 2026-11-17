@@ -43,6 +43,13 @@ class SubscriptionMetadataTest {
         assertEquals(120, longTitle.title?.length)
     }
 
+    @Test fun ignoresExpiryOutsideSupportedDateRange() {
+        val metadata = SubscriptionParser.parseMetadata(
+            mapOf("subscription-userinfo" to "expire=9223372036854775807")
+        )
+        assertNull(metadata.expiresAtEpochSeconds)
+    }
+
     @Test fun emptyHeadersProduceEmptyMetadata() {
         val metadata = SubscriptionParser.parseMetadata(emptyMap())
         assertNull(metadata.title)
