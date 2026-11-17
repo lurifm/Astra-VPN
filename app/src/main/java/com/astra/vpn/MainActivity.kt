@@ -1065,6 +1065,16 @@ class MainActivity : Activity() {
             setOnClickListener { showNetworkMonitorDialog() }
         }
         panel.addView(monitorEntry)
+
+        val appRoutingEntry = TextView(this).apply {
+            text = "📱  Приложения через VPN  ›"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(12), 0, dp(14))
+            setOnClickListener { showAppRoutingDialog() }
+        }
+        panel.addView(appRoutingEntry)
         val autoUpdate = CheckBox(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
@@ -1119,6 +1129,112 @@ class MainActivity : Activity() {
                     .apply()
                 renderProfiles()
                 maybeAutoUpdateSubscriptions(true)
+            }
+            .show()
+    }
+
+
+    private data class InstalledApp(
+        val packageName: String,
+        val label: String,
+        val icon: android.graphics.drawable.Drawable
+    )
+
+    private fun showAppRoutingDialog() {
+        val prefs = settingsPrefs
+        val selected = prefs.getStringSet("vpn_app_packages", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val modeGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val mode = prefs.getString("vpn_app_mode", "exclude") ?: "exclude"
+        val allowMode = RadioButton(this).apply {
+            id = View.generateViewId()
+            text = "Только выбранные приложения через VPN"
+            tag = "include"
+            isChecked = mode == "include"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+        }
+        val excludeMode = RadioButton(this).apply {
+            id = View.generateViewId()
+            text = "Все приложения через VPN, кроме выбранных"
+            tag = "exclude"
+            isChecked = mode != "include"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+        }
+        modeGroup.addView(excludeMode)
+        modeGroup.addView(allowMode)
+        val apps = runCatching {
+            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            packageManager.queryIntentActivities(launcherIntent, 0)
+                .mapNotNull { info ->
+                    val packageName = info.activityInfo?.packageName ?: return@mapNotNull null
+                    val label = info.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() } ?: packageName
+                    InstalledApp(packageName, label, info.loadIcon(packageManager))
+                }
+                .distinctBy { it.packageName }
+                .sortedBy { it.label.lowercase(java.util.Locale.getDefault()) }
+        }.getOrElse { emptyList() }
+        val checks = mutableMapOf<String, CheckBox>()
+        val appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        apps.forEach { app ->
+            val check = CheckBox(this).apply {
+                text = app.label
+                tag = app.packageName
+                isChecked = app.packageName in selected
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                buttonTintList = android.content.res.ColorStateList.valueOf(LIGHT_ACCENT)
+                setCompoundDrawablesWithIntrinsicBounds(app.icon, null, null, null)
+                compoundDrawablePadding = dp(12)
+                setPadding(0, dp(5), 0, dp(5))
+            }
+            checks[app.packageName] = check
+            appList.addView(check)
+        }
+        val listScroll = ScrollView(this).apply {
+            addView(appList)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
+            )
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(4))
+            addView(TextView(this@MainActivity).apply {
+                text = "Выбери приложения и режим маршрутизации. Изменения применятся после следующего подключения VPN."
+                textSize = 12f
+                setTextColor(MUTED)
+                setPadding(0, 0, 0, dp(10))
+            })
+            addView(modeGroup)
+            addView(TextView(this@MainActivity).apply {
+                text = "Приложения"
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(8), 0, dp(4))
+            })
+            addView(listScroll)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Маршрутизация приложений")
+            .setView(content)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val packages = checks.filterValues { it.isChecked }.keys
+                val chosenMode = modeGroup.findViewById<RadioButton>(modeGroup.checkedRadioButtonId)
+                    ?.tag as? String ?: "exclude"
+                prefs.edit()
+                    .putStringSet("vpn_app_packages", packages.toSet())
+                    .putString("vpn_app_mode", chosenMode)
+                    .apply()
+                Toast.makeText(
+                    this,
+                    if (chosenMode == "include" && packages.isEmpty())
+                        "Список пуст: через VPN не пойдут выбранные приложения"
+                    else "Правила сохранены. Переподключи VPN для применения.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             .show()
     }
