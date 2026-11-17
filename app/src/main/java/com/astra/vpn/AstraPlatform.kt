@@ -58,6 +58,23 @@ class AstraPlatform(
             .setSession("Astra VPN")
             .setMtu(options.mtu)
 
+        // Per-app routing is configured by Android's VPN builder.
+        // No package rules means the normal full-device VPN behavior.
+        val appPrefs = vpnService.getSharedPreferences("astra_settings", android.content.Context.MODE_PRIVATE)
+        val selectedPackages = appPrefs.getStringSet("vpn_app_packages", emptySet())?.toSet().orEmpty()
+        val appMode = appPrefs.getString("vpn_app_mode", "exclude") ?: "exclude"
+        selectedPackages.sorted().forEach { packageName ->
+            runCatching {
+                if (appMode == "include") {
+                    builder.addAllowedApplication(packageName)
+                } else {
+                    builder.addDisallowedApplication(packageName)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Не удалось применить правило для приложения $packageName", error)
+            }
+        }
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
