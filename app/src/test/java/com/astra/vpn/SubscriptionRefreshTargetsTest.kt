@@ -52,6 +52,34 @@ class SubscriptionRefreshTargetsTest {
         )
     }
 
+    @Test fun productionSelectionMatchesStoredFingerprintsToOriginalUrls() {
+        val first = "https://one.example/sub?token=first"
+        val failed = "https://two.example/sub?token=second"
+        val added = "https://three.example/sub?token=third"
+        val known = setOf(
+            SubscriptionSourceFingerprint.of(first),
+            SubscriptionSourceFingerprint.of(failed)
+        )
+        val pending = setOf(SubscriptionSourceFingerprint.of(failed))
+        assertEquals(
+            listOf(failed, added),
+            SubscriptionRefreshTargets.selectSources(listOf(first, failed, added), pending, known)
+        )
+    }
+
+    @Test fun productionSelectionFallsBackToAllUrlsWhenNoFingerprintIsPending() {
+        val first = "https://one.example/sub?token=first"
+        val second = "https://two.example/sub?token=second"
+        val known = setOf(
+            SubscriptionSourceFingerprint.of(first),
+            SubscriptionSourceFingerprint.of(second)
+        )
+        assertEquals(
+            listOf(first, second),
+            SubscriptionRefreshTargets.selectSources(listOf(first, second), emptySet(), known)
+        )
+    }
+
     @Test fun emptySourceListRemainsEmpty() {
         assertEquals(emptyList<String>(), SubscriptionRefreshTargets.select(emptyList(), setOf("https://old.example/sub")))
     }
