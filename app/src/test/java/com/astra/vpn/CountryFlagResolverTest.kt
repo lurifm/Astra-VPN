@@ -23,3 +23,19 @@ class CountryFlagResolverTest {
         assertEquals("🇷🇺", CountryFlagResolver.flagFor("Россия • Москва"))
     }
 }
+
+
+class TcpLatencyProbeTest {
+    @Test fun medianIgnoresOneSlowOutlier() {
+        assertEquals(24L, TcpLatencyProbe.median(listOf(22L, 24L, 900L)))
+    }
+
+    @Test fun medianAveragesMiddlePairForEvenSampleCount() {
+        assertEquals(30L, TcpLatencyProbe.median(listOf(10L, 50L)))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun medianRejectsEmptySamples() {
+        TcpLatencyProbe.median(emptyList())
+    }
+}
