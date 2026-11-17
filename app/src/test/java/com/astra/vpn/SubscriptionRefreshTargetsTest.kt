@@ -37,6 +37,20 @@ class SubscriptionRefreshTargetsTest {
         val failed = "https://two.example/sub"
         assertEquals(listOf(failed), SubscriptionRefreshTargets.select(listOf(first, failed), setOf(failed), setOf(first, failed)))
     }
+    
+    @Test fun fingerprintBasedRetrySelectionUsesStoredHashes() {
+        val first = SubscriptionSourceFingerprint.of("https://one.example/sub")
+        val failed = SubscriptionSourceFingerprint.of("https://two.example/sub")
+        val added = SubscriptionSourceFingerprint.of("https://three.example/sub")
+        assertEquals(
+            listOf(failed, added),
+            SubscriptionRefreshTargets.select(
+                listOf(first, failed, added),
+                setOf(failed),
+                setOf(first, failed)
+            ).map(SubscriptionSourceFingerprint::of)
+        )
+    }
 
     @Test fun emptySourceListRemainsEmpty() {
         assertEquals(emptyList<String>(), SubscriptionRefreshTargets.select(emptyList(), setOf("https://old.example/sub")))
