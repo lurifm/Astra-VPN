@@ -49,7 +49,10 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 "Успешно: $updated из ${sources.size} · ошибок: $failures"
             }
             postRefreshNotification(applicationContext, title, message, failures > 0)
-            if (updated == 0 && failures > 0) Result.retry() else Result.success()
+            // A partial refresh is not fully successful: ask WorkManager to
+            // retry with backoff so temporarily unavailable providers are retried
+            // instead of waiting for the next periodic interval.
+            if (failures > 0) Result.retry() else Result.success()
         } catch (error: Exception) {
             postRefreshNotification(applicationContext, "Не удалось обновить подписки", error.message ?: "Проверь подключение к интернету", true)
             Result.retry()
