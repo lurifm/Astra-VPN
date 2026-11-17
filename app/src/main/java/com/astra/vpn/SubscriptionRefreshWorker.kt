@@ -140,6 +140,9 @@ private fun postRefreshNotification(context: Context, title: String, message: St
 internal object SubscriptionRefreshInterval {
     /** Keep periodic work within Android WorkManager's supported 1–24 hour product range. */
     fun normalize(hours: Int): Int = hours.coerceIn(1, 24)
+
+    /** Milliseconds used by the foreground refresh gate; keep it aligned with WorkManager. */
+    fun intervalMillis(hours: Int): Long = normalize(hours).toLong() * 60L * 60L * 1000L
 }
 
 internal object SubscriptionRefreshTargets {
