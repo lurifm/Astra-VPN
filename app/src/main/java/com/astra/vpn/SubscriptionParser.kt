@@ -30,7 +30,10 @@ object SubscriptionParser {
         val links = decoded
             .lineSequence()
             .map { it.trim() }
-            .filter { line -> supportedSchemes.contains(line.substringBefore("://", "").lowercase()) }
+            .filter { line ->
+                supportedSchemes.contains(line.substringBefore("://", "").lowercase()) &&
+                    hasValidEndpoint(line)
+            }
             .distinct()
             .toList()
 
@@ -39,6 +42,15 @@ object SubscriptionParser {
         }
         return links
     }
+
+    /**
+     * Drop malformed entries before they reach the server list. A profile must
+     * contain a supported scheme, a parseable host and an explicit valid port.
+     */
+    private fun hasValidEndpoint(link: String): Boolean = runCatching {
+        val uri = android.net.Uri.parse(link)
+        !uri.host.isNullOrBlank() && uri.port in 1..65535
+    }.getOrDefault(false)
 
     private fun download(address: String): String {
         var current = URL(address)
