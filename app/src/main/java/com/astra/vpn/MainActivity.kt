@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var connectButton: Button
     private lateinit var selectedInfo: TextView
     private val pingInfo = mutableMapOf<String, String>()
+    private val latencyMs = mutableMapOf<String, Long>()
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     private var selectedProfile: String? = null
@@ -166,11 +167,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
         }
         val refresh = TextView(this).apply {
-            text = "Проверить задержку"
+            text = "Автовыбор сервера"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-            setOnClickListener { checkAllLatencies() }
+            setOnClickListener { selectFastestServer() }
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
@@ -340,8 +341,69 @@ class MainActivity : Activity() {
                     Socket().use { socket -> socket.connect(InetSocketAddress(host, port), 3000) }
                     ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
                 }
-                pingInfo[link] = result.fold({ "${it} мс (TCP)" }, { "TCP недоступен" })
+                result.onSuccess { latencyMs[link] = it; pingInfo[link] = "${it} мс (TCP)" }
+                    .onFailure { latencyMs.remove(link); pingInfo[link] = "TCP недоступен" }
                 runOnUiThread { if (!isFinishing) renderProfiles() }
+            }
+        }
+    }
+
+    /**
+     * Chooses the fastest VLESS endpoint using a short TCP reachability test.
+     * UDP profiles are deliberately excluded: a TCP result says nothing about
+     * Hysteria2/TUIC availability or actual VPN tunnel latency.
+     */
+    private fun selectFastestServer() {
+        if (connected) {
+            Toast.makeText(this, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val candidates = profileStore.all().filter {
+            Uri.parse(it).scheme.equals("vless", ignoreCase = true) &&
+                !Uri.parse(it).host.isNullOrBlank() && Uri.parse(it).port > 0
+        }
+        if (candidates.isEmpty()) {
+            Toast.makeText(this, "Для автовыбора пока нужны VLESS-серверы. UDP-серверы не оцениваем TCP-тестом.", Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(this, "Ищем самый быстрый VLESS-сервер…", Toast.LENGTH_SHORT).show()
+        candidates.forEach { latencyMs.remove(it); pingInfo[it] = "Проверяем…" }
+        renderProfiles()
+        val latch = java.util.concurrent.CountDownLatch(candidates.size)
+        candidates.forEach { link ->
+            pingExecutor.execute {
+                val uri = Uri.parse(link)
+                val started = System.nanoTime()
+                val result = runCatching {
+                    Socket().use { socket -> socket.connect(InetSocketAddress(uri.host, uri.port), 3000) }
+                    ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
+                }
+                synchronized(latencyMs) {
+                    result.onSuccess { latencyMs[link] = it; pingInfo[link] = "${it} мс (TCP)" }
+                        .onFailure { latencyMs.remove(link); pingInfo[link] = "TCP недоступен" }
+                }
+                latch.countDown()
+                runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
+            }
+        }
+        importExecutor.execute {
+            val completed = runCatching { latch.await(4, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)
+            val fastest = synchronized(latencyMs) {
+                candidates.mapNotNull { link -> latencyMs[link]?.let { link to it } }
+                    .minByOrNull { it.second }?.first
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (fastest != null) {
+                    selectedProfile = fastest
+                    status.text = if (completed) "Выбран быстрый сервер" else "Выбран лучший из проверенных"
+                    status.setTextColor(GREEN)
+                    selectedInfo.text = profileName(fastest) + "  ·  " + protocolName(fastest)
+                    Toast.makeText(this, "Выбран сервер: ${profileName(fastest)}", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Не удалось проверить доступность VLESS-серверов", Toast.LENGTH_LONG).show()
+                }
+                renderProfiles()
             }
         }
     }
