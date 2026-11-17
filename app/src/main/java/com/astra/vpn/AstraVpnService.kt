@@ -16,6 +16,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
+    private var activeProfileName: String = "Сервер не выбран"
+    private var activeProtocol: String = "—"
+    private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
     private val lifecycleLock = Any()
@@ -39,6 +42,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Serialize a new start with asynchronous libbox callbacks and shutdown.
         synchronized(lifecycleLock) { stopping = false }
+        intent?.getStringExtra(EXTRA_PROFILE_NAME)?.takeIf { it.isNotBlank() }?.let { activeProfileName = it }
+        intent?.getStringExtra(EXTRA_PROTOCOL)?.takeIf { it.isNotBlank() }?.let { activeProtocol = it }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForeground(NOTIFICATION_ID, AstraNotification.create(this))
         }
@@ -190,6 +195,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             .putString(PREF_ERROR, error)
             .putLong(PREF_UPDATED_AT, System.currentTimeMillis())
             .apply()
+        val historyState = when (state) {
+            STATE_CONNECTING -> "connecting"
+            STATE_CONNECTED -> "connected"
+            STATE_DISCONNECTED -> "disconnected"
+            STATE_ERROR -> "error"
+            else -> null
+        }
+        if (historyState != null && historyState != lastHistoryState) {
+            runCatching {
+                ConnectionHistoryStore(this).record(historyState, activeProfileName, activeProtocol)
+            }.onFailure { Log.w(TAG, "Не удалось сохранить историю подключений", it) }
+            lastHistoryState = historyState
+        }
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
         sendBroadcast(intent)
@@ -200,6 +218,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.CONFIG"
+        const val EXTRA_PROFILE_NAME = "com.astra.vpn.extra.PROFILE_NAME"
+        const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
         const val EXTRA_STATE = "com.astra.vpn.extra.STATE"
         const val EXTRA_ERROR = "com.astra.vpn.extra.ERROR"
         const val STATE_CONNECTED = "connected"
