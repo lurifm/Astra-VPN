@@ -95,8 +95,19 @@ object SubscriptionParser {
         !uri.host.isNullOrBlank() && uri.port in 1..65535
     }.getOrDefault(false)
 
+    internal fun validateSubscriptionUrl(address: String): URL {
+        val url = URL(address)
+        require(url.protocol.equals("https", ignoreCase = true)) {
+            "Подписки разрешено загружать только по HTTPS"
+        }
+        require(!url.host.isNullOrBlank()) { "В ссылке подписки не указан адрес сервера" }
+        require(url.userInfo == null) { "Логин и пароль в адресе подписки не допускаются" }
+        require(url.port == -1 || url.port in 1..65535) { "Некорректный порт сервера подписки" }
+        return url
+    }
+
     private fun download(address: String): DownloadResult {
-        var current = URL(address)
+        var current = validateSubscriptionUrl(address)
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
             require(current.protocol.equals("https", ignoreCase = true)) {
                 "Подписки разрешено загружать только по HTTPS"
@@ -114,10 +125,7 @@ object SubscriptionParser {
                     require(redirectCount < MAX_REDIRECTS) { "Слишком много перенаправлений" }
                     val location = connection.getHeaderField("Location")
                         ?: error("Сервер вернул перенаправление без адреса")
-                    current = URL(current, location)
-                    require(current.protocol.equals("https", ignoreCase = true)) {
-                        "Небезопасное перенаправление: разрешён только HTTPS"
-                    }
+                    current = validateSubscriptionUrl(URL(current, location).toExternalForm())
                     return@repeat
                 }
                 require(code in 200..299) { "Сервер подписки ответил: HTTP $code" }
