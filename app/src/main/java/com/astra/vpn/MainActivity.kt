@@ -519,11 +519,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun safeProfiles(): List<String> = try {
+    private fun safeProfiles(): List<String>? = try {
         profileStore.all()
     } catch (error: ProfileStorageException) {
         showStorageError(error)
-        emptyList()
+        null
     }
 
     private fun safeSubscriptionSources(): List<String>? = try {
@@ -671,6 +671,7 @@ class MainActivity : Activity() {
         return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
     }
     private fun renderProfiles() {
+        val profiles = safeProfiles() ?: return
         profileList.removeAllViews()
         val summaries = safeSubscriptionSummaries()
         if (summaries.isNotEmpty()) {
@@ -742,7 +743,6 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(8), 0, dp(8))
             })
         }
-        val profiles = safeProfiles()
         val allCountries = profiles.map { CountryFlagResolver.flagFor(profileName(it)) }
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
         val countryOptions = allCountries.map { "${it} ${CountryFlagResolver.countryNameForFlag(it)}" }
@@ -898,7 +898,7 @@ class MainActivity : Activity() {
     }
 
     private fun checkAllLatencies() {
-        val profiles = safeProfiles()
+        val profiles = safeProfiles() ?: return
         val currentProfiles = profiles.toHashSet()
         // Drop cached results for removed profiles so ping sorting never
         // keeps ghost entries or stale measurements after subscription edits.
@@ -975,7 +975,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Дождись завершения подключения или отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
             return
         }
-        val candidates = safeProfiles().filter {
+        val candidates = (safeProfiles() ?: return).filter {
             Uri.parse(it).scheme.equals("vless", ignoreCase = true) &&
                 !Uri.parse(it).host.isNullOrBlank() && Uri.parse(it).port > 0
         }
@@ -1390,7 +1390,7 @@ class MainActivity : Activity() {
             appendLine("Интернет доступен: ${if (internet) "да" else "нет"}")
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
-            appendLine("Количество серверов: ${safeProfiles().size}")
+            appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
             appendLine("Время отчёта: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
         }
         AlertDialog.Builder(this)
