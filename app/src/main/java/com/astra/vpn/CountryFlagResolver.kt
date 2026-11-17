@@ -47,7 +47,7 @@ object CountryFlagResolver {
         "🇨🇾" to listOf("кипр", "cyprus", "cyp"),
         "🇦🇺" to listOf("австрал", "australia", "aus"),
         "🇳🇿" to listOf("новая зеланд", "new zealand", "nzl"),
-        "🇨🇳" to listOf("кита", "china", "chn"),
+        "🇨🇳" to listOf("кита", "china", "chn", "cn"),
         "🇹🇼" to listOf("тайван", "taiwan", "twn"),
         "🇮🇩" to listOf("индонез", "indonesia", "idn"),
         "🇹🇭" to listOf("таиланд", "thailand", "tha"),
