@@ -165,19 +165,22 @@ class ProfileStore(context: Context) {
         throw ProfileStorageException(storageRecoveryMessage(), error)
     }
 
-    private fun decryptStored(value: String): String? = try {
+    private fun decryptStored(value: String): String = try {
         decrypt(value)
     } catch (error: KeyPermanentlyInvalidatedException) {
         throw ProfileStorageException(storageRecoveryMessage(), error)
     } catch (error: InvalidKeyException) {
         throw ProfileStorageException(storageRecoveryMessage(), error)
-    } catch (_: IllegalArgumentException) {
-        null
-    } catch (_: AEADBadTagException) {
-        null
-    } catch (_: BufferUnderflowException) {
-        null
+    } catch (error: IllegalArgumentException) {
+        throw ProfileStorageException(storageCorruptionMessage(), error)
+    } catch (error: AEADBadTagException) {
+        throw ProfileStorageException(storageCorruptionMessage(), error)
+    } catch (error: BufferUnderflowException) {
+        throw ProfileStorageException(storageCorruptionMessage(), error)
     }
+
+    private fun storageCorruptionMessage() =
+        "Не удалось проверить одну из сохранённых записей Astra: данные повреждены или не подходят к текущему ключу. Записи не удалены. Не очищай данные приложения; проверь резервную копию или повторно импортируй серверы после восстановления."
 
     private fun storageRecoveryMessage() =
         "Не удалось открыть защищённое хранилище Astra. Зашифрованные записи сохранены без изменений. Не удаляй данные приложения; если восстановление ключа невозможно, серверы потребуется импортировать заново."
