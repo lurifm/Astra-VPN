@@ -676,7 +676,7 @@ class MainActivity : Activity() {
     }
 
     private fun profileSummary(link: String): String {
-        val flag = countryFlag(profileName(link))
+        val flag = CountryFlagResolver.flagFor(profileName(link))
         val latency = pingInfo[link] ?: "Задержка не проверена"
         return "$flag  ${profileName(link)}  ·  ${protocolName(link)}\n$latency"
     }
@@ -686,59 +686,6 @@ class MainActivity : Activity() {
         "hysteria2", "hy2" -> "Hysteria2"
         "tuic" -> "TUIC"
         else -> "VPN"
-    }
-
-    private fun countryFlag(label: String): String {
-        val value = Uri.decode(label).lowercase()
-        val flags = listOf(
-            listOf("🇸🇪", "швец", "sweden", "swe"),
-            listOf("🇳🇱", "нидер", "голланд", "netherlands", "holland", "nld"),
-            listOf("🇬🇧", "британ", "великобрит", "united kingdom", "england", "uk", "gb", "gbr"),
-            listOf("🇩🇪", "герман", "germany", "deu"),
-            listOf("🇫🇷", "франц", "france", "fra"),
-            listOf("🇷🇺", "росс", "russia", "rus"),
-            listOf("🇫🇮", "финлянд", "finland", "fin"),
-            listOf("🇵🇱", "польш", "poland", "pol"),
-            listOf("🇹🇷", "турц", "turkey", "tur"),
-            listOf("🇺🇸", "сша", "united states", "america", "us", "usa"),
-            listOf("🇨🇦", "канад", "canada", "can"),
-            listOf("🇨🇭", "швейцар", "switzerland", "che"),
-            listOf("🇦🇹", "австри", "austria", "aut"),
-            listOf("🇮🇹", "итал", "italy", "ita"),
-            listOf("🇪🇸", "испани", "spain", "esp"),
-            listOf("🇳🇴", "норвег", "norway", "nor"),
-            listOf("🇩🇰", "дани", "denmark", "dnk"),
-            listOf("🇧🇪", "бельги", "belgium", "bel"),
-            listOf("🇨🇿", "чех", "czech", "cze"),
-            listOf("🇸🇰", "словаки", "slovakia", "svk"),
-            listOf("🇭🇺", "венгр", "hungary", "hun"),
-            listOf("🇷🇴", "румын", "romania", "rou"),
-            listOf("🇧🇬", "болгар", "bulgaria", "bgr"),
-            listOf("🇪🇪", "эстон", "estonia", "est"),
-            listOf("🇱🇻", "латви", "latvia", "lva"),
-            listOf("🇱🇹", "литв", "lithuania", "ltu"),
-            listOf("🇺🇦", "украин", "ukraine", "ukr"),
-            listOf("🇰🇿", "казах", "kazakhstan", "kaz"),
-            listOf("🇯🇵", "япони", "japan", "jpn"),
-            listOf("🇸🇬", "сингапур", "singapore", "sgp"),
-            listOf("🇰🇷", "коре", "south korea", "kor"),
-            listOf("🇭🇰", "гонконг", "hong kong", "hkg"),
-            listOf("🇦🇪", "оаэ", "uae", "emirates"),
-            listOf("🇮🇳", "инд", "india", "ind"),
-            listOf("🇧🇷", "браз", "brazil", "bra")
-        )
-        // ISO alpha-3 aliases must match as standalone tokens. A plain substring
-        // check mislabels unrelated names (for example, "can" inside "scan").
-        val normalized = value.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
-        return flags.firstOrNull { entry ->
-            entry.drop(1).any { token ->
-                when {
-                    token.length <= 3 && token.all { it.isLetter() } ->
-                        Regex("(^|\\s)${Regex.escape(token)}($|\\s)").containsMatchIn(normalized)
-                    else -> normalized.contains(token)
-                }
-            }
-        }?.first() ?: "🌐"
     }
 
     private fun requestNotificationPermissionIfNeeded() {
