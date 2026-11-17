@@ -24,8 +24,11 @@ jobs:
         with:
           gradle-version: 8.9
 
+      - name: Run unit tests
+        run: gradle --no-daemon testDebugUnitTest
+
       - name: Build APK
-        run: gradle --no-daemon clean assembleDebug
+        run: gradle --no-daemon assembleDebug
 
       - name: Verify unsigned debug APK
         run: |
