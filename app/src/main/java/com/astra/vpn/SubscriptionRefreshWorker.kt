@@ -24,20 +24,38 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
         return try {
             val store = ProfileStore(applicationContext)
             val sources = store.subscriptionSources()
-            if (sources.isEmpty()) return Result.success()
+            if (sources.isEmpty()) {
+                settings.edit().remove("subscription_retry_sources").apply()
+                return Result.success()
+            }
+            // Retry only providers that failed previously. Re-downloading successful
+            // subscriptions on every WorkManager backoff wastes bandwidth and can
+            // unnecessarily hit provider rate limits.
+            val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty()
+            val targets = if (pending.isEmpty()) sources else sources.filter { it in pending }
+            if (targets.isEmpty()) {
+                settings.edit().remove("subscription_retry_sources").apply()
+                return Result.success()
+            }
             settings.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
             var updated = 0
             var serverCount = 0
             var failures = 0
-            sources.forEach { source ->
+            val failedSources = linkedSetOf<String>()
+            targets.forEach { source ->
                 try {
                     val count = SubscriptionRefreshCoordinator.refresh(store, source)
                     updated++
                     serverCount += count
                 } catch (_: Exception) {
                     failures++
+                    failedSources += source
                 }
             }
+            settings.edit().apply {
+                if (failedSources.isEmpty()) remove("subscription_retry_sources")
+                else putStringSet("subscription_retry_sources", failedSources)
+            }.apply()
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
@@ -45,7 +63,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val message = if (failures == 0) {
                 "Обновлено подписок: $updated · серверов: $serverCount"
             } else {
-                "Успешно: $updated из ${sources.size} · ошибок: $failures"
+                "Успешно: $updated из ${targets.size} · ошибок: $failures"
             }
             postRefreshNotification(applicationContext, title, message, failures > 0)
             // A partial refresh is not fully successful: ask WorkManager to
