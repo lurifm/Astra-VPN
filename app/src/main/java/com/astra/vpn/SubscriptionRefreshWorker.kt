@@ -143,6 +143,22 @@ internal object SubscriptionRefreshInterval {
 }
 
 internal object SubscriptionRefreshTargets {
+    /**
+     * Preferences store fingerprints, while ProfileStore returns source URLs.
+     * Compare identifiers in the same representation, then return original URLs
+     * to the downloader without persisting or exposing them in retry state.
+     */
+    fun selectSources(
+        sources: List<String>,
+        pendingFingerprints: Set<String>,
+        knownFingerprints: Set<String>
+    ): List<String> {
+        val fingerprints = sources.map(SubscriptionSourceFingerprint::of)
+        val selected = select(fingerprints, pendingFingerprints, knownFingerprints)
+        val sourceByFingerprint = sources.associateBy(SubscriptionSourceFingerprint::of)
+        return selected.mapNotNull(sourceByFingerprint::get)
+    }
+
     /** Retry failed sources and include subscriptions added since the previous run. */
     fun select(sources: List<String>, pending: Set<String>, previouslyKnown: Set<String> = sources.toSet()): List<String> {
         if (sources.isEmpty()) return emptyList()
