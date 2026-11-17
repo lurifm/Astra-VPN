@@ -3,7 +3,6 @@ package com.astra.vpn
 import android.content.Intent
 import android.app.NotificationManager
 import android.net.VpnService
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
