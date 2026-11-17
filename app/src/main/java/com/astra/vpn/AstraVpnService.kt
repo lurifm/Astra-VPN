@@ -18,6 +18,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var activeConfig: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
+    private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tunTimeout = Runnable {
         if (commandServer != null && tunDescriptor == null) {
@@ -75,11 +76,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         try {
             val platform = AstraPlatform(this) { descriptor ->
-                runCatching { tunDescriptor?.close() }
-                tunDescriptor = descriptor
-                mainHandler.removeCallbacks(tunTimeout)
-                // Publish only after Android has actually established the TUN.
-                publishState(STATE_CONNECTED)
+                handleTunCreated(descriptor)
             }
             val server = CommandServer(this, platform)
             commandServer = server
@@ -142,8 +139,24 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         super.onDestroy()
     }
 
-    private fun stopTunnel() {
-        if (stopping) return
+    private fun handleTunCreated(descriptor: ParcelFileDescriptor) {
+        synchronized(lifecycleLock) {
+            // libbox may finish opening TUN while shutdown is already underway.
+            // Never resurrect a stopped service or publish CONNECTED in that race.
+            if (stopping) {
+                runCatching { descriptor.close() }
+                    .onFailure { Log.w(TAG, "Late TUN descriptor close failed", it) }
+                return
+            }
+            runCatching { tunDescriptor?.close() }
+            tunDescriptor = descriptor
+            mainHandler.removeCallbacks(tunTimeout)
+            publishState(STATE_CONNECTED)
+        }
+    }
+
+    private fun stopTunnel() = synchronized(lifecycleLock) {
+        if (stopping) return@synchronized
         stopping = true
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
