@@ -19,6 +19,20 @@ class CountryFlagResolverTest {
         assertEquals("🌐", CountryFlagResolver.flagFor(""))
     }
 
+    @Test fun recognizesAdditionalCommonServerLocations() {
+        assertEquals("🇵🇹", CountryFlagResolver.flagFor("Portugal-02"))
+        assertEquals("🇯🇵", CountryFlagResolver.flagFor("Tokyo Japan"))
+        assertEquals("🇸🇬", CountryFlagResolver.flagFor("Singapore"))
+        assertEquals("🇦🇺", CountryFlagResolver.flagFor("Australia Sydney"))
+        assertEquals("🇹🇭", CountryFlagResolver.flagFor("Thailand"))
+        assertEquals("🇿🇦", CountryFlagResolver.flagFor("South Africa"))
+    }
+
+    @Test fun resolvesCountryNamesAndAliasesWithoutFalsePositives() {
+        assertEquals("🇨🇳", CountryFlagResolver.flagFor("CN • Shanghai"))
+        assertEquals("🌐", CountryFlagResolver.flagFor("random"))
+    }
+
     @Test fun recognizesExplicitRussianCountryName() {
         assertEquals("🇷🇺", CountryFlagResolver.flagFor("Россия • Москва"))
     }
