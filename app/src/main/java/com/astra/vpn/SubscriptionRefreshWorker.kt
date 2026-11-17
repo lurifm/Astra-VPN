@@ -38,7 +38,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val pending = settings.getStringSet("subscription_retry_sources", emptySet())
                 .orEmpty().map(SubscriptionSourceFingerprint.fromStoredValue).toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
-                .orEmpty().map(::storedSourceFingerprint).toSet()
+                .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
             val targets = sources.filter { source ->
                 val fingerprint = SubscriptionSourceFingerprint.of(source)
                 fingerprint in pending || fingerprint !in known
