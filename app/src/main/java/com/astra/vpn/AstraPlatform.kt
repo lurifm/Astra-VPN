@@ -63,12 +63,6 @@ class AstraPlatform(
         val appPrefs = vpnService.getSharedPreferences("astra_settings", android.content.Context.MODE_PRIVATE)
         val selectedPackages = appPrefs.getStringSet("vpn_app_packages", emptySet())?.toSet().orEmpty()
         val appMode = appPrefs.getString("vpn_app_mode", "exclude") ?: "exclude"
-        if (appMode == "include" && selectedPackages.isEmpty()) {
-            // With no addAllowedApplication() calls Android routes every app
-            // through the VPN. Fail closed rather than silently turning an
-            // empty allow-list into full-device routing.
-            error("Режим «Только выбранные приложения» включён, но список пуст")
-        }
         var appliedPackageRules = 0
         selectedPackages.sorted().forEach { packageName ->
             runCatching {
@@ -82,11 +76,9 @@ class AstraPlatform(
                 Log.w(TAG, "Не удалось применить правило для приложения $packageName", error)
             }
         }
-        if (appMode == "include" && appliedPackageRules == 0) {
-            // If every saved package was uninstalled or invalid, do not let
-            // Android interpret an empty allow-list as the default full VPN.
-            error("Не удалось применить ни одно приложение из списка VPN")
-        }
+        // Validate after applying rules: if every saved package is missing,
+        // Android would otherwise interpret an empty allow-list as full VPN.
+        AppRoutingPolicy.validate(appMode, selectedPackages.size, appliedPackageRules)
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             builder.setMetered(false)
