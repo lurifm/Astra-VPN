@@ -126,8 +126,8 @@ class ProfileStore(context: Context) {
     fun subscriptionSummaries(): List<SubscriptionSummary> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         prefs.all.entries
         .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
-        .mapNotNull { (key, value) ->
-            val source = decryptStored(value as String) ?: return@mapNotNull null
+        .map { (key, value) ->
+            val source = decryptStored(value as String)
             val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
             val count = prefs.all.keys.count { it.startsWith(SUBSCRIPTION_PROFILE_PREFIX + id + "_") }
             val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
