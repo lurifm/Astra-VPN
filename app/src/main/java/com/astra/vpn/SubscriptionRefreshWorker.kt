@@ -36,7 +36,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // fingerprints in preferences, never the original URLs. Normalize legacy
             // entries once so upgrades also remove previously stored plaintext URLs.
             val pending = settings.getStringSet("subscription_retry_sources", emptySet())
-                .orEmpty().map(SubscriptionSourceFingerprint.fromStoredValue).toSet()
+                .orEmpty().map { SubscriptionSourceFingerprint.fromStoredValue(it) }.toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
                 .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
             val targets = sources.filter { source ->
