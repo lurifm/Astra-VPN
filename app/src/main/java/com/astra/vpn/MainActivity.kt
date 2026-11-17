@@ -469,9 +469,7 @@ class MainActivity : Activity() {
             val errors = mutableListOf<String>()
             sources.forEachIndexed { index, source ->
                 val result = runCatching {
-                    val parsed = SubscriptionParser.importDetailed(source)
-                    profileStore.replaceSubscription(source, parsed.links, parsed.metadata)
-                    parsed.links.size
+                    SubscriptionRefreshCoordinator.refresh(profileStore, source)
                 }
                 result.onSuccess {
                     updated++
