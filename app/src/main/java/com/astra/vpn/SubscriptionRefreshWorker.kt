@@ -31,8 +31,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // Retry only providers that failed previously. Re-downloading successful
             // subscriptions on every WorkManager backoff wastes bandwidth and can
             // unnecessarily hit provider rate limits.
-            val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty()
-            val targets = if (pending.isEmpty()) sources else sources.filter { it in pending }
+            val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty().toSet()
+            val targets = SubscriptionRefreshTargets.select(sources, pending)
             if (targets.isEmpty()) {
                 settings.edit().remove("subscription_retry_sources").apply()
                 return Result.success()
@@ -106,6 +106,19 @@ private fun postRefreshNotification(context: Context, title: String, message: St
         manager.notify(if (warning) 4202 else 4201, notification)
     } catch (_: Exception) {
         // Notifications are optional; subscription refresh must still complete.
+    }
+}
+
+internal object SubscriptionRefreshTargets {
+    /**
+     * Use the retry subset while it still exists. If all previously failed sources
+     * were removed, fall back to the current source list so newly added subscriptions
+     * are not silently skipped until the next periodic interval.
+     */
+    fun select(sources: List<String>, pending: Set<String>): List<String> {
+        if (sources.isEmpty()) return emptyList()
+        val retryTargets = sources.filter { it in pending }
+        return retryTargets.ifEmpty { sources }
     }
 }
 
