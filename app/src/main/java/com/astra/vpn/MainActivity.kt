@@ -1226,6 +1226,13 @@ class MainActivity : Activity() {
             isChecked = settingsPrefs.getBoolean("update_on_open", false)
         }
         panel.addView(updateOnOpen)
+        val subscriptionNotifications = CheckBox(this).apply {
+            text = "Уведомлять об обновлении подписок"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("subscription_notifications", true)
+        }
+        panel.addView(subscriptionNotifications)
         val interval = TextView(this).apply {
             textSize = 14f
             setTextColor(LIGHT_ACCENT)
@@ -1264,7 +1271,9 @@ class MainActivity : Activity() {
                     .putString("sort_mode", mode)
                     .putBoolean("auto_update", autoUpdate.isChecked)
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
+                    .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
                     .apply()
+                if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
                 maybeAutoUpdateSubscriptions(true)
