@@ -448,13 +448,14 @@ class MainActivity : Activity() {
             val host = uri.host ?: return@forEach
             val port = uri.port
             pingExecutor.execute {
-                val started = System.nanoTime()
-                val result = runCatching {
-                    Socket().use { socket -> socket.connect(InetSocketAddress(host, port), 3000) }
-                    ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
+                val result = runCatching { TcpLatencyProbe.measure(host, port) }
+                result.onSuccess {
+                    latencyMs[link] = it.tcpMedianMs
+                    pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (3 замера)"
+                }.onFailure {
+                    latencyMs.remove(link)
+                    pingInfo[link] = "TCP недоступен"
                 }
-                result.onSuccess { latencyMs[link] = it; pingInfo[link] = "${it} мс (TCP)" }
-                    .onFailure { latencyMs.remove(link); pingInfo[link] = "TCP недоступен" }
                 runOnUiThread { if (!isFinishing) renderProfiles() }
             }
         }
@@ -490,14 +491,15 @@ class MainActivity : Activity() {
         candidates.forEach { link ->
             autoSelectExecutor.execute {
                 val uri = Uri.parse(link)
-                val started = System.nanoTime()
-                val result = runCatching {
-                    Socket().use { socket -> socket.connect(InetSocketAddress(uri.host, uri.port), 3000) }
-                    ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
-                }
+                val result = runCatching { TcpLatencyProbe.measure(uri.host, uri.port) }
                 synchronized(latencyMs) {
-                    result.onSuccess { latencyMs[link] = it; pingInfo[link] = "${it} мс (TCP)" }
-                        .onFailure { latencyMs.remove(link); pingInfo[link] = "TCP недоступен" }
+                    result.onSuccess {
+                        latencyMs[link] = it.tcpMedianMs
+                        pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (3 замера)"
+                    }.onFailure {
+                        latencyMs.remove(link)
+                        pingInfo[link] = "TCP недоступен"
+                    }
                 }
                 latch.countDown()
                 runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
@@ -508,7 +510,7 @@ class MainActivity : Activity() {
             // per batch so large subscriptions are not ranked from only the
             // first few servers.
             val batches = (candidates.size + 2) / 3
-            val waitSeconds = batches * 3L + 1L
+            val waitSeconds = batches * 6L + 2L
             val completed = runCatching {
                 latch.await(waitSeconds, java.util.concurrent.TimeUnit.SECONDS)
             }.getOrDefault(false)
