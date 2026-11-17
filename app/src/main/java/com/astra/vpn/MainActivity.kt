@@ -600,7 +600,7 @@ class MainActivity : Activity() {
             entry.drop(1).any { token ->
                 when {
                     token.length <= 3 && token.all { it.isLetter() } ->
-                        Regex("(^|\\\\s)${Regex.escape(token)}($|\\\\s)").containsMatchIn(normalized)
+                        Regex("(^|\\s)${Regex.escape(token)}($|\\s)").containsMatchIn(normalized)
                     else -> normalized.contains(token)
                 }
             }
