@@ -764,8 +764,8 @@ class MainActivity : Activity() {
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
             receiverRegistered = true
         }
-        restoreVpnState()
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
+        restoreVpnState()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
