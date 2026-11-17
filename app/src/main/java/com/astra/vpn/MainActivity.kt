@@ -190,6 +190,8 @@ class MainActivity : Activity() {
         setContentView(root)
         requestNotificationPermissionIfNeeded()
         renderProfiles()
+        // Populate visible latency information as soon as saved profiles are loaded.
+        checkAllLatencies()
     }
 
     private fun showImportDialog() {
@@ -226,6 +228,7 @@ class MainActivity : Activity() {
                                     val links = result.getOrThrow()
                                     profileStore.addAll(links)
                                     renderProfiles()
+                                    checkAllLatencies()
                                     status.text = "Импортировано: ${links.size}"
                                     status.setTextColor(GREEN)
                                     Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
