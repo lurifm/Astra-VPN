@@ -153,15 +153,32 @@ class AstraPlatform(
             override fun onAvailable(network: Network) {
                 updateDefaultInterface(network)
             }
+
+            // Android can deliver onAvailable before LinkProperties are ready.
+            // Re-check when the interface name, addresses or routes arrive;
+            // otherwise sing-box may temporarily receive an empty interface.
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                updateDefaultInterface(network)
+            }
+
+            override fun onLinkPropertiesChanged(
+                network: Network,
+                linkProperties: android.net.LinkProperties
+            ) {
+                updateDefaultInterface(network)
+            }
+
             override fun onLost(network: Network) {
-                // Android may briefly report the network being torn down as active.
-                vpnService.mainExecutor.execute {
-                    val active = runCatching { connectivity.activeNetwork }.getOrNull()
-                    if (active == null || active == network) {
-                        notifyNoDefaultInterface(listener)
-                    } else {
-                        updateDefaultInterface(active)
-                    }
+                // Do not rely on Context.getMainExecutor(): it is API 28+,
+                // while this application supports Android 7.0 (API 24).
+                val active = runCatching { connectivity.activeNetwork }.getOrNull()
+                if (active == null || active == network) {
+                    notifyNoDefaultInterface(listener)
+                } else {
+                    updateDefaultInterface(active)
                 }
             }
         }
