@@ -25,14 +25,17 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val store = ProfileStore(applicationContext)
             val sources = store.subscriptionSources()
             if (sources.isEmpty()) {
-                settings.edit().remove("subscription_retry_sources").apply()
+                settings.edit().remove("subscription_retry_sources").remove("subscription_known_sources").apply()
                 return Result.success()
             }
             // Retry only providers that failed previously. Re-downloading successful
             // subscriptions on every WorkManager backoff wastes bandwidth and can
             // unnecessarily hit provider rate limits.
             val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty().toSet()
-            val targets = SubscriptionRefreshTargets.select(sources, pending)
+            val known = settings.getStringSet("subscription_known_sources", emptySet()).orEmpty().toSet()
+            val targets = SubscriptionRefreshTargets.select(sources, pending, known)
+            // Include subscriptions added since the previous run, even if another source keeps failing.
+            settings.edit().putStringSet("subscription_known_sources", sources.toSet()).apply()
             if (targets.isEmpty()) {
                 settings.edit().remove("subscription_retry_sources").apply()
                 return Result.success()
@@ -115,15 +118,11 @@ internal object SubscriptionRefreshInterval {
 }
 
 internal object SubscriptionRefreshTargets {
-    /**
-     * Use the retry subset while it still exists. If all previously failed sources
-     * were removed, fall back to the current source list so newly added subscriptions
-     * are not silently skipped until the next periodic interval.
-     */
-    fun select(sources: List<String>, pending: Set<String>): List<String> {
+    /** Retry failed sources and include subscriptions added since the previous run. */
+    fun select(sources: List<String>, pending: Set<String>, previouslyKnown: Set<String> = emptySet()): List<String> {
         if (sources.isEmpty()) return emptyList()
-        val retryTargets = sources.filter { it in pending }
-        return retryTargets.ifEmpty { sources }
+        val targets = sources.filter { it in pending || it !in previouslyKnown }
+        return targets.ifEmpty { sources.filter { it in pending }.ifEmpty { sources } }
     }
 }
 
