@@ -82,7 +82,7 @@ object SubscriptionParser {
             values["upload"],
             values["download"],
             values["total"],
-            values["expire"]?.takeIf { it > 0 }
+            values["expire"]?.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS }
         )
     }
 
@@ -161,6 +161,7 @@ object SubscriptionParser {
         }.getOrDefault(value)
     }
 
+    private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L // 9999-12-31T23:59:59Z
     private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
     private const val MAX_REDIRECTS = 5
 }
