@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.system.OsConstants
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
@@ -39,6 +40,10 @@ class AstraPlatform(
     private var interfaceListener: InterfaceUpdateListener? = null
 
     override fun useProcFS(): Boolean = false
+
+    companion object {
+        private const val TAG = "AstraPlatform"
+    }
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
@@ -149,9 +154,15 @@ class AstraPlatform(
                 updateDefaultInterface(network)
             }
             override fun onLost(network: Network) {
-                val active = connectivity.activeNetwork
-                if (active == null) listener.updateDefaultInterface("", -1, false, false)
-                else updateDefaultInterface(active)
+                // Android may briefly report the network being torn down as active.
+                vpnService.mainExecutor.execute {
+                    val active = runCatching { connectivity.activeNetwork }.getOrNull()
+                    if (active == null || active == network) {
+                        notifyNoDefaultInterface(listener)
+                    } else {
+                        updateDefaultInterface(active)
+                    }
+                }
             }
         }
         defaultNetworkCallback = callback
@@ -168,10 +179,10 @@ class AstraPlatform(
     private fun updateDefaultInterface(network: Network?) {
         val listener = interfaceListener ?: return
         if (network == null) {
-            listener.updateDefaultInterface("", -1, false, false)
+            notifyNoDefaultInterface(listener)
             return
         }
-        val initialCaps = connectivity.getNetworkCapabilities(network)
+        val initialCaps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
         val selectedNetwork = if (initialCaps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
             connectivity.allNetworks.firstOrNull { candidate ->
                 val caps = connectivity.getNetworkCapabilities(candidate)
@@ -182,15 +193,25 @@ class AstraPlatform(
         } else {
             network
         } ?: run {
-            listener.updateDefaultInterface("", -1, false, false)
+            notifyNoDefaultInterface(listener)
             return
         }
-        val properties = connectivity.getLinkProperties(selectedNetwork) ?: return
-        val name = properties.interfaceName ?: return
+        val properties = runCatching { connectivity.getLinkProperties(selectedNetwork) }.getOrNull()
+        val name = properties?.interfaceName
+        if (name.isNullOrBlank()) {
+            notifyNoDefaultInterface(listener)
+            return
+        }
         val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
-        val caps = connectivity.getNetworkCapabilities(selectedNetwork)
+        val caps = runCatching { connectivity.getNetworkCapabilities(selectedNetwork) }.getOrNull()
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-        listener.updateDefaultInterface(name, index, metered, false)
+        runCatching { listener.updateDefaultInterface(name, index, metered, false) }
+            .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
+    }
+
+    private fun notifyNoDefaultInterface(listener: InterfaceUpdateListener) {
+        runCatching { listener.updateDefaultInterface("", -1, false, false) }
+            .onFailure { Log.w(TAG, "Не удалось сообщить sing-box об отсутствии сети", it) }
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
