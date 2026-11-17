@@ -1259,6 +1259,15 @@ class MainActivity : Activity() {
             }
         }
         panel.addView(interval)
+        panel.addView(TextView(this).apply {
+            val lastUpdate = settingsPrefs.getLong("last_subscription_update", 0L)
+            text = if (lastUpdate > 0L) {
+                "Последнее обновление: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastUpdate))
+            } else "Подписки ещё не обновлялись"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(2), 0, dp(8))
+        })
         AlertDialog.Builder(this)
             .setTitle("Настройки Astra")
             .setView(panel)
