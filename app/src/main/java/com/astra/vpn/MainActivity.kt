@@ -292,6 +292,26 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
                     }
                 }
+                setOnLongClickListener {
+                    if (connected || connecting) {
+                        Toast.makeText(this@MainActivity, "Сначала отключи VPN", Toast.LENGTH_SHORT).show()
+                    } else {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Удалить сервер?")
+                            .setMessage("Профиль «$name» будет удалён с этого устройства.")
+                            .setNegativeButton("Отмена", null)
+                            .setPositiveButton("Удалить") { _, _ ->
+                                profileStore.remove(link)
+                                pingInfo.remove(link)
+                                latencyMs.remove(link)
+                                if (selectedProfile == link) selectedProfile = null
+                                renderProfiles()
+                                Toast.makeText(this@MainActivity, "Сервер удалён", Toast.LENGTH_SHORT).show()
+                            }
+                            .show()
+                    }
+                    true
+                }
             }
             val flag = TextView(this).apply {
                 text = countryFlag(name)
