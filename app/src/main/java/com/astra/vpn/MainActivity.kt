@@ -551,7 +551,7 @@ class MainActivity : Activity() {
         val total = item.totalBytes?.takeIf { it >= 0L }?.let(::formatTraffic)
         val traffic = when {
             used != null && total != null -> {
-                val remaining = (item.totalBytes!! - usedBytes).coerceAtLeast(0L)
+                val remaining = SubscriptionUsageCalculator.remainingBytes(usedBytes, item.totalBytes!!) ?: 0L
                 "Использовано: $used из $total · осталось ${formatTraffic(remaining)}"
             }
             used != null -> "Использовано: $used · лимит не указан"
@@ -569,7 +569,7 @@ class MainActivity : Activity() {
         val usedBytes = subscriptionUsedBytes(item)
         val trafficDetails = when {
             item.totalBytes != null && item.totalBytes >= 0L -> {
-                val remaining = (item.totalBytes - usedBytes).coerceAtLeast(0L)
+                val remaining = SubscriptionUsageCalculator.remainingBytes(usedBytes, item.totalBytes) ?: 0L
                 "Использовано: ${formatTraffic(usedBytes)}\nОсталось: ${formatTraffic(remaining)}\nВсего: ${formatTraffic(item.totalBytes)}"
             }
             item.uploadBytes != null || item.downloadBytes != null -> "Использовано: ${formatTraffic(usedBytes)}\nОбщий лимит не указан"
