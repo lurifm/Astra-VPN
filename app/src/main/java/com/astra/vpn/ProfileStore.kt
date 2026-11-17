@@ -23,6 +23,12 @@ import javax.crypto.spec.GCMParameterSpec
  */
 class ProfileStorageException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+data class SubscriptionSummary(
+    val sourceUrl: String,
+    val title: String,
+    val serverCount: Int
+)
+
 class ProfileStore(context: Context) {
     private val prefs = context.getSharedPreferences("astra_profiles", Context.MODE_PRIVATE)
 
@@ -68,6 +74,18 @@ class ProfileStore(context: Context) {
         .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
         .mapNotNull { (_, value) -> decryptStored(value as String) }
         .distinct()
+
+    /** Safe local summary; usage and expiry are displayed only when provider metadata exists. */
+    fun subscriptionSummaries(): List<SubscriptionSummary> = prefs.all.entries
+        .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
+        .mapNotNull { (key, value) ->
+            val source = decryptStored(value as String) ?: return@mapNotNull null
+            val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
+            val count = prefs.all.keys.count { it.startsWith(SUBSCRIPTION_PROFILE_PREFIX + id + "_") }
+            val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
+            SubscriptionSummary(source, host?.takeIf { it.isNotBlank() } ?: "Подписка", count)
+        }
+        .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
 
     fun remove(link: String) {
         val entry = prefs.all.entries.firstOrNull { (_, value) ->
