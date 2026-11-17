@@ -1348,8 +1348,24 @@ class MainActivity : Activity() {
     private fun showConnectionDiagnostics() {
         val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivity.activeNetwork
-        val capabilities = network?.let { connectivity.getNetworkCapabilities(it) }
-        val networkType = when {
+        val activeCapabilities = network?.let { connectivity.getNetworkCapabilities(it) }
+        val vpnTransport = activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        // While VPN is connected, activeNetwork can describe the VPN interface itself.
+        // Look for the physical underlay so diagnostics reports Wi-Fi/mobile correctly.
+        val underlyingCapabilities = if (vpnTransport) {
+            connectivity.allNetworks
+                .mapNotNull { candidate -> connectivity.getNetworkCapabilities(candidate) }
+                .filter { candidate ->
+                    !candidate.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                        candidate.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                }
+                .sortedByDescending {
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                }
+                .firstOrNull()
+        } else null
+        val capabilities = underlyingCapabilities ?: activeCapabilities
+        val physicalNetworkType = when {
             capabilities == null -> "Нет активной сети"
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Мобильная сеть"
@@ -1357,9 +1373,13 @@ class MainActivity : Activity() {
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
             else -> "Другая сеть"
         }
+        val networkType = if (vpnTransport && underlyingCapabilities != null) {
+            "$physicalNetworkType (через VPN)"
+        } else if (vpnTransport) {
+            "VPN (физическая сеть не определена)"
+        } else physicalNetworkType
         val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-        val vpnTransport = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
         val selected = selectedProfile
         val active = activeProfile
         val latency = selected?.let { pingInfo[it] } ?: "Нет данных"
