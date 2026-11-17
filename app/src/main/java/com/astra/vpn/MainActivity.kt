@@ -572,9 +572,9 @@ class MainActivity : Activity() {
             .setPositiveButton("Удалить") { _, _ ->
                 runCatching { profileStore.removeSubscription(item.sourceUrl) }
                     .onSuccess { removed ->
-                        if (activeProfile in removed || selectedProfile in removed) stopTunnel()
-                        if (activeProfile in removed) activeProfile = null
-                        if (selectedProfile in removed) selectedProfile = null
+                        if (activeProfile?.let { it in removed } == true || selectedProfile?.let { it in removed } == true) stopTunnel()
+                        if (activeProfile?.let { it in removed } == true) activeProfile = null
+                        if (selectedProfile?.let { it in removed } == true) selectedProfile = null
                         renderProfiles()
                         checkAllLatencies()
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
