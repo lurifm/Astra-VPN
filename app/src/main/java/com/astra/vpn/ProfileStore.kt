@@ -103,7 +103,7 @@ class ProfileStore(context: Context) {
         val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
         val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
         val removed = prefs.all.entries.filter { it.key.startsWith(profilePrefix) }
-            .mapNotNull { (_, value) -> decryptStored(value as String) }
+            .map { (_, value) -> decryptStored(value as String) }
         val editor = prefs.edit()
         prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
         editor.remove(sourceKey)
@@ -144,8 +144,11 @@ class ProfileStore(context: Context) {
     }
 
     fun remove(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        val entry = prefs.all.entries.firstOrNull { (_, value) ->
-            decryptStored(value as String) == link
+        // Only profile values are encrypted proxy links. Subscription metadata
+        // is stored as plain encoded strings and must never enter decryptStored().
+        val entry = prefs.all.entries.firstOrNull { (key, value) ->
+            (key.startsWith(PROFILE_PREFIX) || key.startsWith(SUBSCRIPTION_PROFILE_PREFIX)) &&
+                decryptStored(value as String) == link
         } ?: return@synchronized
         check(prefs.edit().remove(entry.key).commit()) { "Не удалось удалить сервер" }
     }
