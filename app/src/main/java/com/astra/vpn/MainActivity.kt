@@ -34,8 +34,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var connectButton: Button
     private lateinit var selectedInfo: TextView
-    private val pingInfo = mutableMapOf<String, String>()
-    private val latencyMs = mutableMapOf<String, Long>()
+    private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     private var selectedProfile: String? = null
