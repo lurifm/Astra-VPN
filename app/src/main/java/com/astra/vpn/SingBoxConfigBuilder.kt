@@ -155,7 +155,7 @@ object SingBoxConfigBuilder {
             .put("tls", JSONObject()
                 .put("enabled", true)
                 .put("server_name", uri.getQueryParameter("sni") ?: server)
-                .put("insecure", uri.getQueryParameter("insecure") == "1")
+                .put("insecure", uri.getQueryParameter("insecure").isTruthy())
                 .put("alpn", JSONArray().put("h3")))
     }
 }
