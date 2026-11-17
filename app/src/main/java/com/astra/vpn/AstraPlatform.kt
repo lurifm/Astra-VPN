@@ -43,6 +43,10 @@ class AstraPlatform(
     private var hasReportedNoInterface = false
 
     private data class InterfaceSnapshot(
+        // Include the Android Network handle, not just the interface name:
+        // Wi-Fi can disconnect and reconnect with the same wlan interface,
+        // while its Network identity and routing underneath have changed.
+        val network: Network,
         val name: String,
         val index: Int,
         val metered: Boolean
@@ -262,7 +266,7 @@ class AstraPlatform(
         val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
         val caps = runCatching { connectivity.getNetworkCapabilities(selectedNetwork) }.getOrNull()
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-        val snapshot = InterfaceSnapshot(name, index, metered)
+        val snapshot = InterfaceSnapshot(selectedNetwork, name, index, metered)
         if (snapshot != lastInterfaceSnapshot || hasReportedNoInterface) {
             runCatching { listener.updateDefaultInterface(name, index, metered, false) }
                 .onSuccess {
