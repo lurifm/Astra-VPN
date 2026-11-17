@@ -153,6 +153,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putString(PREF_STATE, state)
             .putString(PREF_ERROR, error)
+            .putLong(PREF_UPDATED_AT, System.currentTimeMillis())
             .apply()
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
@@ -173,6 +174,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val STATE_PREFS = "astra_vpn_state"
         const val PREF_STATE = "state"
         const val PREF_ERROR = "error"
+        const val PREF_UPDATED_AT = "updated_at"
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1
         private const val TUN_TIMEOUT_MS = 20_000L
