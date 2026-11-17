@@ -65,6 +65,9 @@ class MainActivity : Activity() {
             autoUpdateHandler.postDelayed(this, 60_000L)
         }
     }
+    private lateinit var monitorCard: LinearLayout
+    private lateinit var monitorProtection: TextView
+    private lateinit var monitorVpnCountry: TextView
     private lateinit var monitorNetwork: TextView
     private lateinit var monitorOperator: TextView
     private lateinit var monitorDownload: TextView
@@ -125,6 +128,7 @@ class MainActivity : Activity() {
                 }
             }
             updateGeoLocationForState()
+            updateProtectionLabels()
             renderProfiles()
         }
     }
@@ -143,6 +147,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        val settingsButton = TextView(this).apply {
+            text = "⚙"
+            textSize = 27f
+            gravity = Gravity.CENTER
+            setTextColor(LIGHT_ACCENT)
+            background = rounded(CARD, 16)
+            setOnClickListener { showAppSettingsDialog() }
+        }
         val brand = TextView(this).apply {
             text = "ASTRA"
             textSize = 27f
@@ -158,7 +170,8 @@ class MainActivity : Activity() {
             background = rounded(CARD, 18)
             setOnClickListener { showImportDialog() }
         }
-        header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f))
+        header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
+        header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
@@ -230,17 +243,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
             setOnClickListener { selectFastestServer() }
         }
-        val settingsButton = TextView(this).apply {
-            text = "Настройки"
-            textSize = 12f
-            setTextColor(LIGHT_ACCENT)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(4), 0)
-            setOnClickListener { showAppSettingsDialog() }
-        }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
-        listHeader.addView(settingsButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
 
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -252,7 +256,7 @@ class MainActivity : Activity() {
         root.addView(header)
         root.addView(subtitle)
         root.addView(connectCard, matchWidth())
-        val monitorCard = LinearLayout(this).apply {
+        monitorCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = rounded(CARD, 20)
@@ -292,6 +296,21 @@ class MainActivity : Activity() {
         speedRow.addView(monitorDownload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedRow.addView(monitorUpload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedGraph = SpeedGraphView(this)
+        monitorProtection = TextView(this).apply {
+            text = "🛡 Защита: отключена"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(MUTED)
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        monitorVpnCountry = TextView(this).apply {
+            text = "Страна выхода VPN: —"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        monitorCard.addView(monitorProtection)
+        monitorCard.addView(monitorVpnCountry)
         monitorCard.addView(monitorNetwork)
         monitorCard.addView(monitorOperator)
         monitorCard.addView(speedRow)
@@ -303,10 +322,6 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, 0)
         }
         monitorCard.addView(monitorLocation)
-        root.addView(monitorCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-            bottomMargin = dp(4)
-        })
         root.addView(listHeader)
         root.addView(scroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
@@ -478,7 +493,9 @@ class MainActivity : Activity() {
             connecting -> "ПОДКЛЮЧАЕМСЯ…"
             else -> "ПОДКЛЮЧИТЬСЯ"
         }
-        selectedInfo.text = selected?.let { profileSummary(it) } ?: "Сначала добавь сервер"
+        selectedInfo.text = selected?.let {
+            if (connected && it == activeProfile) "🛡 Защищено · ${profileSummary(it)}" else profileSummary(it)
+        } ?: "Сначала добавь сервер"
 
         if (profiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
@@ -965,11 +982,32 @@ class MainActivity : Activity() {
                     if (isVpn) vpnCountry = country else originalCountry = country
                     monitorLocation.text = "До VPN: $originalCountry  ·  Сейчас: " +
                         if (connected) vpnCountry else originalCountry
+                    updateProtectionLabels()
+                    monitorVpnCountry.text = "Страна выхода VPN: " + if (connected) vpnCountry else "VPN отключён"
                 }.onFailure {
                     monitorLocation.text = "Геолокация по IP временно недоступна"
                 }
             }
         }
+    }
+
+    private fun updateProtectionLabels() {
+        monitorProtection.text = if (connected) "🛡 Трафик защищён · VPN активен" else if (connecting) "◌ Подключение VPN…" else "○ Защита выключена"
+        monitorProtection.setTextColor(if (connected) GREEN else if (connecting) AMBER else MUTED)
+        if (!connected) monitorVpnCountry.text = "Страна выхода VPN: —"
+        else monitorVpnCountry.text = "Страна выхода VPN: $vpnCountry"
+    }
+
+    private fun showNetworkMonitorDialog() {
+        val content = ScrollView(this).apply {
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(monitorCard)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Мониторинг сети")
+            .setView(content)
+            .setPositiveButton("Закрыть", null)
+            .show()
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
@@ -1007,6 +1045,15 @@ class MainActivity : Activity() {
             })
         }
         panel.addView(sortGroup)
+        val monitorEntry = TextView(this).apply {
+            text = "📊  Мониторинг сети  ›"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(16), 0, dp(14))
+            setOnClickListener { showNetworkMonitorDialog() }
+        }
+        panel.addView(monitorEntry)
         val autoUpdate = CheckBox(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
