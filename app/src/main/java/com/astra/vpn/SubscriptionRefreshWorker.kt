@@ -58,7 +58,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 // A stopped worker must not silently lose subscriptions it had not
                 // reached yet. Persist those fingerprints so the next run resumes them.
                 if (isStopped) {
-                    targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
+                    failedSources += SubscriptionRefreshRetryState.pendingAfterStop(targets, index, failedSources)
                     persistRefreshState(settings, failedSources, sources)
                     return Result.retry()
                 }
@@ -101,6 +101,19 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             postRefreshNotification(applicationContext, "Не удалось обновить подписки", "Проверь подключение к интернету и настройки подписок.", true)
             Result.retry()
         }
+    }
+}
+
+/** Build the retry set when a worker is stopped before finishing its target list. */
+internal object SubscriptionRefreshRetryState {
+    fun pendingAfterStop(
+        targets: List<String>,
+        nextIndex: Int,
+        alreadyFailed: Set<String>
+    ): Set<String> = buildSet {
+        addAll(alreadyFailed)
+        targets.drop(nextIndex.coerceIn(0, targets.size))
+            .mapTo(this, SubscriptionSourceFingerprint::of)
     }
 }
 
