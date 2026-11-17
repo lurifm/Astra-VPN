@@ -178,6 +178,7 @@ class AstraPlatform(
         destinationPort: Int
     ): ConnectionOwner = error("Определение владельца соединения пока не поддерживается")
 
+    @Synchronized
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         interfaceListener = listener
         if (defaultNetworkCallback != null) {
@@ -222,20 +223,31 @@ class AstraPlatform(
      * Network argument. A delayed callback for a previous Wi-Fi/cellular network
      * must not overwrite the interface selected after a handover.
      */
+    @Synchronized
     private fun refreshDefaultInterface() {
+        // Read activeNetwork and update the snapshot under the same monitor.
+        // This prevents an older callback from applying a stale network after
+        // a newer callback has already processed a handover.
         val active = runCatching { connectivity.activeNetwork }.getOrNull()
         updateDefaultInterface(active)
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
-        defaultNetworkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
-        defaultNetworkCallback = null
-        interfaceListener = null
-        lastUnderlyingNetwork = null
-        lastInterfaceSnapshot = null
-        hasReportedNoInterface = false
+        // Detach state before unregistering. A callback already queued by
+        // Android may still run, but it will see a null listener and do nothing.
+        val callback = synchronized(this) {
+            val current = defaultNetworkCallback
+            defaultNetworkCallback = null
+            interfaceListener = null
+            lastUnderlyingNetwork = null
+            lastInterfaceSnapshot = null
+            hasReportedNoInterface = false
+            current
+        }
+        callback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
     }
 
+    @Synchronized
     private fun updateDefaultInterface(network: Network?) {
         val listener = interfaceListener ?: return
         val selectedNetwork = resolveUnderlyingNetwork(network)
