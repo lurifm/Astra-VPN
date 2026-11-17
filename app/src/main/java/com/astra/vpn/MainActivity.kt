@@ -328,7 +328,7 @@ class MainActivity : Activity() {
             val scheme = uri.scheme.orEmpty().lowercase()
             if (scheme != "vless") {
                 pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic")
-                    "UDP • тест не поддерживается" else "—"
+                    "UDP • TCP-тест не применяется" else "—"
                 runOnUiThread { renderProfiles() }
                 return@forEach
             }
@@ -340,7 +340,7 @@ class MainActivity : Activity() {
                     Socket().use { socket -> socket.connect(InetSocketAddress(host, port), 3000) }
                     ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(1)
                 }
-                pingInfo[link] = result.fold({ "${it} мс (TCP)" }, { "Недоступен" })
+                pingInfo[link] = result.fold({ "${it} мс (TCP)" }, { "TCP недоступен" })
                 runOnUiThread { if (!isFinishing) renderProfiles() }
             }
         }
