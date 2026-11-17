@@ -35,7 +35,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     activeConfig = config
-                    publishState(STATE_CONNECTED)
+                    if (tunDescriptor != null) {
+                        publishState(STATE_CONNECTED)
+                    } else {
+                        publishState(STATE_CONNECTING)
+                    }
                 }
                 .onFailure {
                     Log.e(TAG, "Не удалось перезапустить VPN", it)
@@ -54,8 +58,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             server.start()
             server.startOrReloadService(config, OverrideOptions())
             activeConfig = config
-            Log.i(TAG, "sing-box VPN tunnel started")
-            publishState(STATE_CONNECTED)
+            Log.i(TAG, "sing-box service accepted configuration")
+            if (tunDescriptor != null) {
+                publishState(STATE_CONNECTED)
+            } else {
+                publishState(STATE_CONNECTING)
+                Log.w(TAG, "sing-box accepted config but Android TUN is not established yet")
+            }
         } catch (error: Exception) {
             Log.e(TAG, "Не удалось запустить sing-box VPN", error)
             stopTunnel()
@@ -128,6 +137,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val EXTRA_STATE = "com.astra.vpn.extra.STATE"
         const val EXTRA_ERROR = "com.astra.vpn.extra.ERROR"
         const val STATE_CONNECTED = "connected"
+        const val STATE_CONNECTING = "connecting"
         const val STATE_DISCONNECTED = "disconnected"
         const val STATE_ERROR = "error"
         private const val TAG = "AstraVpnService"
