@@ -38,6 +38,15 @@ class AstraPlatform(
     private val connectivity = vpnService.getSystemService(ConnectivityManager::class.java)
     private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var interfaceListener: InterfaceUpdateListener? = null
+    private var lastUnderlyingNetwork: Network? = null
+    private var lastInterfaceSnapshot: InterfaceSnapshot? = null
+    private var hasReportedNoInterface = false
+
+    private data class InterfaceSnapshot(
+        val name: String,
+        val index: Int,
+        val metered: Boolean
+    )
 
     override fun useProcFS(): Boolean = false
 
@@ -224,28 +233,41 @@ class AstraPlatform(
         val listener = interfaceListener ?: return
         val selectedNetwork = resolveUnderlyingNetwork(network)
         if (selectedNetwork == null) {
-            runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
-                .onFailure { Log.w(TAG, "Не удалось обновить базовую сеть VPN", it) }
-            notifyNoDefaultInterface(listener)
+            if (lastUnderlyingNetwork != null) {
+                runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
+                    .onFailure { Log.w(TAG, "Не удалось обновить базовую сеть VPN", it) }
+                lastUnderlyingNetwork = null
+            }
+            notifyNoDefaultInterfaceIfChanged(listener)
             return
         }
 
-        // Tell Android which physical network carries this VPN. This also makes
-        // handovers more predictable when Wi-Fi and cellular are both available.
-        runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
-            .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
+        // Update Android only when the physical underlay actually changes.
+        // Connectivity callbacks can arrive in bursts during Wi-Fi/mobile handover.
+        if (lastUnderlyingNetwork != selectedNetwork) {
+            runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
+                .onSuccess { lastUnderlyingNetwork = selectedNetwork }
+                .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
+        }
 
         val properties = runCatching { connectivity.getLinkProperties(selectedNetwork) }.getOrNull()
         val name = properties?.interfaceName
         if (name.isNullOrBlank()) {
-            notifyNoDefaultInterface(listener)
+            notifyNoDefaultInterfaceIfChanged(listener)
             return
         }
         val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
         val caps = runCatching { connectivity.getNetworkCapabilities(selectedNetwork) }.getOrNull()
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-        runCatching { listener.updateDefaultInterface(name, index, metered, false) }
-            .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
+        val snapshot = InterfaceSnapshot(name, index, metered)
+        if (snapshot != lastInterfaceSnapshot || hasReportedNoInterface) {
+            runCatching { listener.updateDefaultInterface(name, index, metered, false) }
+                .onSuccess {
+                    lastInterfaceSnapshot = snapshot
+                    hasReportedNoInterface = false
+                }
+                .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
+        }
     }
 
     /**
@@ -292,8 +314,13 @@ class AstraPlatform(
         ).firstOrNull()?.first
     }
 
-    private fun notifyNoDefaultInterface(listener: InterfaceUpdateListener) {
+    private fun notifyNoDefaultInterfaceIfChanged(listener: InterfaceUpdateListener) {
+        if (hasReportedNoInterface && lastInterfaceSnapshot == null) return
         runCatching { listener.updateDefaultInterface("", -1, false, false) }
+            .onSuccess {
+                lastInterfaceSnapshot = null
+                hasReportedNoInterface = true
+            }
             .onFailure { Log.w(TAG, "Не удалось сообщить sing-box об отсутствии сети", it) }
     }
 
