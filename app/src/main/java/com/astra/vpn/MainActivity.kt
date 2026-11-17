@@ -533,11 +533,11 @@ class MainActivity : Activity() {
         null
     }
 
-    private fun safeSubscriptionSummaries(): List<SubscriptionSummary> = try {
+    private fun safeSubscriptionSummaries(): List<SubscriptionSummary>? = try {
         profileStore.subscriptionSummaries()
     } catch (error: ProfileStorageException) {
         showStorageError(error)
-        emptyList()
+        null
     }
 
     private fun subscriptionUsedBytes(item: SubscriptionSummary): Long =
@@ -672,8 +672,8 @@ class MainActivity : Activity() {
     }
     private fun renderProfiles() {
         val profiles = safeProfiles() ?: return
+        val summaries = safeSubscriptionSummaries() ?: return
         profileList.removeAllViews()
-        val summaries = safeSubscriptionSummaries()
         if (summaries.isNotEmpty()) {
             profileList.addView(TextView(this).apply {
                 text = "ПОДПИСКИ"
