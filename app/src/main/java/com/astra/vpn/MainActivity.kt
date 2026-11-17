@@ -518,6 +518,7 @@ class MainActivity : Activity() {
     }
 
     private fun connectSelectedProfile() {
+        if (connected || connecting) return
         val link = selectedProfile ?: return
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse { error ->
             AlertDialog.Builder(this).setTitle("Ошибка конфигурации")
@@ -630,6 +631,10 @@ class MainActivity : Activity() {
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
         } catch (error: Exception) {
+            // Do not leave a stale configuration behind after a failed service start.
+            pendingConfig = null
+            connecting = false
+            connected = false
             status.text = "Не удалось запустить VPN"
             status.setTextColor(RED)
             Toast.makeText(this, error.message ?: "Ошибка запуска VPN", Toast.LENGTH_LONG).show()
