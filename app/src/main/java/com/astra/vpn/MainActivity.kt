@@ -32,6 +32,8 @@ import android.widget.RadioGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
@@ -39,6 +41,8 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
+    private lateinit var serverSearch: EditText
+    private lateinit var countryFilter: Spinner
     private lateinit var status: TextView
     private lateinit var connectButton: Button
     private lateinit var selectedInfo: TextView
@@ -247,6 +251,34 @@ class MainActivity : Activity() {
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
 
+        val filterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(5), 0, dp(8))
+        }
+        serverSearch = EditText(this).apply {
+            hint = "Поиск сервера…"
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+            setPadding(dp(12), 0, dp(8), 0)
+            background = rounded(CARD, 12)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { renderProfiles() }
+                override fun afterTextChanged(s: android.text.Editable?) {}
+            })
+        }
+        countryFilter = Spinner(this).apply {
+            setPadding(dp(4), 0, dp(4), 0)
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) { renderProfiles() }
+            }
+        }
+        filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
+        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply {
             isFillViewport = false
@@ -329,6 +361,7 @@ class MainActivity : Activity() {
         }
         monitorCard.addView(monitorLocation)
         root.addView(listHeader)
+        root.addView(filterRow, matchWidth())
         root.addView(scroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
@@ -700,6 +733,22 @@ class MainActivity : Activity() {
             })
         }
         val profiles = safeProfiles()
+        val allCountries = profiles.map { CountryFlagResolver.flagFor(profileName(it)) }
+            .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
+        val filterOptions = listOf("Все страны") + allCountries
+        val currentOptions = (0 until countryFilter.count).mapNotNull { countryFilter.getItemAtPosition(it)?.toString() }
+        if (currentOptions != filterOptions) {
+            countryFilter.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, filterOptions)
+        }
+        val selectedCountry = countryFilter.selectedItem?.toString()?.takeIf { it != "Все страны" }
+        val query = serverSearch.text?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
+        val filteredProfiles = profiles.filter { link ->
+            val name = profileName(link)
+            val matchesText = query.isBlank() || name.lowercase(java.util.Locale.getDefault()).contains(query) ||
+                link.lowercase(java.util.Locale.ROOT).contains(query) || protocolName(link).lowercase().contains(query)
+            val matchesCountry = selectedCountry == null || CountryFlagResolver.flagFor(name) == selectedCountry
+            matchesText && matchesCountry
+        }
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
@@ -713,9 +762,9 @@ class MainActivity : Activity() {
             if (connected && it == activeProfile) "🛡 Защищено · ${profileSummary(it)}" else profileSummary(it)
         } ?: "Сначала добавь сервер"
 
-        if (profiles.isEmpty()) {
+        if (profiles.isEmpty() || filteredProfiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
-                text = "Пока нет серверов. Нажми + и импортируй ссылку подписки."
+                text = if (profiles.isEmpty()) "Пока нет серверов. Нажми + и импортируй ссылку подписки." else "По заданным фильтрам серверы не найдены."
                 textSize = 14f
                 setTextColor(MUTED)
                 setPadding(dp(4), dp(12), dp(4), dp(12))
@@ -725,9 +774,9 @@ class MainActivity : Activity() {
 
         val favorites = settingsPrefs.getStringSet("favorite_servers", emptySet()) ?: emptySet()
         val sortedProfiles = when (sortMode) {
-            "ping" -> profiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
-            "alphabet" -> profiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
-            else -> profiles
+            "ping" -> filteredProfiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
+            "alphabet" -> filteredProfiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
+            else -> filteredProfiles
         }
         val displayProfiles = sortedProfiles.sortedByDescending { it in favorites }
 
