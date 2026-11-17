@@ -24,8 +24,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -451,7 +449,7 @@ class MainActivity : Activity() {
                 val result = runCatching { TcpLatencyProbe.measure(host, port) }
                 result.onSuccess {
                     latencyMs[link] = it.tcpMedianMs
-                    pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (3 замера)"
+                    pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (${it.successfulSamples}/3)"
                 }.onFailure {
                     latencyMs.remove(link)
                     pingInfo[link] = "TCP недоступен"
@@ -491,7 +489,7 @@ class MainActivity : Activity() {
         candidates.forEach { link ->
             autoSelectExecutor.execute {
                 val uri = Uri.parse(link)
-                val result = runCatching { TcpLatencyProbe.measure(uri.host, uri.port) }
+                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
                 synchronized(latencyMs) {
                     result.onSuccess {
                         latencyMs[link] = it.tcpMedianMs
