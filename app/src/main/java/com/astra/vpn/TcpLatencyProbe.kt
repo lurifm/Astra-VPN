@@ -24,22 +24,29 @@ object TcpLatencyProbe {
         require(port in 1..65535) { "Invalid port" }
 
         val dnsStarted = System.nanoTime()
-        val address = InetAddress.getAllByName(host).firstOrNull()
-            ?: throw IllegalStateException("DNS returned no addresses")
+        val addresses = InetAddress.getAllByName(host)
         val dnsMs = elapsedMillis(dnsStarted)
+        if (addresses.isEmpty()) throw IllegalStateException("DNS returned no addresses")
 
-        val samples = mutableListOf<Long>()
-        repeat(SAMPLE_COUNT) {
-            val started = System.nanoTime()
-            val connected = runCatching {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
-                }
-            }.isSuccess
-            if (connected) samples += elapsedMillis(started)
+        // A hostname may resolve to both IPv4 and IPv6. The first address
+        // is not necessarily reachable on the current network, so try each
+        // address until one completes at least one TCP connection.
+        for (address in addresses) {
+            val samples = mutableListOf<Long>()
+            repeat(SAMPLE_COUNT) {
+                val started = System.nanoTime()
+                val connected = runCatching {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
+                    }
+                }.isSuccess
+                if (connected) samples += elapsedMillis(started)
+            }
+            if (samples.isNotEmpty()) {
+                return Result(dnsMs, median(samples), samples.size)
+            }
         }
-        if (samples.isEmpty()) throw IllegalStateException("TCP endpoint is unreachable")
-        return Result(dnsMs, median(samples), samples.size)
+        throw IllegalStateException("TCP endpoint is unreachable")
     }
 
     fun median(values: List<Long>): Long {
