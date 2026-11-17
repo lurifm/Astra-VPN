@@ -59,7 +59,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 // reached yet. Persist those fingerprints so the next run resumes them.
                 if (isStopped) {
                     failedSources += SubscriptionRefreshRetryState.pendingAfterStop(targets, index, failedSources)
-                    persistRefreshState(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 }
                 try {
@@ -106,6 +106,18 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
 
 /** Build the retry set when a worker is stopped before finishing its target list. */
 internal object SubscriptionRefreshRetryState {
+    fun persist(
+        settings: android.content.SharedPreferences,
+        failedSources: Set<String>,
+        currentSources: List<String>
+    ) {
+        settings.edit().apply {
+            if (failedSources.isEmpty()) remove("subscription_retry_sources")
+            else putStringSet("subscription_retry_sources", failedSources.toSet())
+            putStringSet("subscription_known_sources", currentSources.map(SubscriptionSourceFingerprint::of).toSet())
+        }.apply()
+    }
+
     fun pendingAfterStop(
         targets: List<String>,
         nextIndex: Int,
@@ -115,19 +127,6 @@ internal object SubscriptionRefreshRetryState {
         targets.drop(nextIndex.coerceIn(0, targets.size))
             .mapTo(this, SubscriptionSourceFingerprint::of)
     }
-}
-
-/** Persist retry identifiers only; source URLs can contain provider credentials. */
-private fun persistRefreshState(
-    settings: android.content.SharedPreferences,
-    failedSources: Set<String>,
-    currentSources: List<String>
-) {
-    settings.edit().apply {
-        if (failedSources.isEmpty()) remove("subscription_retry_sources")
-        else putStringSet("subscription_retry_sources", failedSources.toSet())
-        putStringSet("subscription_known_sources", currentSources.map(SubscriptionSourceFingerprint::of).toSet())
-    }.apply()
 }
 
 /**
