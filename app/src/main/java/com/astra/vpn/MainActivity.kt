@@ -171,14 +171,23 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
         }
+        val updateSubscriptions = TextView(this).apply {
+            text = "Обновить"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+            setOnClickListener { refreshSubscriptions() }
+        }
         val refresh = TextView(this).apply {
-            text = "Автовыбор сервера"
+            text = "Автовыбор"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
             setOnClickListener { selectFastestServer() }
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
+        listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
 
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -231,7 +240,11 @@ class MainActivity : Activity() {
                                 dialog.dismiss()
                                 if (result.isSuccess) {
                                     val links = result.getOrThrow()
-                                    profileStore.addAll(links)
+                                    if (value.startsWith("https://", ignoreCase = true)) {
+                                        profileStore.replaceSubscription(value, links)
+                                    } else {
+                                        profileStore.addAll(links)
+                                    }
                                     renderProfiles()
                                     checkAllLatencies()
                                     status.text = "Импортировано: ${links.size}"
@@ -251,6 +264,59 @@ class MainActivity : Activity() {
                 }
                 dialog.show()
             }
+    }
+
+    /**
+     * Refresh each previously imported HTTPS subscription independently.
+     * The previous server set is kept whenever download, parsing or storage fails.
+     */
+    private fun refreshSubscriptions() {
+        if (connected || connecting) {
+            Toast.makeText(this, "Отключи VPN перед обновлением подписок", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sources = profileStore.subscriptionSources()
+        if (sources.isEmpty()) {
+            Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
+            return
+        }
+        status.text = "Обновляем подписки…"
+        status.setTextColor(AMBER)
+        importExecutor.execute {
+            var updated = 0
+            var totalProfiles = 0
+            val errors = mutableListOf<String>()
+            sources.forEachIndexed { index, source ->
+                val result = runCatching {
+                    val links = SubscriptionParser.importText(source)
+                    profileStore.replaceSubscription(source, links)
+                    links.size
+                }
+                result.onSuccess {
+                    updated++
+                    totalProfiles += it
+                }.onFailure {
+                    errors += "Подписка ${index + 1}: ${it.message ?: "ошибка обновления"}"
+                }
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                renderProfiles()
+                checkAllLatencies()
+                status.text = if (errors.isEmpty()) "Подписки обновлены" else "Обновление завершено с ошибками"
+                status.setTextColor(if (errors.isEmpty()) GREEN else AMBER)
+                val summary = buildString {
+                    append("Успешно обновлено: $updated из ${sources.size}.\nСерверов получено: $totalProfiles.")
+                    if (errors.isNotEmpty()) append("\n\n").append(errors.joinToString("\n"))
+                    append("\n\nПри ошибке предыдущие серверы этой подписки сохранены.")
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Обновление подписок")
+                    .setMessage(summary)
+                    .setPositiveButton("ОК", null)
+                    .show()
+            }
+        }
     }
 
     private fun renderProfiles() {
