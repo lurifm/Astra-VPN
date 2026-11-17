@@ -57,7 +57,8 @@ class ProfileStore(context: Context) {
     }
 
     /** Replace only the profiles owned by this HTTPS subscription. */
-    fun replaceSubscription(sourceUrl: String, links: List<String>, metadata: SubscriptionMetadata = SubscriptionMetadata()) {
+    fun replaceSubscription(sourceUrl: String, links: List<String>, metadata: SubscriptionMetadata = SubscriptionMetadata()) =
+        synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         require(sourceUrl.startsWith("https://", ignoreCase = true)) {
             "Источник подписки должен использовать HTTPS"
         }
@@ -79,7 +80,8 @@ class ProfileStore(context: Context) {
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
     }
 
-    fun renameSubscription(sourceUrl: String, title: String) {
+    fun renameSubscription(sourceUrl: String, title: String) =
+        synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val id = sourceId(sourceUrl)
         val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
         require(prefs.contains(sourceKey)) { "Подписка не найдена" }
@@ -91,7 +93,8 @@ class ProfileStore(context: Context) {
     }
 
     /** Remove a subscription and all profiles owned by it; return removed links. */
-    fun removeSubscription(sourceUrl: String): List<String> {
+    fun removeSubscription(sourceUrl: String): List<String> =
+        synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val id = sourceId(sourceUrl)
         val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
         val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
@@ -240,5 +243,6 @@ class ProfileStore(context: Context) {
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L
+        private val SUBSCRIPTION_MUTATION_LOCK = Any()
     }
 }
