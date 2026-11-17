@@ -458,6 +458,9 @@ class MainActivity : Activity() {
             return
         }
         refreshingSubscriptions = true
+        // Track attempts separately from successful updates so a broken provider
+        // is not retried every minute, while the UI still shows the last success.
+        settingsPrefs.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
         status.text = "Обновляем подписки…"
         status.setTextColor(AMBER)
         importExecutor.execute {
@@ -479,6 +482,9 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 refreshingSubscriptions = false
+                if (updated > 0) {
+                    settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
+                }
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 renderProfiles()
                 checkAllLatencies()
@@ -1743,13 +1749,13 @@ class MainActivity : Activity() {
         val updateOnOpen = settingsPrefs.getBoolean("update_on_open", false)
         val now = System.currentTimeMillis()
         val last = settingsPrefs.getLong("last_subscription_update", 0L)
+        val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", last)
         val intervalMs = settingsPrefs.getInt("update_interval_hours", 2) * 60L * 60L * 1000L
-        val shouldUpdate = (onOpen && updateOnOpen && now - last > 5 * 60_000L) ||
-            (enabled && now - last >= intervalMs)
+        val shouldUpdate = (onOpen && updateOnOpen && now - lastAttempt > 5 * 60_000L) ||
+            (enabled && now - lastAttempt >= intervalMs)
         if (!shouldUpdate) return
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
-        settingsPrefs.edit().putLong("last_subscription_update", now).apply()
         refreshSubscriptions()
     }
 
