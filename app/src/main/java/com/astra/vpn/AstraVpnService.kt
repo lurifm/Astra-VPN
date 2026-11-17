@@ -128,7 +128,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        // stopTunnel() already releases every resource and publishes the final
+        // state before stopSelf(). Do not run it a second time here: a second
+        // DISCONNECTED broadcast could overwrite a preceding ERROR state that
+        // the Activity needs to display after a failed connection attempt.
+        if (commandServer != null || tunDescriptor != null || activeConfig != null) {
+            stopTunnel()
+        }
         super.onDestroy()
     }
 
