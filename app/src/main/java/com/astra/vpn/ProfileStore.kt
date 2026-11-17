@@ -42,18 +42,20 @@ class ProfileStore(context: Context) {
         .mapNotNull { (_, value) -> decryptStored(value as String) }
         .distinct()
 
-    fun add(link: String) {
+    fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val id = java.util.UUID.randomUUID().toString()
-        prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).apply()
+        check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
+            "Не удалось сохранить сервер"
+        }
     }
 
-    fun addAll(links: List<String>) {
+    fun addAll(links: List<String>) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val existing = all().toSet()
         val editor = prefs.edit()
         links.distinct().filterNot { it in existing }.forEach { link ->
             editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
         }
-        editor.apply()
+        check(editor.commit()) { "Не удалось сохранить список серверов" }
     }
 
     /** Replace only the profiles owned by this HTTPS subscription. */
@@ -142,11 +144,11 @@ class ProfileStore(context: Context) {
         }
         .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
 
-    fun remove(link: String) {
+    fun remove(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val entry = prefs.all.entries.firstOrNull { (_, value) ->
             decryptStored(value as String) == link
-        } ?: return
-        prefs.edit().remove(entry.key).apply()
+        } ?: return@synchronized
+        check(prefs.edit().remove(entry.key).commit()) { "Не удалось удалить сервер" }
     }
 
     private fun sourceId(source: String): String =
