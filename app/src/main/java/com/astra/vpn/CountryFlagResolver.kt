@@ -44,6 +44,23 @@ object CountryFlagResolver {
         "🇧🇷" to listOf("браз", "brazil", "bra")
     )
 
+    private val namesByFlag = mapOf(
+        "🇸🇪" to "Швеция", "🇳🇱" to "Нидерланды", "🇬🇧" to "Великобритания",
+        "🇩🇪" to "Германия", "🇫🇷" to "Франция", "🇷🇺" to "Россия",
+        "🇫🇮" to "Финляндия", "🇵🇱" to "Польша", "🇹🇷" to "Турция",
+        "🇺🇸" to "США", "🇨🇦" to "Канада", "🇨🇭" to "Швейцария",
+        "🇦🇹" to "Австрия", "🇮🇹" to "Италия", "🇪🇸" to "Испания",
+        "🇳🇴" to "Норвегия", "🇩🇰" to "Дания", "🇧🇪" to "Бельгия",
+        "🇨🇿" to "Чехия", "🇸🇰" to "Словакия", "🇭🇺" to "Венгрия",
+        "🇷🇴" to "Румыния", "🇧🇬" to "Болгария", "🇪🇪" to "Эстония",
+        "🇱🇻" to "Латвия", "🇱🇹" to "Литва", "🇺🇦" to "Украина",
+        "🇰🇿" to "Казахстан", "🇯🇵" to "Япония", "🇸🇬" to "Сингапур",
+        "🇰🇷" to "Южная Корея", "🇭🇰" to "Гонконг", "🇦🇪" to "ОАЭ",
+        "🇮🇳" to "Индия", "🇧🇷" to "Бразилия"
+    )
+
+    fun countryNameForFlag(flag: String): String = namesByFlag[flag] ?: "Другая страна"
+
     fun flagFor(label: String): String {
         val normalized = label.lowercase()
             .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
