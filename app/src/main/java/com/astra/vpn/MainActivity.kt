@@ -467,20 +467,39 @@ class MainActivity : Activity() {
     private fun checkAllLatencies() {
         val profiles = safeProfiles()
         if (profiles.isEmpty()) return
+
         Toast.makeText(this, "Проверяем доступность серверов…", Toast.LENGTH_SHORT).show()
-        profiles.forEach { link ->
+
+        // Update non-VLESS labels in memory without rebuilding the entire list
+        // once per profile. Re-rendering 45 rows 45 times can freeze the UI.
+        val vlessProfiles = profiles.filter { link ->
             val uri = Uri.parse(link)
             val scheme = uri.scheme.orEmpty().lowercase()
             if (scheme != "vless") {
-                pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic")
-                    "UDP • TCP-тест не применяется" else "—"
-                runOnUiThread { renderProfiles() }
-                return@forEach
+                pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic") {
+                    "UDP • TCP-тест не применяется"
+                } else {
+                    "—"
+                }
+                false
+            } else {
+                !uri.host.isNullOrBlank() && uri.port in 1..65535
             }
-            val host = uri.host ?: return@forEach
-            val port = uri.port
+        }
+
+        if (vlessProfiles.isEmpty()) {
+            renderProfiles()
+            return
+        }
+
+        // Probe on the bounded background pool, then redraw once after the
+        // whole batch finishes instead of posting dozens of full list rebuilds.
+        val remaining = java.util.concurrent.atomic.AtomicInteger(vlessProfiles.size)
+        vlessProfiles.forEach { link ->
+            val uri = Uri.parse(link)
+            pingInfo[link] = "Проверяем…"
             pingExecutor.execute {
-                val result = runCatching { TcpLatencyProbe.measure(host, port) }
+                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
                 result.onSuccess {
                     latencyMs[link] = it.tcpMedianMs
                     pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (${it.successfulSamples}/3)"
@@ -488,9 +507,15 @@ class MainActivity : Activity() {
                     latencyMs.remove(link)
                     pingInfo[link] = "TCP недоступен"
                 }
-                runOnUiThread { if (!isFinishing) renderProfiles() }
+
+                if (remaining.decrementAndGet() == 0) {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) renderProfiles()
+                    }
+                }
             }
         }
+        renderProfiles()
     }
 
     /**
