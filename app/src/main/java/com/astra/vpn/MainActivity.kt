@@ -369,9 +369,10 @@ class MainActivity : Activity() {
                             // Keep network, parsing and encrypted persistence off the UI thread.
                             // A storage failure is reported in the dialog instead of crashing Activity.
                             val result = runCatching {
-                                val links = SubscriptionParser.importText(value)
+                                val parsed = SubscriptionParser.importDetailed(value)
+                                val links = parsed.links
                                 if (value.startsWith("https://", ignoreCase = true)) {
-                                    profileStore.replaceSubscription(value, links)
+                                    profileStore.replaceSubscription(value, links, parsed.metadata)
                                 } else {
                                     profileStore.addAll(links)
                                 }
@@ -426,9 +427,9 @@ class MainActivity : Activity() {
             val errors = mutableListOf<String>()
             sources.forEachIndexed { index, source ->
                 val result = runCatching {
-                    val links = SubscriptionParser.importText(source)
-                    profileStore.replaceSubscription(source, links)
-                    links.size
+                    val parsed = SubscriptionParser.importDetailed(source)
+                    profileStore.replaceSubscription(source, parsed.links, parsed.metadata)
+                    parsed.links.size
                 }
                 result.onSuccess {
                     updated++
@@ -494,6 +495,31 @@ class MainActivity : Activity() {
         emptyList()
     }
 
+    private fun subscriptionUsageText(item: SubscriptionSummary): String {
+        val used = if (item.uploadBytes != null || item.downloadBytes != null) {
+            formatTraffic((item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L))
+        } else null
+        val total = item.totalBytes?.let(::formatTraffic)
+        val traffic = when {
+            used != null && total != null -> "Трафик: $used из $total"
+            used != null -> "Использовано: $used · лимит не указан"
+            else -> "Трафик: провайдер не предоставил данные"
+        }
+        val expiry = item.expiresAtEpochSeconds?.let { seconds ->
+            if (seconds <= 0L) "Срок действия: не ограничен"
+            else java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault()).format(java.util.Date(seconds * 1000L))
+        } ?: "срок действия не указан"
+        return "$traffic · $expiry"
+    }
+
+    private fun formatTraffic(bytes: Long): String {
+        if (bytes < 0L) return "—"
+        val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024.0 && unit < units.lastIndex) { value /= 1024.0; unit++ }
+        return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+    }
     private fun renderProfiles() {
         profileList.removeAllViews()
         val summaries = safeSubscriptionSummaries()
@@ -528,7 +554,7 @@ class MainActivity : Activity() {
                     setPadding(0, dp(5), 0, dp(3))
                 })
                 card.addView(TextView(this).apply {
-                    text = "Трафик и срок действия: нет данных от провайдера"
+                    text = subscriptionUsageText(subscription)
                     textSize = 11f
                     setTextColor(MUTED)
                 })
