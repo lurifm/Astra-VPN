@@ -39,3 +39,22 @@ class SubscriptionRefreshTargetsTest {
         )
     }
 }
+
+class SubscriptionRefreshIntervalTest {
+    @Test fun keepsSupportedIntervalsUnchanged() {
+        assertEquals(1, SubscriptionRefreshInterval.normalize(1))
+        assertEquals(2, SubscriptionRefreshInterval.normalize(2))
+        assertEquals(12, SubscriptionRefreshInterval.normalize(12))
+        assertEquals(24, SubscriptionRefreshInterval.normalize(24))
+    }
+
+    @Test fun clampsIntervalsBelowMinimum() {
+        assertEquals(1, SubscriptionRefreshInterval.normalize(0))
+        assertEquals(1, SubscriptionRefreshInterval.normalize(-5))
+    }
+
+    @Test fun clampsIntervalsAboveMaximum() {
+        assertEquals(24, SubscriptionRefreshInterval.normalize(25))
+        assertEquals(24, SubscriptionRefreshInterval.normalize(100))
+    }
+}
