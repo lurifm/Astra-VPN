@@ -1807,7 +1807,7 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val last = settingsPrefs.getLong("last_subscription_update", 0L)
         val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", last)
-        val intervalMs = settingsPrefs.getInt("update_interval_hours", 2) * 60L * 60L * 1000L
+        val intervalMs = SubscriptionRefreshInterval.intervalMillis(settingsPrefs.getInt("update_interval_hours", 2))
         val shouldUpdate = (onOpen && updateOnOpen && now - lastAttempt > 5 * 60_000L) ||
             (enabled && now - lastAttempt >= intervalMs)
         if (!shouldUpdate) return
