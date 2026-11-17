@@ -78,6 +78,33 @@ class ProfileStore(context: Context) {
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
     }
 
+    fun renameSubscription(sourceUrl: String, title: String) {
+        val id = sourceId(sourceUrl)
+        val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
+        require(prefs.contains(sourceKey)) { "Подписка не найдена" }
+        val cleanTitle = title.trim().take(80)
+        require(cleanTitle.isNotEmpty()) { "Название не может быть пустым" }
+        check(prefs.edit().putString(SUBSCRIPTION_TITLE_PREFIX + id, cleanTitle).commit()) {
+            "Не удалось сохранить название подписки"
+        }
+    }
+
+    /** Remove a subscription and all profiles owned by it; return removed links. */
+    fun removeSubscription(sourceUrl: String): List<String> {
+        val id = sourceId(sourceUrl)
+        val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
+        val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
+        val removed = prefs.all.entries.filter { it.key.startsWith(profilePrefix) }
+            .mapNotNull { (_, value) -> decryptStored(value as String) }
+        val editor = prefs.edit()
+        prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
+        editor.remove(sourceKey)
+            .remove(SUBSCRIPTION_META_PREFIX + id)
+            .remove(SUBSCRIPTION_TITLE_PREFIX + id)
+        check(editor.commit()) { "Не удалось удалить подписку" }
+        return removed
+    }
+
     fun subscriptionSources(): List<String> = prefs.all.entries
         .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
         .mapNotNull { (_, value) -> decryptStored(value as String) }
