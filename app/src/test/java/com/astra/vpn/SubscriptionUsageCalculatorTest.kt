@@ -21,6 +21,17 @@ class SubscriptionUsageCalculatorTest {
         )
     }
 
+    @Test fun remainingQuotaNeverUnderflows() {
+        assertEquals(50L, SubscriptionUsageCalculator.remainingBytes(50L, 100L))
+        assertEquals(0L, SubscriptionUsageCalculator.remainingBytes(150L, 100L))
+        assertEquals(0L, SubscriptionUsageCalculator.remainingBytes(Long.MAX_VALUE, Long.MAX_VALUE))
+    }
+
+    @Test fun remainingQuotaHandlesNegativeUsageAndInvalidLimit() {
+        assertEquals(100L, SubscriptionUsageCalculator.remainingBytes(-10L, 100L))
+        assertNull(SubscriptionUsageCalculator.remainingBytes(10L, -1L))
+    }
+
     @Test fun percentageIsClampedToValidRange() {
         assertEquals(50, SubscriptionUsageCalculator.percentage(50L, 100L))
         assertEquals(100, SubscriptionUsageCalculator.percentage(150L, 100L))
