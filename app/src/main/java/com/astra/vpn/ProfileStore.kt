@@ -66,7 +66,7 @@ class ProfileStore(context: Context) {
 
     fun subscriptionSources(): List<String> = prefs.all.entries
         .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
-        .mapNotNull { (_, value) -> runCatching { decrypt(value as String) }.getOrNull() }
+        .mapNotNull { (_, value) -> decryptStored(value as String) }
         .distinct()
 
     fun remove(link: String) {
