@@ -56,6 +56,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
 
 private fun postRefreshNotification(context: Context, title: String, message: String, warning: Boolean) {
     try {
+        val settings = context.getSharedPreferences("astra_settings", Context.MODE_PRIVATE)
+        if (!settings.getBoolean("subscription_notifications", true)) return
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
