@@ -402,6 +402,37 @@ class MainActivity : Activity() {
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
             receiverRegistered = true
         }
+        restoreVpnState()
+    }
+
+    private fun restoreVpnState() {
+        val saved = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
+            .getString(AstraVpnService.PREF_STATE, AstraVpnService.STATE_DISCONNECTED)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val activeNetwork = connectivity.activeNetwork
+        val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        val androidVpnActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
+        // A saved flag alone is insufficient: Android may have revoked the
+        // tunnel while the Activity was in the background.
+        connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        when {
+            connected -> {
+                status.text = "Подключено"
+                status.setTextColor(GREEN)
+            }
+            saved == AstraVpnService.STATE_CONNECTING -> {
+                connected = false
+                status.text = "Подключаемся…"
+                status.setTextColor(AMBER)
+            }
+            else -> {
+                connected = false
+                status.text = "Отключено"
+                status.setTextColor(MUTED)
+            }
+        }
+        renderProfiles()
     }
 
     override fun onStop() {
