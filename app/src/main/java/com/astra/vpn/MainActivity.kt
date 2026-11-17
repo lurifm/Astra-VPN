@@ -26,6 +26,9 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -53,7 +56,15 @@ class MainActivity : Activity() {
     private var connecting = false
     private var receiverRegistered = false
     private var refreshingSubscriptions = false
-    private var sortByPing = false
+    private var sortMode = "original"
+    private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
+    private val autoUpdateHandler = Handler(Looper.getMainLooper())
+    private val autoUpdateTick = object : Runnable {
+        override fun run() {
+            maybeAutoUpdateSubscriptions(false)
+            autoUpdateHandler.postDelayed(this, 60_000L)
+        }
+    }
     private lateinit var monitorNetwork: TextView
     private lateinit var monitorOperator: TextView
     private lateinit var monitorDownload: TextView
@@ -219,21 +230,17 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
             setOnClickListener { selectFastestServer() }
         }
-        val sortButton = TextView(this).apply {
-            text = "По пингу"
+        val settingsButton = TextView(this).apply {
+            text = "Настройки"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), 0, dp(4), 0)
-            setOnClickListener {
-                sortByPing = !sortByPing
-                text = if (sortByPing) "По порядку" else "По пингу"
-                renderProfiles()
-            }
+            setOnClickListener { showAppSettingsDialog() }
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
-        listHeader.addView(sortButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
+        listHeader.addView(settingsButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
 
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -379,10 +386,7 @@ class MainActivity : Activity() {
      * The previous server set is kept whenever download, parsing or storage fails.
      */
     private fun refreshSubscriptions() {
-        if (connected || connecting) {
-            Toast.makeText(this, "Отключи VPN перед обновлением подписок", Toast.LENGTH_SHORT).show()
-            return
-        }
+        // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
@@ -486,9 +490,11 @@ class MainActivity : Activity() {
             return
         }
 
-        val displayProfiles = if (sortByPing) {
-            profiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
-        } else profiles
+        val displayProfiles = when (sortMode) {
+            "ping" -> profiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
+            "alphabet" -> profiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
+            else -> profiles
+        }
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
@@ -759,6 +765,10 @@ class MainActivity : Activity() {
             receiverRegistered = true
         }
         restoreVpnState()
+        sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
+        autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
+        maybeAutoUpdateSubscriptions(true)
     }
 
     private fun restoreVpnState() {
@@ -798,6 +808,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        autoUpdateHandler.removeCallbacks(autoUpdateTick)
         monitorHandler.removeCallbacks(monitorTick)
         if (receiverRegistered) {
             unregisterReceiver(vpnStateReceiver)
@@ -967,6 +978,109 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showAppSettingsDialog() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        panel.addView(TextView(this).apply {
+            text = "Сортировка серверов"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(8), 0, dp(6))
+        })
+        val sortGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val currentMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
+        listOf(
+            "original" to "Как в подписке",
+            "ping" to "По пингу (от меньшего к большему)",
+            "alphabet" to "По алфавиту"
+        ).forEach { (value, label) ->
+            sortGroup.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = value
+                text = label
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                isChecked = currentMode == value
+            })
+        }
+        panel.addView(sortGroup)
+        val autoUpdate = CheckBox(this).apply {
+            text = "Автоматически обновлять подписки"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("auto_update", false)
+        }
+        panel.addView(autoUpdate)
+        val updateOnOpen = CheckBox(this).apply {
+            text = "Обновлять при открытии приложения"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("update_on_open", false)
+        }
+        panel.addView(updateOnOpen)
+        val interval = TextView(this).apply {
+            textSize = 14f
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(8), 0, dp(8))
+            fun refreshLabel() {
+                val hours = settingsPrefs.getInt("update_interval_hours", 2)
+                text = "Интервал обновления: $hours ч · Изменить"
+            }
+            refreshLabel()
+            setOnClickListener {
+                val values = arrayOf("1 час", "2 часа", "6 часов", "12 часов", "24 часа")
+                val hours = intArrayOf(1, 2, 6, 12, 24)
+                val selected = hours.indexOf(settingsPrefs.getInt("update_interval_hours", 2)).coerceAtLeast(0)
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Интервал автообновления")
+                    .setSingleChoiceItems(values, selected) { dialog, which ->
+                        settingsPrefs.edit().putInt("update_interval_hours", hours[which]).apply()
+                        refreshLabel()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+        }
+        panel.addView(interval)
+        AlertDialog.Builder(this)
+            .setTitle("Настройки Astra")
+            .setView(panel)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val selectedId = sortGroup.checkedRadioButtonId
+                val mode = sortGroup.findViewById<RadioButton>(selectedId)?.tag as? String ?: "original"
+                sortMode = mode
+                settingsPrefs.edit()
+                    .putString("sort_mode", mode)
+                    .putBoolean("auto_update", autoUpdate.isChecked)
+                    .putBoolean("update_on_open", updateOnOpen.isChecked)
+                    .apply()
+                renderProfiles()
+                maybeAutoUpdateSubscriptions(true)
+            }
+            .show()
+    }
+
+    private fun maybeAutoUpdateSubscriptions(onOpen: Boolean) {
+        if (refreshingSubscriptions) return
+        val enabled = settingsPrefs.getBoolean("auto_update", false)
+        val updateOnOpen = settingsPrefs.getBoolean("update_on_open", false)
+        val now = System.currentTimeMillis()
+        val last = settingsPrefs.getLong("last_subscription_update", 0L)
+        val intervalMs = settingsPrefs.getInt("update_interval_hours", 2) * 60L * 60L * 1000L
+        val shouldUpdate = (onOpen && updateOnOpen && now - last > 5 * 60_000L) ||
+            (enabled && now - last >= intervalMs)
+        if (!shouldUpdate) return
+        val sources = safeSubscriptionSources() ?: return
+        if (sources.isEmpty()) return
+        settingsPrefs.edit().putLong("last_subscription_update", now).apply()
+        refreshSubscriptions()
+    }
+
     private fun profileName(link: String): String {
         val fragment = Uri.parse(link).fragment?.let { Uri.decode(it) }?.trim().orEmpty()
         if (fragment.isNotBlank()) return fragment
@@ -1002,6 +1116,7 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun onDestroy() {
+        autoUpdateHandler.removeCallbacks(autoUpdateTick)
         monitorHandler.removeCallbacks(monitorTick)
         monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
