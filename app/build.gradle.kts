@@ -32,4 +32,5 @@ android {
 
 dependencies {
     implementation("com.github.singbox-android:libbox:1.14.3")
+    testImplementation("junit:junit:4.13.2")
 }
