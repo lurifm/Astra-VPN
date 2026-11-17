@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private var connecting = false
     private var receiverRegistered = false
     private var refreshingSubscriptions = false
+    private var sortByPing = false
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -188,8 +189,21 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
             setOnClickListener { selectFastestServer() }
         }
+        val sortButton = TextView(this).apply {
+            text = "По пингу"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(4), 0)
+            setOnClickListener {
+                sortByPing = !sortByPing
+                text = if (sortByPing) "По порядку" else "По пингу"
+                renderProfiles()
+            }
+        }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
+        listHeader.addView(sortButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
 
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -383,7 +397,11 @@ class MainActivity : Activity() {
             return
         }
 
-        profiles.forEach { link ->
+        val displayProfiles = if (sortByPing) {
+            profiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
+        } else profiles
+
+        displayProfiles.forEach { link ->
             val isSelected = link == selected
             val name = profileName(link)
             val row = LinearLayout(this).apply {
