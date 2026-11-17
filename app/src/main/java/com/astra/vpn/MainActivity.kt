@@ -540,9 +540,83 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(item.title)
             .setMessage(details)
-            .setPositiveButton("Обновить") { _, _ -> refreshSubscriptions() }
-            .setNegativeButton("Закрыть", null)
+            .setPositiveButton("Обновить") { _, _ -> refreshSingleSubscription(item.sourceUrl) }
+            .setNeutralButton("Переименовать") { _, _ -> renameSubscription(item) }
+            .setNegativeButton("Удалить") { _, _ -> confirmRemoveSubscription(item) }
             .show()
+    }
+
+    private fun renameSubscription(item: SubscriptionSummary) {
+        val input = EditText(this).apply {
+            setText(item.title)
+            setSelection(text.length)
+            hint = "Название подписки"
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Переименовать подписку")
+            .setView(input)
+            .setPositiveButton("Сохранить") { _, _ ->
+                runCatching { profileStore.renameSubscription(item.sourceUrl, input.text.toString()) }
+                    .onSuccess { renderProfiles(); Toast.makeText(this, "Название сохранено", Toast.LENGTH_SHORT).show() }
+                    .onFailure { error -> AlertDialog.Builder(this).setMessage(error.message ?: "Не удалось переименовать").setPositiveButton("ОК", null).show() }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun confirmRemoveSubscription(item: SubscriptionSummary) {
+        AlertDialog.Builder(this)
+            .setTitle("Удалить подписку?")
+            .setMessage("Будут удалены сама подписка и все ${item.serverCount} серверов, полученных из неё. Это действие нельзя отменить.")
+            .setPositiveButton("Удалить") { _, _ ->
+                runCatching { profileStore.removeSubscription(item.sourceUrl) }
+                    .onSuccess { removed ->
+                        if (activeProfile in removed || selectedProfile in removed) stopTunnel()
+                        if (activeProfile in removed) activeProfile = null
+                        if (selectedProfile in removed) selectedProfile = null
+                        renderProfiles()
+                        checkAllLatencies()
+                        Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
+                    }
+                    .onFailure { error -> AlertDialog.Builder(this).setMessage(error.message ?: "Не удалось удалить подписку").setPositiveButton("ОК", null).show() }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun refreshSingleSubscription(source: String) {
+        if (refreshingSubscriptions) {
+            Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
+        refreshingSubscriptions = true
+        status.text = "Обновляем подписку…"
+        status.setTextColor(AMBER)
+        importExecutor.execute {
+            val result = runCatching {
+                val parsed = SubscriptionParser.importDetailed(source)
+                profileStore.replaceSubscription(source, parsed.links, parsed.metadata)
+                parsed.links.size
+            }
+            runOnUiThread {
+                refreshingSubscriptions = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                renderProfiles()
+                checkAllLatencies()
+                result.onSuccess { count ->
+                    status.text = "Подписка обновлена"
+                    status.setTextColor(GREEN)
+                    Toast.makeText(this, "Получено серверов: $count", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    status.text = "Ошибка обновления"
+                    status.setTextColor(RED)
+                    AlertDialog.Builder(this).setTitle("Не удалось обновить подписку")
+                        .setMessage(error.message ?: "Проверь подключение к интернету")
+                        .setPositiveButton("ОК", null).show()
+                }
+            }
+        }
     }
 
     private fun formatTraffic(bytes: Long): String {
