@@ -200,24 +200,19 @@ class AstraPlatform(
 
     private fun updateDefaultInterface(network: Network?) {
         val listener = interfaceListener ?: return
-        if (network == null) {
+        val selectedNetwork = resolveUnderlyingNetwork(network)
+        if (selectedNetwork == null) {
+            runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
+                .onFailure { Log.w(TAG, "Не удалось обновить базовую сеть VPN", it) }
             notifyNoDefaultInterface(listener)
             return
         }
-        val initialCaps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
-        val selectedNetwork = if (initialCaps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-            connectivity.allNetworks.firstOrNull { candidate ->
-                val caps = connectivity.getNetworkCapabilities(candidate)
-                caps != null &&
-                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            }
-        } else {
-            network
-        } ?: run {
-            notifyNoDefaultInterface(listener)
-            return
-        }
+
+        // Tell Android which physical network carries this VPN. This also makes
+        // handovers more predictable when Wi-Fi and cellular are both available.
+        runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
+            .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
+
         val properties = runCatching { connectivity.getLinkProperties(selectedNetwork) }.getOrNull()
         val name = properties?.interfaceName
         if (name.isNullOrBlank()) {
@@ -229,6 +224,50 @@ class AstraPlatform(
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
         runCatching { listener.updateDefaultInterface(name, index, metered, false) }
             .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
+    }
+
+    /**
+     * When Android reports the VPN itself as the active network, select a
+     * physical Internet-capable network deterministically instead of taking
+     * the first entry in allNetworks (whose order is unspecified).
+     */
+    private fun resolveUnderlyingNetwork(active: Network?): Network? {
+        val activeCapabilities = active?.let {
+            runCatching { connectivity.getNetworkCapabilities(it) }.getOrNull()
+        }
+        if (active != null &&
+            activeCapabilities != null &&
+            !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+            activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        ) {
+            return active
+        }
+
+        return connectivity.allNetworks.mapNotNull { candidate ->
+            val caps = runCatching { connectivity.getNetworkCapabilities(candidate) }.getOrNull()
+                ?: return@mapNotNull null
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ) return@mapNotNull null
+
+            val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            } else {
+                true
+            }
+            val transportPriority = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0
+                else -> -1
+            }
+            Triple(candidate, validated to notSuspended, transportPriority)
+        }.sortedWith(
+            compareByDescending<Triple<Network, Pair<Boolean, Boolean>, Int>> { it.second.first }
+                .thenByDescending { it.second.second }
+                .thenByDescending { it.third }
+        ).firstOrNull()?.first
     }
 
     private fun notifyNoDefaultInterface(listener: InterfaceUpdateListener) {
