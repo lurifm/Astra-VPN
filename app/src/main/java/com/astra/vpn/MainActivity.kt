@@ -521,6 +521,30 @@ class MainActivity : Activity() {
         return "$traffic · $expiry"
     }
 
+    private fun showSubscriptionDetails(item: SubscriptionSummary) {
+        val host = Uri.parse(item.sourceUrl).host ?: "HTTPS-подписка"
+        val usedBytes = (item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)
+        val trafficDetails = when {
+            item.totalBytes != null -> {
+                val remaining = (item.totalBytes - usedBytes).coerceAtLeast(0L)
+                "Использовано: ${formatTraffic(usedBytes)}\nОсталось: ${formatTraffic(remaining)}\nВсего: ${formatTraffic(item.totalBytes)}"
+            }
+            item.uploadBytes != null || item.downloadBytes != null -> "Использовано: ${formatTraffic(usedBytes)}\nОбщий лимит не указан"
+            else -> "Провайдер не передал данные о трафике"
+        }
+        val expiry = item.expiresAtEpochSeconds?.let { seconds ->
+            if (seconds <= 0L) "Без ограничения срока"
+            else java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(seconds * 1000L))
+        } ?: "Не указан провайдером"
+        val details = "Источник: $host\nСерверов: ${item.serverCount}\n\n$trafficDetails\n\nСрок действия: $expiry\n\nНажми «Обновить», чтобы получить актуальные данные от провайдера."
+        AlertDialog.Builder(this)
+            .setTitle(item.title)
+            .setMessage(details)
+            .setPositiveButton("Обновить") { _, _ -> refreshSubscriptions() }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun formatTraffic(bytes: Long): String {
         if (bytes < 0L) return "—"
         val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
@@ -547,7 +571,7 @@ class MainActivity : Activity() {
                     setPadding(dp(15), dp(13), dp(15), dp(13))
                     background = rounded(CARD, 16)
                     isClickable = true
-                    setOnClickListener { refreshSubscriptions() }
+                    setOnClickListener { showSubscriptionDetails(subscription) }
                 }
                 card.addView(TextView(this).apply {
                     text = "☁  ${subscription.title}"
