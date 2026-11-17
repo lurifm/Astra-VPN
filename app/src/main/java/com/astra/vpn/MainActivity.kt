@@ -475,7 +475,9 @@ class MainActivity : Activity() {
                     updated++
                     totalProfiles += it
                 }.onFailure {
-                    errors += "Подписка ${index + 1}: ${it.message ?: "ошибка обновления"}"
+                    // Parser/network exceptions may contain the full subscription URL
+                    // (including credentials). Keep provider secrets out of dialogs.
+                    errors += "Подписка ${index + 1}: не удалось обновить"
                 }
             }
             runOnUiThread {
