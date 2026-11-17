@@ -6,24 +6,25 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.ByteBuffer
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Stores imported proxy links encrypted with an Android Keystore AES-GCM key.
- * Raw subscription links are never written to the public repository.
+ * Stores imported proxy links and subscription source URLs encrypted with
+ * Android Keystore AES-GCM. Subscription replacement is committed atomically:
+ * a failed download/parse never removes the last known-good server list.
  */
 class ProfileStore(context: Context) {
     private val prefs = context.getSharedPreferences("astra_profiles", Context.MODE_PRIVATE)
 
     fun all(): List<String> = prefs.all.entries
-        .filter { it.key.startsWith(PROFILE_PREFIX) }
+        .filter { it.key.startsWith(PROFILE_PREFIX) || it.key.startsWith(SUBSCRIPTION_PROFILE_PREFIX) }
         .sortedBy { it.key }
-        .mapNotNull { (_, value) ->
-            runCatching { decrypt(value as String) }.getOrNull()
-        }
+        .mapNotNull { (_, value) -> runCatching { decrypt(value as String) }.getOrNull() }
+        .distinct()
 
     fun add(link: String) {
         val id = java.util.UUID.randomUUID().toString()
@@ -39,12 +40,40 @@ class ProfileStore(context: Context) {
         editor.apply()
     }
 
+    /** Replace only the profiles owned by this HTTPS subscription. */
+    fun replaceSubscription(sourceUrl: String, links: List<String>) {
+        require(sourceUrl.startsWith("https://", ignoreCase = true)) {
+            "Источник подписки должен использовать HTTPS"
+        }
+        require(links.isNotEmpty()) { "Подписка не содержит серверов" }
+        val sourceId = sourceId(sourceUrl)
+        val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + sourceId + "_"
+        val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + sourceId
+        val editor = prefs.edit()
+        prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
+        links.distinct().forEach { link ->
+            editor.putString(profilePrefix + java.util.UUID.randomUUID().toString(), encrypt(link))
+        }
+        editor.putString(sourceKey, encrypt(sourceUrl))
+        check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
+    }
+
+    fun subscriptionSources(): List<String> = prefs.all.entries
+        .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
+        .mapNotNull { (_, value) -> runCatching { decrypt(value as String) }.getOrNull() }
+        .distinct()
+
     fun remove(link: String) {
         val entry = prefs.all.entries.firstOrNull { (_, value) ->
             runCatching { decrypt(value as String) == link }.getOrDefault(false)
         } ?: return
         prefs.edit().remove(entry.key).apply()
     }
+
+    private fun sourceId(source: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(source.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     private fun encrypt(value: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -90,6 +119,8 @@ class ProfileStore(context: Context) {
 
     companion object {
         private const val PROFILE_PREFIX = "profile_"
+        private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
+        private const val SUBSCRIPTION_SOURCE_PREFIX = "subscription_source_"
         private const val KEY_ALIAS = "astra_profile_key"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
