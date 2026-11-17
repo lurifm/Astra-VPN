@@ -25,6 +25,19 @@ class SubscriptionRefreshTargetsTest {
         assertEquals(current, SubscriptionRefreshTargets.select(current, removedFailures))
     }
 
+    @Test fun newlyAddedSourcesAreRefreshedAlongsideFailedSources() {
+        val first = "https://one.example/sub"
+        val failed = "https://two.example/sub"
+        val added = "https://three.example/sub"
+        assertEquals(listOf(failed, added), SubscriptionRefreshTargets.select(listOf(first, failed, added), setOf(failed), setOf(first, failed)))
+    }
+
+    @Test fun knownSuccessfulSourcesAreSkippedDuringRetry() {
+        val first = "https://one.example/sub"
+        val failed = "https://two.example/sub"
+        assertEquals(listOf(failed), SubscriptionRefreshTargets.select(listOf(first, failed), setOf(failed), setOf(first, failed)))
+    }
+
     @Test fun emptySourceListRemainsEmpty() {
         assertEquals(emptyList<String>(), SubscriptionRefreshTargets.select(emptyList(), setOf("https://old.example/sub")))
     }
