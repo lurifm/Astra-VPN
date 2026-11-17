@@ -119,7 +119,7 @@ internal object SubscriptionRefreshInterval {
 
 internal object SubscriptionRefreshTargets {
     /** Retry failed sources and include subscriptions added since the previous run. */
-    fun select(sources: List<String>, pending: Set<String>, previouslyKnown: Set<String> = emptySet()): List<String> {
+    fun select(sources: List<String>, pending: Set<String>, previouslyKnown: Set<String> = sources.toSet()): List<String> {
         if (sources.isEmpty()) return emptyList()
         val targets = sources.filter { it in pending || it !in previouslyKnown }
         return targets.ifEmpty { sources.filter { it in pending }.ifEmpty { sources } }
