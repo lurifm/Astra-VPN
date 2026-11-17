@@ -594,7 +594,7 @@ class MainActivity : Activity() {
             listOf("🇧🇷", "браз", "brazil", "bra")
         )
         return flags.firstOrNull { entry ->
-            entry.drop(1).any { token -> token.startsWith("🇺") && token.length > 1 && token in label || value.contains(token) || token in label }
+            entry.drop(1).any { token -> value.contains(token) || label.contains(token) }
         }?.first() ?: "🌐"
     }
 
