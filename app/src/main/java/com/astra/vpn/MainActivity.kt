@@ -59,6 +59,8 @@ class MainActivity : Activity() {
     private var connected = false
     private var connecting = false
     private var receiverRegistered = false
+    private var lastRecordedVpnState: String? = null
+    private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var sortMode = "original"
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
@@ -97,7 +99,26 @@ class MainActivity : Activity() {
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AstraVpnService.ACTION_STATE) return
-            when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
+            val receivedState = intent.getStringExtra(AstraVpnService.EXTRA_STATE)
+            if (receivedState != null && receivedState != lastRecordedVpnState) {
+                val historyState = when (receivedState) {
+                    AstraVpnService.STATE_CONNECTING -> "connecting"
+                    AstraVpnService.STATE_CONNECTED -> "connected"
+                    AstraVpnService.STATE_DISCONNECTED -> "disconnected"
+                    AstraVpnService.STATE_ERROR -> "error"
+                    else -> null
+                }
+                if (historyState != null) {
+                    val profile = activeProfile ?: selectedProfile
+                    connectionHistory.record(
+                        state = historyState,
+                        serverName = profile?.let { profileName(it) } ?: "Сервер не выбран",
+                        protocol = profile?.let { protocolName(it) } ?: "—"
+                    )
+                    lastRecordedVpnState = receivedState
+                }
+            }
+            when (receivedState) {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
                     connecting = true
@@ -1376,6 +1397,71 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showConnectionHistoryDialog() {
+        val entries = connectionHistory.getEntries()
+        val body = if (entries.isEmpty()) {
+            "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
+        } else {
+            entries.joinToString("\n\n") { item ->
+                val date = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm:ss", java.util.Locale.getDefault())
+                    .format(java.util.Date(item.timestamp))
+                val stateLabel = when (item.state) {
+                    "connecting" -> "⏳ Подключение"
+                    "connected" -> "🟢 Подключено"
+                    "disconnected" -> "⚪ Отключено"
+                    "error" -> "🔴 Ошибка подключения"
+                    else -> item.state
+                }
+                "$stateLabel\n$date\n${item.serverName} · ${item.protocol}"
+            }
+        }
+        val historyText = TextView(this).apply {
+            text = body
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+        }
+        val scroll = ScrollView(this).apply {
+            addView(historyText)
+            isFillViewport = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("История подключений · ${entries.size}")
+            .setView(scroll)
+            .setPositiveButton("Поделиться") { _, _ ->
+                val shareText = entries.joinToString("\n\n") { item ->
+                    val date = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale.getDefault())
+                        .format(java.util.Date(item.timestamp))
+                    val label = when (item.state) {
+                        "connecting" -> "Подключение"
+                        "connected" -> "Подключено"
+                        "disconnected" -> "Отключено"
+                        "error" -> "Ошибка подключения"
+                        else -> item.state
+                    }
+                    "$date — $label — ${item.serverName} (${item.protocol})"
+                }.ifBlank { "История подключений Astra VPN пуста." }
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, "ASTRA VPN — история подключений\n\n$shareText")
+                }
+                startActivity(Intent.createChooser(share, "Поделиться историей"))
+            }
+            .setNeutralButton("Очистить") { _, _ ->
+                AlertDialog.Builder(this)
+                    .setTitle("Очистить историю?")
+                    .setMessage("Все сохранённые записи подключений будут удалены.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Очистить") { _, _ ->
+                        connectionHistory.clear()
+                        Toast.makeText(this, "История очищена", Toast.LENGTH_SHORT).show()
+                    }
+                    .show()
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1424,6 +1510,16 @@ class MainActivity : Activity() {
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
+
+        val historyEntry = TextView(this).apply {
+            text = "🕘  История подключений  ›"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(12), 0, dp(14))
+            setOnClickListener { showConnectionHistoryDialog() }
+        }
+        panel.addView(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
             text = "📱  Приложения через VPN  ›"
