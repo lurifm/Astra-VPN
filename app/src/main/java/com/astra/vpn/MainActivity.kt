@@ -412,7 +412,7 @@ class MainActivity : Activity() {
     }
 
     private fun profileName(link: String): String {
-        val fragment = Uri.parse(link).fragment?.trim().orEmpty()
+        val fragment = Uri.parse(link).fragment?.let { Uri.decode(it) }?.trim().orEmpty()
         if (fragment.isNotBlank()) return fragment
         val host = Uri.parse(link).host.orEmpty()
         return host.ifBlank { "Сервер" }
@@ -426,8 +426,18 @@ class MainActivity : Activity() {
     }
 
     private fun countryFlag(label: String): String {
-        val value = label.lowercase()
+        val value = Uri.decode(label).lowercase()
         return when {
+            "🇸🇪" in label -> "🇸🇪"
+            "🇳🇱" in label -> "🇳🇱"
+            "🇬🇧" in label -> "🇬🇧"
+            "🇩🇪" in label -> "🇩🇪"
+            "🇫🇷" in label -> "🇫🇷"
+            "🇷🇺" in label -> "🇷🇺"
+            "🇫🇮" in label -> "🇫🇮"
+            "🇵🇱" in label -> "🇵🇱"
+            "🇹🇷" in label -> "🇹🇷"
+            "🇺🇸" in label -> "🇺🇸"
             "швец" in value || "sweden" in value -> "🇸🇪"
             "нидер" in value || "голланд" in value || "nether" in value -> "🇳🇱"
             "англ" in value || "британ" in value || "united kingdom" in value || "england" in value -> "🇬🇧"
