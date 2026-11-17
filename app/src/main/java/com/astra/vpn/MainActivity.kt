@@ -472,6 +472,7 @@ class MainActivity : Activity() {
             var updated = 0
             var totalProfiles = 0
             val errors = mutableListOf<String>()
+            val failedSources = linkedSetOf<String>()
             sources.forEachIndexed { index, source ->
                 val result = runCatching {
                     SubscriptionRefreshCoordinator.refresh(profileStore, source)
@@ -483,8 +484,13 @@ class MainActivity : Activity() {
                     // Parser/network exceptions may contain the full subscription URL
                     // (including credentials). Keep provider secrets out of dialogs.
                     errors += "Подписка ${index + 1}: не удалось обновить"
+                    failedSources += SubscriptionSourceFingerprint.of(source)
                 }
             }
+            // Keep manual/foreground refresh failures in the same fingerprint-only
+            // retry queue used by WorkManager, so a later background run retries
+            // only failed providers rather than downloading every successful one.
+            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
