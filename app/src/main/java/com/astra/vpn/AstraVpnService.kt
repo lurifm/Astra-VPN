@@ -78,17 +78,20 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun stopTunnel() {
-        // Release the Android TUN descriptor before asking sing-box to tear down,
-        // matching the lifecycle used by the upstream sing-box Android client.
-        runCatching { tunDescriptor?.close() }
-            .onFailure { Log.w(TAG, "TUN descriptor close failed", it) }
-        tunDescriptor = null
-
+        // Let sing-box stop using the TUN file descriptor before closing our
+        // ParcelFileDescriptor wrapper. Closing it too early can interrupt teardown.
         val server = commandServer
         commandServer = null
         if (server != null) {
             runCatching { server.closeService() }
                 .onFailure { Log.w(TAG, "closeService failed", it) }
+        }
+
+        runCatching { tunDescriptor?.close() }
+            .onFailure { Log.w(TAG, "TUN descriptor close failed", it) }
+        tunDescriptor = null
+
+        if (server != null) {
             runCatching { server.close() }
                 .onFailure { Log.w(TAG, "CommandServer close failed", it) }
         }
