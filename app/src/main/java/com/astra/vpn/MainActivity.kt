@@ -46,6 +46,11 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AstraVpnService.ACTION_STATE) return
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
+                AstraVpnService.STATE_CONNECTING -> {
+                    connected = false
+                    status.text = "Создаём VPN-туннель…"
+                    status.setTextColor(AMBER)
+                }
                 AstraVpnService.STATE_CONNECTED -> {
                     connected = true
                     status.text = "Подключено"
