@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private val autoSelectExecutor = Executors.newFixedThreadPool(3)
     private var selectingFastest = false
     private var selectedProfile: String? = null
+    private var activeProfile: String? = null
     private var pendingConfig: String? = null
     private var connected = false
     private var connecting = false
@@ -156,7 +157,7 @@ class MainActivity : Activity() {
             background = rounded(ACCENT, 18)
             isEnabled = false
             setOnClickListener {
-                if (connected) stopTunnel() else connectSelectedProfile()
+                if (connected && selectedProfile == activeProfile) stopTunnel() else connectSelectedProfile()
             }
         }
         connectCard.addView(status, matchWidth())
@@ -233,7 +234,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Добавить серверы")
-            .setMessage("Можно вставить одну ссылку или ссылку подписки Velvet VPN. Импортированные профили хранятся зашифрованно на устройстве.")
+            .setMessage("Можно вставить ссылку на сервер или HTTPS-ссылку подписки. Импортированные профили хранятся зашифрованно на устройстве.")
             .setView(input)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Импортировать", null)
@@ -381,6 +382,7 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
         connectButton.text = when {
+            connected && selected != activeProfile -> "ПЕРЕКЛЮЧИТЬ СЕРВЕР"
             connected -> "ОТКЛЮЧИТЬ VPN"
             connecting -> "ПОДКЛЮЧАЕМСЯ…"
             else -> "ПОДКЛЮЧИТЬСЯ"
@@ -410,11 +412,11 @@ class MainActivity : Activity() {
                 setPadding(dp(14), dp(12), dp(10), dp(12))
                 background = rounded(if (isSelected) SELECTED_CARD else CARD, 18)
                 setOnClickListener {
-                    if (!connected && !connecting) {
+                    if (!connecting) {
                         selectedProfile = link
                         renderProfiles()
                     } else {
-                        Toast.makeText(this@MainActivity, "Дождись завершения подключения или отключи VPN", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     }
                 }
                 setOnLongClickListener {
@@ -611,7 +613,7 @@ class MainActivity : Activity() {
     }
 
     private fun connectSelectedProfile() {
-        if (connected || connecting) return
+        if (connecting) return
         val link = selectedProfile ?: return
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse { error ->
             AlertDialog.Builder(this).setTitle("Ошибка конфигурации")
@@ -714,6 +716,7 @@ class MainActivity : Activity() {
     }
 
     private fun startTunnel(config: String) {
+        activeProfile = selectedProfile
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
             .putExtra(AstraVpnService.EXTRA_CONFIG, config)
