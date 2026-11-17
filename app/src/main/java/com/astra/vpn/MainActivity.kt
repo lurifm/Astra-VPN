@@ -556,29 +556,46 @@ class MainActivity : Activity() {
 
     private fun countryFlag(label: String): String {
         val value = Uri.decode(label).lowercase()
-        return when {
-            "🇸🇪" in label -> "🇸🇪"
-            "🇳🇱" in label -> "🇳🇱"
-            "🇬🇧" in label -> "🇬🇧"
-            "🇩🇪" in label -> "🇩🇪"
-            "🇫🇷" in label -> "🇫🇷"
-            "🇷🇺" in label -> "🇷🇺"
-            "🇫🇮" in label -> "🇫🇮"
-            "🇵🇱" in label -> "🇵🇱"
-            "🇹🇷" in label -> "🇹🇷"
-            "🇺🇸" in label -> "🇺🇸"
-            "швец" in value || "sweden" in value -> "🇸🇪"
-            "нидер" in value || "голланд" in value || "nether" in value -> "🇳🇱"
-            "англ" in value || "британ" in value || "united kingdom" in value || "england" in value -> "🇬🇧"
-            "герман" in value || "german" in value -> "🇩🇪"
-            "франц" in value || "france" in value -> "🇫🇷"
-            "росс" in value || "russia" in value -> "🇷🇺"
-            "финлянд" in value || "finland" in value -> "🇫🇮"
-            "польш" in value || "poland" in value -> "🇵🇱"
-            "турц" in value || "turkey" in value -> "🇹🇷"
-            "сша" in value || "united states" in value || "usa" in value -> "🇺🇸"
-            else -> "🌐"
-        }
+        val flags = listOf(
+            listOf("🇸🇪", "швец", "sweden", "swe"),
+            listOf("🇳🇱", "нидер", "голланд", "netherlands", "holland", "nld"),
+            listOf("🇬🇧", "🇬🇧", "британ", "великобрит", "united kingdom", "england", " uk"),
+            listOf("🇩🇪", "герман", "germany", "deu"),
+            listOf("🇫🇷", "франц", "france", "fra"),
+            listOf("🇷🇺", "росс", "russia", "rus"),
+            listOf("🇫🇮", "финлянд", "finland", "fin"),
+            listOf("🇵🇱", "польш", "poland", "pol"),
+            listOf("🇹🇷", "турц", "turkey", "tur"),
+            listOf("🇺🇸", "сша", "united states", "america", "🇺🇸"),
+            listOf("🇨🇦", "канад", "canada", "can"),
+            listOf("🇨🇭", "швейцар", "switzerland", "che"),
+            listOf("🇦🇹", "австри", "austria", "aut"),
+            listOf("🇮🇹", "итал", "italy", "ita"),
+            listOf("🇪🇸", "испани", "spain", "esp"),
+            listOf("🇳🇴", "норвег", "norway", "nor"),
+            listOf("🇩🇰", "дани", "denmark", "dnk"),
+            listOf("🇧🇪", "бельги", "belgium", "bel"),
+            listOf("🇨🇿", "чех", "czech", "cze"),
+            listOf("🇸🇰", "словаки", "slovakia", "svk"),
+            listOf("🇭🇺", "венгр", "hungary", "hun"),
+            listOf("🇷🇴", "румын", "romania", "rou"),
+            listOf("🇧🇬", "болгар", "bulgaria", "bgr"),
+            listOf("🇪🇪", "эстон", "estonia", "est"),
+            listOf("🇱🇻", "латви", "latvia", "lva"),
+            listOf("🇱🇹", "литв", "lithuania", "ltu"),
+            listOf("🇺🇦", "украин", "ukraine", "ukr"),
+            listOf("🇰🇿", "казах", "kazakhstan", "kaz"),
+            listOf("🇯🇵", "япони", "japan", "jpn"),
+            listOf("🇸🇬", "сингапур", "singapore", "sgp"),
+            listOf("🇰🇷", "коре", "south korea", "kor"),
+            listOf("🇭🇰", "гонконг", "hong kong", "hkg"),
+            listOf("🇦🇪", "оаэ", "uae", "emirates"),
+            listOf("🇮🇳", "инд", "india", "ind"),
+            listOf("🇧🇷", "браз", "brazil", "bra")
+        )
+        return flags.firstOrNull { entry ->
+            entry.drop(1).any { token -> token.startsWith("🇺") && token.length > 1 && token in label || value.contains(token) || token in label }
+        }?.first() ?: "🌐"
     }
 
     private fun requestNotificationPermissionIfNeeded() {
