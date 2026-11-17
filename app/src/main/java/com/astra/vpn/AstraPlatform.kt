@@ -279,23 +279,34 @@ class AstraPlatform(
      * the first entry in allNetworks (whose order is unspecified).
      */
     private fun resolveUnderlyingNetwork(active: Network?): Network? {
-        val activeCapabilities = active?.let {
-            runCatching { connectivity.getNetworkCapabilities(it) }.getOrNull()
-        }
-        if (active != null &&
-            activeCapabilities != null &&
-            !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        ) {
-            return active
+        fun isUsablePhysicalNetwork(network: Network?): Boolean {
+            if (network == null) return false
+            val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+                ?: return false
+            return !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
 
+        // If Android exposes a physical default network, it is authoritative.
+        // Do not choose another simultaneously-connected transport just because
+        // it happens to be Wi-Fi (for example, when mobile data is the default).
+        if (isUsablePhysicalNetwork(active)) return active
+
+        // When the active network is this VPN, prefer the underlay Android has
+        // already associated with this VpnService. allNetworks has no ordering
+        // guarantee and can contain both Wi-Fi and cellular at the same time.
+        val configuredUnderlay = runCatching {
+            vpnService.underlyingNetworks?.firstOrNull()
+        }.getOrNull()
+        if (isUsablePhysicalNetwork(configuredUnderlay)) return configuredUnderlay
+
+        // The configured underlay may have just disappeared. Fall back to the
+        // best remaining physical network, preferring validated and unsuspended
+        // connections before transport type.
         return connectivity.allNetworks.mapNotNull { candidate ->
             val caps = runCatching { connectivity.getNetworkCapabilities(candidate) }.getOrNull()
                 ?: return@mapNotNull null
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            ) return@mapNotNull null
+            if (!isUsablePhysicalNetwork(candidate)) return@mapNotNull null
 
             val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
