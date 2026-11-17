@@ -10,6 +10,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -348,6 +350,26 @@ class MainActivity : Activity() {
             return
         }
         pendingConfig = config
+
+        // Android permits only one active VpnService at a time. Make this
+        // explicit so users understand why their previous VPN will disconnect.
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val activeNetwork = connectivity.activeNetwork
+        val activeCapabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        val anotherVpnIsActive = activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        if (anotherVpnIsActive && !connected) {
+            AlertDialog.Builder(this)
+                .setTitle("Заменить текущее VPN?")
+                .setMessage("Android может отключить сейчас работающий VPN при запуске Astra. Продолжить подключение?")
+                .setNegativeButton("Отмена") { _, _ -> pendingConfig = null }
+                .setPositiveButton("Продолжить") { _, _ -> requestVpnPermissionAndStart(config) }
+                .show()
+            return
+        }
+        requestVpnPermissionAndStart(config)
+    }
+
+    private fun requestVpnPermissionAndStart(config: String) {
         val permissionIntent = VpnService.prepare(this)
         if (permissionIntent != null) {
             startActivityForResult(permissionIntent, REQUEST_VPN_PERMISSION)
