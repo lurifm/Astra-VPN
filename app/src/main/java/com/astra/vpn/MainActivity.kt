@@ -394,7 +394,7 @@ class MainActivity : Activity() {
                 }
             }
             val flag = TextView(this).apply {
-                text = countryFlag(name)
+                text = CountryFlagResolver.flagFor(name)
                 textSize = 25f
                 gravity = Gravity.CENTER
             }
