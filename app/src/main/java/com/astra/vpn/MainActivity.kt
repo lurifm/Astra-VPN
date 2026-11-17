@@ -542,14 +542,20 @@ class MainActivity : Activity() {
         emptyList()
     }
 
+    private fun subscriptionUsedBytes(item: SubscriptionSummary): Long {
+        val upload = (item.uploadBytes ?: 0L).coerceAtLeast(0L)
+        val download = (item.downloadBytes ?: 0L).coerceAtLeast(0L)
+        return if (Long.MAX_VALUE - upload < download) Long.MAX_VALUE else upload + download
+    }
+
     private fun subscriptionUsageText(item: SubscriptionSummary): String {
+        val usedBytes = subscriptionUsedBytes(item)
         val used = if (item.uploadBytes != null || item.downloadBytes != null) {
-            formatTraffic((item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L))
+            formatTraffic(usedBytes)
         } else null
-        val total = item.totalBytes?.let(::formatTraffic)
+        val total = item.totalBytes?.takeIf { it >= 0L }?.let(::formatTraffic)
         val traffic = when {
             used != null && total != null -> {
-                val usedBytes = ((item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)).coerceAtLeast(0L)
                 val remaining = (item.totalBytes!! - usedBytes).coerceAtLeast(0L)
                 "Использовано: $used из $total · осталось ${formatTraffic(remaining)}"
             }
@@ -565,9 +571,9 @@ class MainActivity : Activity() {
 
     private fun showSubscriptionDetails(item: SubscriptionSummary) {
         val host = Uri.parse(item.sourceUrl).host ?: "HTTPS-подписка"
-        val usedBytes = (item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)
+        val usedBytes = subscriptionUsedBytes(item)
         val trafficDetails = when {
-            item.totalBytes != null -> {
+            item.totalBytes != null && item.totalBytes >= 0L -> {
                 val remaining = (item.totalBytes - usedBytes).coerceAtLeast(0L)
                 "Использовано: ${formatTraffic(usedBytes)}\nОсталось: ${formatTraffic(remaining)}\nВсего: ${formatTraffic(item.totalBytes)}"
             }
