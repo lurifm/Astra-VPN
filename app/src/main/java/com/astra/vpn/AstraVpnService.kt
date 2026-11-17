@@ -13,6 +13,7 @@ import io.nekohasekai.libbox.SystemProxyStatus
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
+    private var activeConfig: String? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -32,7 +33,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         if (commandServer != null) {
             runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
-                .onSuccess { publishState(STATE_CONNECTED) }
+                .onSuccess {
+                    activeConfig = config
+                    publishState(STATE_CONNECTED)
+                }
                 .onFailure {
                     Log.e(TAG, "Не удалось перезапустить VPN", it)
                     stopTunnel()
@@ -49,6 +53,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             commandServer = server
             server.start()
             server.startOrReloadService(config, OverrideOptions())
+            activeConfig = config
             Log.i(TAG, "sing-box VPN tunnel started")
             publishState(STATE_CONNECTED)
         } catch (error: Exception) {
@@ -60,7 +65,17 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun serviceStop() = stopTunnel()
-    override fun serviceReload() = Unit
+
+    override fun serviceReload() {
+        val config = activeConfig ?: return
+        val server = commandServer ?: return
+        runCatching { server.startOrReloadService(config, OverrideOptions()) }
+            .onFailure {
+                Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box", it)
+                stopTunnel()
+                publishState(STATE_ERROR, it.message ?: "Не удалось обновить VPN")
+            }
+    }
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
     override fun triggerNativeCrash() = Unit
@@ -78,20 +93,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun stopTunnel() {
-        // Let sing-box stop using the TUN file descriptor before closing our
-        // ParcelFileDescriptor wrapper. Closing it too early can interrupt teardown.
+        // Match the upstream sing-box Android lifecycle: release the Android
+        // TUN descriptor, then close the service and finally the command server.
         val server = commandServer
         commandServer = null
-        if (server != null) {
-            runCatching { server.closeService() }
-                .onFailure { Log.w(TAG, "closeService failed", it) }
-        }
+        activeConfig = null
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed", it) }
         tunDescriptor = null
 
         if (server != null) {
+            runCatching { server.closeService() }
+                .onFailure { Log.w(TAG, "closeService failed", it) }
             runCatching { server.close() }
                 .onFailure { Log.w(TAG, "CommandServer close failed", it) }
         }
