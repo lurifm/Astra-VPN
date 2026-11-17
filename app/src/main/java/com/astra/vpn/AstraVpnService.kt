@@ -3,6 +3,8 @@ package com.astra.vpn
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import io.nekohasekai.libbox.CommandServer
@@ -14,6 +16,20 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val tunTimeout = Runnable {
+        if (commandServer != null && tunDescriptor == null) {
+            val message = "sing-box не создал VPN-интерфейс за отведённое время"
+            Log.e(TAG, message)
+            stopTunnel()
+            publishState(STATE_ERROR, message)
+        }
+    }
+
+    private fun awaitTunCreation() {
+        mainHandler.removeCallbacks(tunTimeout)
+        mainHandler.postDelayed(tunTimeout, TUN_TIMEOUT_MS)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -35,7 +51,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     activeConfig = config
-                    if (tunDescriptor == null) publishState(STATE_CONNECTING)
+                    if (tunDescriptor == null) {
+                        publishState(STATE_CONNECTING)
+                        awaitTunCreation()
+                    }
                 }
                 .onFailure {
                     Log.e(TAG, "Не удалось перезапустить VPN", it)
@@ -48,8 +67,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val platform = AstraPlatform(this) { descriptor ->
                 runCatching { tunDescriptor?.close() }
                 tunDescriptor = descriptor
-                // openTun may be called after startOrReloadService returns.
-                // Publish the state from the actual Android TUN creation callback.
+                mainHandler.removeCallbacks(tunTimeout)
+                // Publish only after Android has actually established the TUN.
                 publishState(STATE_CONNECTED)
             }
             val server = CommandServer(this, platform)
@@ -60,6 +79,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             Log.i(TAG, "sing-box service accepted configuration")
             if (tunDescriptor == null) {
                 publishState(STATE_CONNECTING)
+                awaitTunCreation()
                 Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
             }
         } catch (error: Exception) {
@@ -76,6 +96,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val config = activeConfig ?: return
         val server = commandServer ?: return
         runCatching { server.startOrReloadService(config, OverrideOptions()) }
+            .onSuccess {
+                if (tunDescriptor == null) {
+                    publishState(STATE_CONNECTING)
+                    awaitTunCreation()
+                }
+            }
             .onFailure {
                 Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box", it)
                 stopTunnel()
@@ -101,6 +127,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel() {
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
+        mainHandler.removeCallbacks(tunTimeout)
         val server = commandServer
         commandServer = null
         activeConfig = null
@@ -139,5 +166,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val STATE_ERROR = "error"
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1
+        private const val TUN_TIMEOUT_MS = 20_000L
     }
 }
