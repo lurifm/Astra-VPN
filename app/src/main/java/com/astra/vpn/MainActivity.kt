@@ -544,7 +544,7 @@ class MainActivity : Activity() {
     private fun profileSummary(link: String): String {
         val flag = countryFlag(profileName(link))
         val latency = pingInfo[link] ?: "Задержка не проверена"
-        return "$flag  ${profileName(link)}  ·  ${protocolName(link)}\\n$latency"
+        return "$flag  ${profileName(link)}  ·  ${protocolName(link)}\n$latency"
     }
 
     private fun protocolName(link: String): String = when (Uri.parse(link).scheme?.lowercase()) {
