@@ -540,11 +540,8 @@ class MainActivity : Activity() {
         emptyList()
     }
 
-    private fun subscriptionUsedBytes(item: SubscriptionSummary): Long {
-        val upload = (item.uploadBytes ?: 0L).coerceAtLeast(0L)
-        val download = (item.downloadBytes ?: 0L).coerceAtLeast(0L)
-        return if (Long.MAX_VALUE - upload < download) Long.MAX_VALUE else upload + download
-    }
+    private fun subscriptionUsedBytes(item: SubscriptionSummary): Long =
+        SubscriptionUsageCalculator.usedBytes(item.uploadBytes, item.downloadBytes)
 
     private fun subscriptionUsageText(item: SubscriptionSummary): String {
         val usedBytes = subscriptionUsedBytes(item)
@@ -714,7 +711,7 @@ class MainActivity : Activity() {
                 val totalBytes = subscription.totalBytes ?: 0L
                 if (totalBytes > 0L && (subscription.uploadBytes != null || subscription.downloadBytes != null)) {
                     val usedBytes = subscriptionUsedBytes(subscription)
-                    val percent = ((usedBytes.toDouble() / totalBytes.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+                    val percent = SubscriptionUsageCalculator.percentage(usedBytes, totalBytes) ?: 0
                     val progress = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100
                         this.progress = percent
