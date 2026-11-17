@@ -3,11 +3,15 @@ package com.astra.vpn
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.util.Base64
 import java.nio.ByteBuffer
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
+import javax.crypto.AEADBadTagException
+import java.security.InvalidKeyException
+import java.nio.BufferUnderflowException
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -17,13 +21,15 @@ import javax.crypto.spec.GCMParameterSpec
  * Android Keystore AES-GCM. Subscription replacement is committed atomically:
  * a failed download/parse never removes the last known-good server list.
  */
+class ProfileStorageException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
 class ProfileStore(context: Context) {
     private val prefs = context.getSharedPreferences("astra_profiles", Context.MODE_PRIVATE)
 
     fun all(): List<String> = prefs.all.entries
         .filter { it.key.startsWith(PROFILE_PREFIX) || it.key.startsWith(SUBSCRIPTION_PROFILE_PREFIX) }
         .sortedBy { it.key }
-        .mapNotNull { (_, value) -> runCatching { decrypt(value as String) }.getOrNull() }
+        .mapNotNull { (_, value) -> decryptStored(value as String) }
         .distinct()
 
     fun add(link: String) {
@@ -65,7 +71,7 @@ class ProfileStore(context: Context) {
 
     fun remove(link: String) {
         val entry = prefs.all.entries.firstOrNull { (_, value) ->
-            runCatching { decrypt(value as String) == link }.getOrDefault(false)
+            decryptStored(value as String) == link
         } ?: return
         prefs.edit().remove(entry.key).apply()
     }
@@ -87,6 +93,23 @@ class ProfileStore(context: Context) {
         return Base64.encodeToString(packed, Base64.NO_WRAP)
     }
 
+    private fun decryptStored(value: String): String? = try {
+        decrypt(value)
+    } catch (error: KeyPermanentlyInvalidatedException) {
+        throw ProfileStorageException(storageRecoveryMessage(), error)
+    } catch (error: InvalidKeyException) {
+        throw ProfileStorageException(storageRecoveryMessage(), error)
+    } catch (_: IllegalArgumentException) {
+        null
+    } catch (_: AEADBadTagException) {
+        null
+    } catch (_: BufferUnderflowException) {
+        null
+    }
+
+    private fun storageRecoveryMessage() =
+        "Не удалось открыть защищённое хранилище Astra. Зашифрованные записи сохранены без изменений. Не удаляй данные приложения; если восстановление ключа невозможно, серверы потребуется импортировать заново."
+
     private fun decrypt(value: String): String {
         val packed = Base64.decode(value, Base64.NO_WRAP)
         val buffer = ByteBuffer.wrap(packed)
@@ -100,8 +123,22 @@ class ProfileStore(context: Context) {
     }
 
     private fun secretKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val keyStore = try {
+            KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+        } catch (error: Exception) {
+            throw ProfileStorageException(storageRecoveryMessage(), error)
+        }
+        try {
+            (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        } catch (error: Exception) {
+            throw ProfileStorageException(storageRecoveryMessage(), error)
+        }
+        val hasEncryptedRecords = prefs.all.keys.any {
+            it.startsWith(PROFILE_PREFIX) ||
+                it.startsWith(SUBSCRIPTION_PROFILE_PREFIX) ||
+                it.startsWith(SUBSCRIPTION_SOURCE_PREFIX)
+        }
+        if (hasEncryptedRecords) throw ProfileStorageException(storageRecoveryMessage())
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
         generator.init(
             KeyGenParameterSpec.Builder(
