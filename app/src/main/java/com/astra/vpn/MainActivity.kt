@@ -664,8 +664,15 @@ class MainActivity : Activity() {
                 }.onFailure { error ->
                     status.text = "Ошибка обновления"
                     status.setTextColor(RED)
+                    // Provider/network exceptions can contain the subscription URL.
+                    // Expose only the safe storage recovery message when applicable.
+                    val message = if (error is ProfileStorageException) {
+                        error.message ?: "Не удалось открыть защищённое хранилище."
+                    } else {
+                        "Не удалось получить серверы подписки. Проверь подключение к интернету."
+                    }
                     AlertDialog.Builder(this).setTitle("Не удалось обновить подписку")
-                        .setMessage(error.message ?: "Проверь подключение к интернету")
+                        .setMessage(message)
                         .setPositiveButton("ОК", null).show()
                 }
             }
