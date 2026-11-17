@@ -48,7 +48,7 @@ class SubscriptionRefreshTargetsTest {
                 listOf(first, failed, added),
                 setOf(failed),
                 setOf(first, failed)
-            ).map(SubscriptionSourceFingerprint::of)
+            )
         )
     }
 
