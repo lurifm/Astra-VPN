@@ -487,8 +487,64 @@ class MainActivity : Activity() {
         null
     }
 
+    private fun safeSubscriptionSummaries(): List<SubscriptionSummary> = try {
+        profileStore.subscriptionSummaries()
+    } catch (error: ProfileStorageException) {
+        showStorageError(error)
+        emptyList()
+    }
+
     private fun renderProfiles() {
         profileList.removeAllViews()
+        val summaries = safeSubscriptionSummaries()
+        if (summaries.isNotEmpty()) {
+            profileList.addView(TextView(this).apply {
+                text = "ПОДПИСКИ"
+                textSize = 11f
+                letterSpacing = .10f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(LIGHT_ACCENT)
+                setPadding(dp(2), dp(2), 0, dp(8))
+            })
+            summaries.forEach { subscription ->
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(15), dp(13), dp(15), dp(13))
+                    background = rounded(CARD, 16)
+                    isClickable = true
+                    setOnClickListener { refreshSubscriptions() }
+                }
+                card.addView(TextView(this).apply {
+                    text = "☁  ${subscription.title}"
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    maxLines = 1
+                })
+                card.addView(TextView(this).apply {
+                    text = "${subscription.serverCount} серверов  ·  HTTPS-подписка"
+                    textSize = 12f
+                    setTextColor(LIGHT_ACCENT)
+                    setPadding(0, dp(5), 0, dp(3))
+                })
+                card.addView(TextView(this).apply {
+                    text = "Трафик и срок действия: нет данных от провайдера"
+                    textSize = 11f
+                    setTextColor(MUTED)
+                })
+                profileList.addView(card, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(9)
+                })
+            }
+            profileList.addView(TextView(this).apply {
+                text = "СЕРВЕРЫ"
+                textSize = 11f
+                letterSpacing = .10f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(LIGHT_ACCENT)
+                setPadding(dp(2), dp(8), 0, dp(8))
+            })
+        }
         val profiles = safeProfiles()
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
