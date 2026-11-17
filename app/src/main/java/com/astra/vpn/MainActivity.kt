@@ -156,8 +156,8 @@ class MainActivity : Activity() {
             setOnClickListener { showAppSettingsDialog() }
         }
         val brand = TextView(this).apply {
-            text = "ASTRA"
-            textSize = 27f
+            text = "ASTRA VPN"
+            textSize = 25f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             letterSpacing = .12f
@@ -525,8 +525,9 @@ class MainActivity : Activity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(12), dp(10), dp(12))
-                background = rounded(if (isSelected) SELECTED_CARD else CARD, 18)
+                setPadding(dp(14), dp(14), dp(10), dp(14))
+                background = serverRowBackground(isSelected)
+                elevation = dp(if (isSelected) 3 else 0).toFloat()
                 setOnClickListener {
                     if (!connecting) {
                         selectedProfile = link
@@ -1284,6 +1285,13 @@ class MainActivity : Activity() {
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(radius).toFloat()
+    }
+
+    /** Subtle outline makes the selected server unmistakable without visual clutter. */
+    private fun serverRowBackground(selected: Boolean) = GradientDrawable().apply {
+        setColor(if (selected) SELECTED_CARD else CARD)
+        cornerRadius = dp(18).toFloat()
+        setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else 0xFF26324B.toInt())
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
