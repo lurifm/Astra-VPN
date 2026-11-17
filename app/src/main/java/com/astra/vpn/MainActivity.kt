@@ -362,11 +362,11 @@ class MainActivity : Activity() {
                 setPadding(dp(14), dp(12), dp(10), dp(12))
                 background = rounded(if (isSelected) SELECTED_CARD else CARD, 18)
                 setOnClickListener {
-                    if (!connected) {
+                    if (!connected && !connecting) {
                         selectedProfile = link
                         renderProfiles()
                     } else {
-                        Toast.makeText(this@MainActivity, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Дождись завершения подключения или отключи VPN", Toast.LENGTH_SHORT).show()
                     }
                 }
                 setOnLongClickListener {
@@ -463,8 +463,8 @@ class MainActivity : Activity() {
      * Hysteria2/TUIC availability or actual VPN tunnel latency.
      */
     private fun selectFastestServer() {
-        if (connected) {
-            Toast.makeText(this, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
+        if (connected || connecting) {
+            Toast.makeText(this, "Дождись завершения подключения или отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
             return
         }
         val candidates = profileStore.all().filter {
