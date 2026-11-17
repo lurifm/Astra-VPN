@@ -1198,6 +1198,26 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
             )
         }
+        val appSearch = EditText(this).apply {
+            hint = "Найти приложение…"
+            textSize = 14f
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            background = rounded(CARD, 12)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    val query = s?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
+                    apps.forEach { app ->
+                        checks[app.packageName]?.visibility = if (query.isEmpty() ||
+                            app.label.lowercase(java.util.Locale.getDefault()).contains(query)) View.VISIBLE else View.GONE
+                    }
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(4))
@@ -1208,6 +1228,7 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, dp(10))
             })
             addView(modeGroup)
+            addView(appSearch, matchWidth().apply { bottomMargin = dp(8) })
             addView(TextView(this@MainActivity).apply {
                 text = "Приложения"
                 textSize = 14f
