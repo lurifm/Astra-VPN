@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.content.Intent
+import android.app.NotificationManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -46,9 +47,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         intent?.getStringExtra(EXTRA_PROTOCOL)?.takeIf { it.isNotBlank() }?.let { activeProtocol = it }
         // A new start command may be a server switch that reuses the existing TUN.
         if (intent?.action == ACTION_START) lastHistoryState = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForeground(NOTIFICATION_ID, AstraNotification.create(this))
-        }
+        startForeground(
+            NOTIFICATION_ID,
+            AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
+        )
         if (intent?.action == ACTION_STOP) {
             stopTunnel()
             return START_NOT_STICKY
@@ -213,6 +215,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
         sendBroadcast(intent)
+        runCatching {
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.notify(
+                NOTIFICATION_ID,
+                AstraNotification.create(this, state, activeProfileName)
+            )
+        }.onFailure { Log.w(TAG, "Не удалось обновить уведомление VPN", it) }
     }
 
     companion object {
