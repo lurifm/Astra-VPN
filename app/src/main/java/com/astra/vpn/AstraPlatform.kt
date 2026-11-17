@@ -227,6 +227,9 @@ class AstraPlatform(
         defaultNetworkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
         defaultNetworkCallback = null
         interfaceListener = null
+        lastUnderlyingNetwork = null
+        lastInterfaceSnapshot = null
+        hasReportedNoInterface = false
     }
 
     private fun updateDefaultInterface(network: Network?) {
