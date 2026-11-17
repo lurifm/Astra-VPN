@@ -335,6 +335,10 @@ class MainActivity : Activity() {
         requestPhoneStatePermissionIfNeeded()
         renderProfiles()
         updateNetworkLabel()
+        // Check the open-app option immediately and keep a lightweight scheduler alive
+        // while this screen is active; the worker checks settings every minute.
+        maybeAutoUpdateSubscriptions(true)
+        autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Populate visible latency information as soon as saved profiles are loaded.
         checkAllLatencies()
