@@ -1590,11 +1590,23 @@ class MainActivity : Activity() {
         panel.addView(TextView(this).apply {
             val lastUpdate = settingsPrefs.getLong("last_subscription_update", 0L)
             text = if (lastUpdate > 0L) {
-                "Последнее обновление: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastUpdate))
+                "Последнее успешное обновление: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastUpdate))
             } else "Подписки ещё не обновлялись"
             textSize = 11f
             setTextColor(MUTED)
-            setPadding(0, dp(2), 0, dp(8))
+            setPadding(0, dp(2), 0, dp(2))
+        })
+        panel.addView(TextView(this).apply {
+            val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", 0L)
+            val lastUpdate = settingsPrefs.getLong("last_subscription_update", 0L)
+            text = when {
+                lastAttempt <= 0L -> "Попыток обновления пока не было"
+                lastAttempt > lastUpdate -> "Последняя попытка: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastAttempt)) + " · результат мог быть с ошибкой"
+                else -> "Последняя попытка совпадает с успешным обновлением"
+            }
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(8))
         })
         AlertDialog.Builder(this)
             .setTitle("Настройки Astra")
