@@ -25,6 +25,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val store = ProfileStore(applicationContext)
             val sources = store.subscriptionSources()
             if (sources.isEmpty()) return Result.success()
+            settings.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
             var updated = 0
             var serverCount = 0
             var failures = 0
@@ -38,7 +39,9 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                     failures++
                 }
             }
-            settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
+            if (updated > 0) {
+                settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
+            }
             val title = if (failures == 0) "Подписки обновлены" else "Обновление подписок с ошибками"
             val message = if (failures == 0) {
                 "Обновлено подписок: $updated · серверов: $serverCount"
