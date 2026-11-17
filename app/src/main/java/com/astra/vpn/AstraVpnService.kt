@@ -16,6 +16,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
+    // Prevent callbacks from closeService() from re-entering stopTunnel().
+    private var stopping = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tunTimeout = Runnable {
         if (commandServer != null && tunDescriptor == null) {
@@ -32,6 +34,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A new explicit start may arrive while Android is finishing a previous stop.
+        stopping = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForeground(NOTIFICATION_ID, AstraNotification.create(this))
         }
@@ -139,6 +143,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun stopTunnel() {
+        if (stopping) return
+        stopping = true
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
         mainHandler.removeCallbacks(tunTimeout)
