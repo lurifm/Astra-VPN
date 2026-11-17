@@ -41,7 +41,23 @@ object CountryFlagResolver {
         "🇭🇰" to listOf("гонконг", "hong kong", "hkg"),
         "🇦🇪" to listOf("оаэ", "uae", "emirates"),
         "🇮🇳" to listOf("инд", "india", "ind"),
-        "🇧🇷" to listOf("браз", "brazil", "bra")
+        "🇧🇷" to listOf("браз", "brazil", "bra"),
+        "🇵🇹" to listOf("португал", "portugal", "prt"),
+        "🇬🇷" to listOf("грец", "greece", "grc"),
+        "🇨🇾" to listOf("кипр", "cyprus", "cyp"),
+        "🇦🇺" to listOf("австрал", "australia", "aus"),
+        "🇳🇿" to listOf("новая зеланд", "new zealand", "nzl"),
+        "🇨🇳" to listOf("кита", "china", "chn"),
+        "🇹🇼" to listOf("тайван", "taiwan", "twn"),
+        "🇮🇩" to listOf("индонез", "indonesia", "idn"),
+        "🇹🇭" to listOf("таиланд", "thailand", "tha"),
+        "🇻🇳" to listOf("вьетнам", "vietnam", "vnm"),
+        "🇲🇾" to listOf("малайз", "malaysia", "mys"),
+        "🇮🇱" to listOf("израил", "israel", "isr"),
+        "🇲🇽" to listOf("мексик", "mexico", "mex"),
+        "🇦🇷" to listOf("аргентин", "argentina", "arg"),
+        "🇨🇱" to listOf("чили", "chile", "chl"),
+        "🇿🇦" to listOf("южная африк", "south africa", "zaf")
     )
 
     private val namesByFlag = mapOf(
@@ -56,7 +72,13 @@ object CountryFlagResolver {
         "🇱🇻" to "Латвия", "🇱🇹" to "Литва", "🇺🇦" to "Украина",
         "🇰🇿" to "Казахстан", "🇯🇵" to "Япония", "🇸🇬" to "Сингапур",
         "🇰🇷" to "Южная Корея", "🇭🇰" to "Гонконг", "🇦🇪" to "ОАЭ",
-        "🇮🇳" to "Индия", "🇧🇷" to "Бразилия"
+        "🇮🇳" to "Индия", "🇧🇷" to "Бразилия",
+        "🇵🇹" to "Португалия", "🇬🇷" to "Греция", "🇨🇾" to "Кипр",
+        "🇦🇺" to "Австралия", "🇳🇿" to "Новая Зеландия", "🇨🇳" to "Китай",
+        "🇹🇼" to "Тайвань", "🇮🇩" to "Индонезия", "🇹🇭" to "Таиланд",
+        "🇻🇳" to "Вьетнам", "🇲🇾" to "Малайзия", "🇮🇱" to "Израиль",
+        "🇲🇽" to "Мексика", "🇦🇷" to "Аргентина", "🇨🇱" to "Чили",
+        "🇿🇦" to "ЮАР"
     )
 
     fun countryNameForFlag(flag: String): String = namesByFlag[flag] ?: "Другая страна"
