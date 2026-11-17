@@ -140,3 +140,29 @@ class SubscriptionRefreshIntervalTest {
         assertEquals(86_400_000L, SubscriptionRefreshInterval.intervalMillis(100))
     }
 }
+
+class SubscriptionRefreshRetryStateTest {
+    @Test fun stoppedWorkerKeepsEarlierFailuresAndAllUnprocessedTargets() {
+        val first = "https://one.example/sub?token=one"
+        val second = "https://two.example/sub?token=two"
+        val third = "https://three.example/sub?token=three"
+        val previousFailure = SubscriptionSourceFingerprint.of("https://previous.example/sub?token=old")
+
+        assertEquals(
+            setOf(previousFailure, SubscriptionSourceFingerprint.of(second), SubscriptionSourceFingerprint.of(third)),
+            SubscriptionRefreshRetryState.pendingAfterStop(
+                listOf(first, second, third),
+                nextIndex = 1,
+                alreadyFailed = setOf(previousFailure)
+            )
+        )
+    }
+
+    @Test fun stoppedWorkerWithOutOfRangeIndexDoesNotThrowOrLoseFailures() {
+        val previousFailure = SubscriptionSourceFingerprint.of("https://previous.example/sub")
+        assertEquals(
+            setOf(previousFailure),
+            SubscriptionRefreshRetryState.pendingAfterStop(emptyList(), 10, setOf(previousFailure))
+        )
+    }
+}
