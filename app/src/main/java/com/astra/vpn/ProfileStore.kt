@@ -81,7 +81,7 @@ class ProfileStore(context: Context) {
             .digest(source.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
-    private fun encrypt(value: String): String {
+    private fun encrypt(value: String): String = try {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
@@ -90,7 +90,11 @@ class ProfileStore(context: Context) {
             .put(cipher.iv)
             .put(encrypted)
             .array()
-        return Base64.encodeToString(packed, Base64.NO_WRAP)
+        Base64.encodeToString(packed, Base64.NO_WRAP)
+    } catch (error: InvalidKeyException) {
+        // Encryption can fail too when Android invalidates a Keystore key.
+        // Keep the same actionable recovery message used by the read path.
+        throw ProfileStorageException(storageRecoveryMessage(), error)
     }
 
     private fun decryptStored(value: String): String? = try {
