@@ -1734,27 +1734,43 @@ class MainActivity : Activity() {
             })
             addView(listScroll)
         }
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Маршрутизация приложений")
             .setView(content)
             .setNegativeButton("Отмена", null)
-            .setPositiveButton("Сохранить") { _, _ ->
-                val packages = checks.filterValues { it.isChecked }.keys
+            .setPositiveButton("Сохранить", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val packages = checks.filterValues { it.isChecked }.keys.toSet()
                 val chosenMode = modeGroup.findViewById<RadioButton>(modeGroup.checkedRadioButtonId)
                     ?.tag as? String ?: "exclude"
+
+                // Android interprets an empty allowed-app list as the default
+                // full-device VPN. Do not silently save a setting that means
+                // the opposite of what the user selected.
+                if (chosenMode == "include" && packages.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "Выбери хотя бы одно приложение для режима «Только выбранные».",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return@setOnClickListener
+                }
+
                 prefs.edit()
-                    .putStringSet("vpn_app_packages", packages.toSet())
+                    .putStringSet("vpn_app_packages", packages)
                     .putString("vpn_app_mode", chosenMode)
                     .apply()
                 Toast.makeText(
                     this,
-                    if (chosenMode == "include" && packages.isEmpty())
-                        "Список пуст: через VPN не пойдут выбранные приложения"
-                    else "Правила сохранены. Переподключи VPN для применения.",
+                    "Правила сохранены. Переподключи VPN для применения.",
                     Toast.LENGTH_LONG
                 ).show()
+                dialog.dismiss()
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun maybeAutoUpdateSubscriptions(onOpen: Boolean) {
