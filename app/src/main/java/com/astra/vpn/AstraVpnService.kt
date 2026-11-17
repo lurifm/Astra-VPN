@@ -157,7 +157,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
     }
 
-    private fun stopTunnel() = synchronized(lifecycleLock) {
+    private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
         // Match the upstream sing-box Android lifecycle: release the Android
