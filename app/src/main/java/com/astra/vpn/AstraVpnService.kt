@@ -21,11 +21,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tunTimeout = Runnable {
-        if (commandServer != null && tunDescriptor == null) {
-            val message = "sing-box не создал VPN-интерфейс за отведённое время"
-            Log.e(TAG, message)
-            stopTunnel()
-            publishState(STATE_ERROR, message)
+        synchronized(lifecycleLock) {
+            if (!stopping && commandServer != null && tunDescriptor == null) {
+                val message = "sing-box не создал VPN-интерфейс за отведённое время"
+                Log.e(TAG, message)
+                stopTunnel()
+                publishState(STATE_ERROR, message)
+            }
         }
     }
 
@@ -35,8 +37,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // A new explicit start may arrive while Android is finishing a previous stop.
-        stopping = false
+        // Serialize a new start with asynchronous libbox callbacks and shutdown.
+        synchronized(lifecycleLock) { stopping = false }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForeground(NOTIFICATION_ID, AstraNotification.create(this))
         }
