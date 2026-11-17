@@ -889,7 +889,15 @@ class MainActivity : Activity() {
 
     private fun checkAllLatencies() {
         val profiles = safeProfiles()
-        if (profiles.isEmpty()) return
+        val currentProfiles = profiles.toHashSet()
+        // Drop cached results for removed profiles so ping sorting never
+        // keeps ghost entries or stale measurements after subscription edits.
+        latencyMs.keys.toList().filterNot { it in currentProfiles }.forEach { latencyMs.remove(it) }
+        pingInfo.keys.toList().filterNot { it in currentProfiles }.forEach { pingInfo.remove(it) }
+        if (profiles.isEmpty()) {
+            renderProfiles()
+            return
+        }
 
         Toast.makeText(this, "Проверяем доступность серверов…", Toast.LENGTH_SHORT).show()
 
@@ -899,6 +907,7 @@ class MainActivity : Activity() {
             val uri = Uri.parse(link)
             val scheme = uri.scheme.orEmpty().lowercase()
             if (scheme != "vless") {
+                latencyMs.remove(link)
                 pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic") {
                     "UDP • TCP-тест не применяется"
                 } else {
@@ -920,6 +929,7 @@ class MainActivity : Activity() {
         val remaining = java.util.concurrent.atomic.AtomicInteger(vlessProfiles.size)
         vlessProfiles.forEach { link ->
             val uri = Uri.parse(link)
+            latencyMs.remove(link)
             pingInfo[link] = "Проверяем…"
             pingExecutor.execute {
                 val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
