@@ -73,8 +73,10 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // retry with backoff so temporarily unavailable providers are retried
             // instead of waiting for the next periodic interval.
             if (failures > 0) Result.retry() else Result.success()
-        } catch (error: Exception) {
-            postRefreshNotification(applicationContext, "Не удалось обновить подписки", error.message ?: "Проверь подключение к интернету", true)
+        } catch (_: Exception) {
+            // Exception messages may contain full subscription URLs, including credentials.
+            // Keep notification text generic and never expose source secrets on the lock screen.
+            postRefreshNotification(applicationContext, "Не удалось обновить подписки", "Проверь подключение к интернету и настройки подписок.", true)
             Result.retry()
         }
     }
