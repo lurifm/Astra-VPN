@@ -133,4 +133,10 @@ class SubscriptionRefreshIntervalTest {
         assertEquals(24, SubscriptionRefreshInterval.normalize(25))
         assertEquals(24, SubscriptionRefreshInterval.normalize(100))
     }
+
+    @Test fun foregroundIntervalUsesTheSameOneToTwentyFourHourBounds() {
+        assertEquals(3_600_000L, SubscriptionRefreshInterval.intervalMillis(0))
+        assertEquals(7_200_000L, SubscriptionRefreshInterval.intervalMillis(2))
+        assertEquals(86_400_000L, SubscriptionRefreshInterval.intervalMillis(100))
+    }
 }
