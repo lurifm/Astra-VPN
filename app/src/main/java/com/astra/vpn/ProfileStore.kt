@@ -26,7 +26,11 @@ class ProfileStorageException(message: String, cause: Throwable? = null) : Excep
 data class SubscriptionSummary(
     val sourceUrl: String,
     val title: String,
-    val serverCount: Int
+    val serverCount: Int,
+    val uploadBytes: Long? = null,
+    val downloadBytes: Long? = null,
+    val totalBytes: Long? = null,
+    val expiresAtEpochSeconds: Long? = null
 )
 
 class ProfileStore(context: Context) {
@@ -53,7 +57,7 @@ class ProfileStore(context: Context) {
     }
 
     /** Replace only the profiles owned by this HTTPS subscription. */
-    fun replaceSubscription(sourceUrl: String, links: List<String>) {
+    fun replaceSubscription(sourceUrl: String, links: List<String>, metadata: SubscriptionMetadata = SubscriptionMetadata()) {
         require(sourceUrl.startsWith("https://", ignoreCase = true)) {
             "Источник подписки должен использовать HTTPS"
         }
@@ -67,6 +71,10 @@ class ProfileStore(context: Context) {
             editor.putString(profilePrefix + java.util.UUID.randomUUID().toString(), encrypt(link))
         }
         editor.putString(sourceKey, encrypt(sourceUrl))
+        val metadataKey = SUBSCRIPTION_META_PREFIX + sourceId
+        editor.putString(metadataKey, listOf(metadata.uploadBytes, metadata.downloadBytes, metadata.totalBytes, metadata.expiresAtEpochSeconds).joinToString(",") { it?.toString().orEmpty() })
+        metadata.title?.let { editor.putString(SUBSCRIPTION_TITLE_PREFIX + sourceId, it.take(120)) }
+            ?: editor.remove(SUBSCRIPTION_TITLE_PREFIX + sourceId)
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
     }
 
@@ -83,7 +91,11 @@ class ProfileStore(context: Context) {
             val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
             val count = prefs.all.keys.count { it.startsWith(SUBSCRIPTION_PROFILE_PREFIX + id + "_") }
             val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
-            SubscriptionSummary(source, host?.takeIf { it.isNotBlank() } ?: "Подписка", count)
+            val meta = prefs.getString(SUBSCRIPTION_META_PREFIX + id, null)?.split(",").orEmpty()
+            fun number(index: Int): Long? = meta.getOrNull(index)?.takeIf { it.isNotBlank() }?.toLongOrNull()
+            val title = prefs.getString(SUBSCRIPTION_TITLE_PREFIX + id, null)
+                ?: host?.takeIf { it.isNotBlank() } ?: "Подписка"
+            SubscriptionSummary(source, title, count, number(0), number(1), number(2), number(3))
         }
         .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
 
@@ -180,6 +192,8 @@ class ProfileStore(context: Context) {
         private const val PROFILE_PREFIX = "profile_"
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
         private const val SUBSCRIPTION_SOURCE_PREFIX = "subscription_source_"
+        private const val SUBSCRIPTION_META_PREFIX = "subscription_meta_"
+        private const val SUBSCRIPTION_TITLE_PREFIX = "subscription_title_"
         private const val KEY_ALIAS = "astra_profile_key"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
