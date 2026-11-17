@@ -44,6 +44,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         synchronized(lifecycleLock) { stopping = false }
         intent?.getStringExtra(EXTRA_PROFILE_NAME)?.takeIf { it.isNotBlank() }?.let { activeProfileName = it }
         intent?.getStringExtra(EXTRA_PROTOCOL)?.takeIf { it.isNotBlank() }?.let { activeProtocol = it }
+        // A new start command may be a server switch that reuses the existing TUN.
+        if (intent?.action == ACTION_START) lastHistoryState = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForeground(NOTIFICATION_ID, AstraNotification.create(this))
         }
