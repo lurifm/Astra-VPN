@@ -53,22 +53,34 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             var serverCount = 0
             var failures = 0
             val failedSources = linkedSetOf<String>()
-            targets.forEach { source ->
+            for (index in targets.indices) {
+                val source = targets[index]
+                // A stopped worker must not silently lose subscriptions it had not
+                // reached yet. Persist those fingerprints so the next run resumes them.
+                if (isStopped) {
+                    targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
+                    persistRefreshState(settings, failedSources, sources)
+                    return Result.retry()
+                }
                 try {
                     val count = SubscriptionRefreshCoordinator.refresh(store, source)
                     updated++
                     serverCount += count
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
+                    persistRefreshState(settings, failedSources, sources)
+                    return Result.retry()
+                } catch (_: java.util.concurrent.CancellationException) {
+                    targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
+                    persistRefreshState(settings, failedSources, sources)
+                    return Result.retry()
                 } catch (_: Exception) {
                     failures++
                     failedSources += SubscriptionSourceFingerprint.of(source)
                 }
             }
-            settings.edit().apply {
-                if (failedSources.isEmpty()) remove("subscription_retry_sources")
-                else putStringSet("subscription_retry_sources", failedSources)
-                // Mark sources as seen only after selected refreshes finish.
-                putStringSet("subscription_known_sources", sources.map(SubscriptionSourceFingerprint::of).toSet())
-            }.apply()
+            persistRefreshState(settings, failedSources, sources)
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
@@ -90,6 +102,19 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             Result.retry()
         }
     }
+}
+
+/** Persist retry identifiers only; source URLs can contain provider credentials. */
+private fun persistRefreshState(
+    settings: android.content.SharedPreferences,
+    failedSources: Set<String>,
+    currentSources: List<String>
+) {
+    settings.edit().apply {
+        if (failedSources.isEmpty()) remove("subscription_retry_sources")
+        else putStringSet("subscription_retry_sources", failedSources.toSet())
+        putStringSet("subscription_known_sources", currentSources.map(SubscriptionSourceFingerprint::of).toSet())
+    }.apply()
 }
 
 /**
