@@ -109,6 +109,11 @@ private fun postRefreshNotification(context: Context, title: String, message: St
     }
 }
 
+internal object SubscriptionRefreshInterval {
+    /** Keep periodic work within Android WorkManager's supported 1–24 hour product range. */
+    fun normalize(hours: Int): Int = hours.coerceIn(1, 24)
+}
+
 internal object SubscriptionRefreshTargets {
     /**
      * Use the retry subset while it still exists. If all previously failed sources
@@ -132,7 +137,7 @@ object SubscriptionRefreshScheduler {
             manager.cancelUniqueWork(UNIQUE_WORK)
             return
         }
-        val hours = settings.getInt("update_interval_hours", 2).coerceIn(1, 24)
+        val hours = SubscriptionRefreshInterval.normalize(settings.getInt("update_interval_hours", 2))
         val request = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(hours.toLong(), TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
