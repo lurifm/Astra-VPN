@@ -506,7 +506,11 @@ class MainActivity : Activity() {
         } else null
         val total = item.totalBytes?.let(::formatTraffic)
         val traffic = when {
-            used != null && total != null -> "Трафик: $used из $total"
+            used != null && total != null -> {
+                val usedBytes = ((item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)).coerceAtLeast(0L)
+                val remaining = (item.totalBytes!! - usedBytes).coerceAtLeast(0L)
+                "Использовано: $used из $total · осталось ${formatTraffic(remaining)}"
+            }
             used != null -> "Использовано: $used · лимит не указан"
             else -> "Трафик: провайдер не предоставил данные"
         }
@@ -563,6 +567,27 @@ class MainActivity : Activity() {
                     textSize = 11f
                     setTextColor(MUTED)
                 })
+                val totalBytes = subscription.totalBytes ?: 0L
+                if (totalBytes > 0L && (subscription.uploadBytes != null || subscription.downloadBytes != null)) {
+                    val usedBytes = ((subscription.uploadBytes ?: 0L) + (subscription.downloadBytes ?: 0L)).coerceAtLeast(0L)
+                    val percent = ((usedBytes.toDouble() / totalBytes.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+                    val progress = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 100
+                        this.progress = percent
+                        isIndeterminate = false
+                        progressTintList = android.content.res.ColorStateList.valueOf(if (percent >= 90) AMBER else GREEN)
+                        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF303B54.toInt())
+                    }
+                    card.addView(progress, LinearLayout.LayoutParams(matchWidth().width, dp(6)).apply {
+                        topMargin = dp(9)
+                    })
+                    card.addView(TextView(this).apply {
+                        text = "$percent% использовано"
+                        textSize = 10f
+                        setTextColor(MUTED)
+                        setPadding(0, dp(4), 0, 0)
+                    })
+                }
                 profileList.addView(card, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dp(9)
                 })
@@ -1194,6 +1219,7 @@ class MainActivity : Activity() {
                     .setTitle("Интервал автообновления")
                     .setSingleChoiceItems(values, selected) { dialog, which ->
                         settingsPrefs.edit().putInt("update_interval_hours", hours[which]).apply()
+                        SubscriptionRefreshScheduler.sync(this@MainActivity)
                         refreshLabel()
                         dialog.dismiss()
                     }
