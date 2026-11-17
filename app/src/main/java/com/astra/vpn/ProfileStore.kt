@@ -73,8 +73,9 @@ class ProfileStore(context: Context) {
         editor.putString(sourceKey, encrypt(sourceUrl))
         val metadataKey = SUBSCRIPTION_META_PREFIX + sourceId
         editor.putString(metadataKey, listOf(metadata.uploadBytes, metadata.downloadBytes, metadata.totalBytes, metadata.expiresAtEpochSeconds).joinToString(",") { it?.toString().orEmpty() })
-        metadata.title?.let { editor.putString(SUBSCRIPTION_TITLE_PREFIX + sourceId, it.take(120)) }
-            ?: editor.remove(SUBSCRIPTION_TITLE_PREFIX + sourceId)
+        // Provider metadata and the user's custom label are stored separately.
+        // Missing title headers must not erase a name the user chose themselves.
+        metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, it.take(120)) }
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
     }
 
@@ -84,7 +85,7 @@ class ProfileStore(context: Context) {
         require(prefs.contains(sourceKey)) { "Подписка не найдена" }
         val cleanTitle = title.trim().take(80)
         require(cleanTitle.isNotEmpty()) { "Название не может быть пустым" }
-        check(prefs.edit().putString(SUBSCRIPTION_TITLE_PREFIX + id, cleanTitle).commit()) {
+        check(prefs.edit().putString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, cleanTitle).commit()) {
             "Не удалось сохранить название подписки"
         }
     }
@@ -101,6 +102,8 @@ class ProfileStore(context: Context) {
         editor.remove(sourceKey)
             .remove(SUBSCRIPTION_META_PREFIX + id)
             .remove(SUBSCRIPTION_TITLE_PREFIX + id)
+            .remove(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id)
+            .remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id)
         check(editor.commit()) { "Не удалось удалить подписку" }
         return removed
     }
@@ -120,7 +123,9 @@ class ProfileStore(context: Context) {
             val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
             val meta = prefs.getString(SUBSCRIPTION_META_PREFIX + id, null)?.split(",").orEmpty()
             fun number(index: Int): Long? = meta.getOrNull(index)?.takeIf { it.isNotBlank() }?.toLongOrNull()
-            val title = prefs.getString(SUBSCRIPTION_TITLE_PREFIX + id, null)
+            val title = prefs.getString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, null)
+                ?: prefs.getString(SUBSCRIPTION_TITLE_PREFIX + id, null) // legacy custom/provider title
+                ?: prefs.getString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, null)
                 ?: host?.takeIf { it.isNotBlank() } ?: "Подписка"
             SubscriptionSummary(source, title, count, number(0), number(1), number(2), number(3))
         }
@@ -220,7 +225,9 @@ class ProfileStore(context: Context) {
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
         private const val SUBSCRIPTION_SOURCE_PREFIX = "subscription_source_"
         private const val SUBSCRIPTION_META_PREFIX = "subscription_meta_"
-        private const val SUBSCRIPTION_TITLE_PREFIX = "subscription_title_"
+        private const val SUBSCRIPTION_TITLE_PREFIX = "subscription_title_" // legacy title key
+        private const val SUBSCRIPTION_CUSTOM_TITLE_PREFIX = "subscription_custom_title_"
+        private const val SUBSCRIPTION_PROVIDER_TITLE_PREFIX = "subscription_provider_title_"
         private const val KEY_ALIAS = "astra_profile_key"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
