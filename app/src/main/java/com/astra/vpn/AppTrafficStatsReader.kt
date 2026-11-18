@@ -3,6 +3,7 @@ package com.astra.vpn
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
@@ -80,14 +81,18 @@ internal object AppTrafficStatsReader {
 
         val labels = HashMap<Int, String>()
         val pm = context.packageManager
-        val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        for (app in installed) {
-            val uid = app.uid
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        @Suppress("DEPRECATION")
+        val launchable = pm.queryIntentActivities(launcherIntent, 0)
+        for (activity in launchable) {
+            val app = activity.activityInfo?.applicationInfo ?: continue
             val label = runCatching { pm.getApplicationLabel(app).toString() }
                 .getOrDefault(app.packageName)
-            val previous = labels[uid]
-            labels[uid] = if (previous == null || label.length < previous.length) label else previous
+            val previous = labels[app.uid]
+            labels[app.uid] = if (previous == null || label.length < previous.length) label else previous
         }
+        val ownInfo = runCatching { pm.getApplicationInfo(context.packageName, 0) }.getOrNull()
+        if (ownInfo != null) labels[ownInfo.uid] = pm.getApplicationLabel(ownInfo).toString()
 
         val apps = totals.mapNotNull { (uid, bytes) ->
             val total = bytes[0] + bytes[1]
