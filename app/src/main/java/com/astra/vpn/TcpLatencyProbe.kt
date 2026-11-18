@@ -17,7 +17,7 @@ object TcpLatencyProbe {
     )
 
     const val SAMPLE_COUNT = 5
-    private const val CONNECT_TIMEOUT_MS = 2000
+    private const val CONNECT_TIMEOUT_MS = 1200
 
     fun measure(host: String, port: Int): Result {
         require(host.isNotBlank()) { "Host is empty" }
