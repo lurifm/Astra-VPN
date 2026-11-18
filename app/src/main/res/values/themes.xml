@@ -1,18 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Astra" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">#647CFF</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimary">#8B9CFF</item>
+        <item name="colorOnPrimary">#091126</item>
         <item name="colorSecondary">#A9B8FF</item>
         <item name="colorOnSecondary">#10152A</item>
-        <item name="colorSurface">#111827</item>
+        <item name="colorSurface">#101522</item>
         <item name="colorOnSurface">#F4F6FF</item>
+        <item name="colorSurfaceVariant">#202A3B</item>
+        <item name="colorOnSurfaceVariant">#B8C2D8</item>
         <item name="android:colorAccent">#A9B8FF</item>
-        <item name="android:statusBarColor">#080B14</item>
-        <item name="android:navigationBarColor">#0B1020</item>
+        <item name="android:statusBarColor">#070B13</item>
+        <item name="android:navigationBarColor">#070B13</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">#070B13</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Astra.MaterialAlertDialog</item>
+    </style>
+
+    <style name="ThemeOverlay.Astra.MaterialAlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">#151D2B</item>
+        <item name="colorOnSurface">#F4F6FF</item>
+        <item name="colorPrimary">#A9B8FF</item>
+        <item name="colorOnPrimary">#10152A</item>
     </style>
 </resources>
