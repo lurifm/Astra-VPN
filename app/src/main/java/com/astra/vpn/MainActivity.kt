@@ -164,10 +164,12 @@ class MainActivity : Activity() {
                     pendingFastestSelection = false
                     selectingFastest = false
                     urlTestProfileMap.values.forEach { profile ->
-                        latencyMs.remove(profile)
-                        pingInfo[profile] = "н/д"
+                        // Keep successful partial measurements if the isolated test
+                        // service fails later; only unmeasured nodes are unavailable.
+                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
                     }
-                    val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR) ?: "Не удалось проверить серверы"
+                    val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR)
+                        ?: "Проверка прервана. Сохранены уже полученные результаты."
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
