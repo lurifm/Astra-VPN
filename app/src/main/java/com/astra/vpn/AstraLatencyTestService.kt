@@ -232,7 +232,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_LAST_RESULTS = "last_results"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val TEST_TIMEOUT_MS = 20_000L
+        private const val TEST_TIMEOUT_MS = 45_000L
         private const val RESULT_SETTLE_MS = 2_000L
 
         fun start(context: Context, config: String, tags: Set<String>) {
