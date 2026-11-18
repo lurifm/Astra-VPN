@@ -22,11 +22,15 @@ class AstraApplication : Application() {
     private fun setupLibbox() {
         // The URL-test engine runs in :latency so it has an independent libbox
         // singleton and command.sock. Keep every writable path process-isolated.
-        val processSuffix = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            getProcessName().substringAfterLast(":", "main")
+        val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName()
         } else {
-            "main"
+            val activityManager = getSystemService(android.app.ActivityManager::class.java)
+            activityManager.runningAppProcesses
+                ?.firstOrNull { it.pid == android.os.Process.myPid() }
+                ?.processName ?: packageName
         }
+        val processSuffix = processName.substringAfterLast(":", "main")
         val processRoot = if (processSuffix == "main") filesDir else java.io.File(filesDir, processSuffix)
         val baseDirectory = processRoot.apply { mkdirs() }
         val workingRoot = getExternalFilesDir(null) ?: filesDir
