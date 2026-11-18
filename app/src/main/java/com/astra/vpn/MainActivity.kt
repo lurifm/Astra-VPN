@@ -1996,6 +1996,12 @@ class MainActivity : Activity() {
         val statePrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
         val stateAge = System.currentTimeMillis() - statePrefs.getLong(AstraVpnService.PREF_UPDATED_AT, 0L)
         val connectingIsRecent = saved == AstraVpnService.STATE_CONNECTING && stateAge in 0..30_000L
+        val savedError = statePrefs.getString(AstraVpnService.PREF_ERROR, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val errorTimestamp = statePrefs.getLong(AstraVpnService.PREF_UPDATED_AT, 0L)
+        val errorIsRecent = saved == AstraVpnService.STATE_ERROR &&
+            savedError != null && stateAge in 0..120_000L
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val activeNetwork = connectivity.activeNetwork
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
@@ -2014,6 +2020,24 @@ class MainActivity : Activity() {
                 connecting = true
                 status.text = "Подключаемся…"
                 status.setTextColor(AMBER)
+            }
+            errorIsRecent -> {
+                connected = false
+                connecting = false
+                tunnelInternetOk = false
+                status.text = "Ошибка подключения"
+                status.setTextColor(RED)
+                // Preserve the last actionable service error if Android recreated
+                // the Activity before the user had a chance to read it.
+                val shownAt = settingsPrefs.getLong("shown_vpn_error_at", 0L)
+                if (shownAt != errorTimestamp) {
+                    settingsPrefs.edit().putLong("shown_vpn_error_at", errorTimestamp).apply()
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Не удалось подключиться")
+                        .setMessage(savedError)
+                        .setPositiveButton("Понятно", null)
+                        .show()
+                }
             }
             else -> {
                 connected = false
