@@ -956,6 +956,36 @@ class MainActivity : Activity() {
         Toast.makeText(this, if (added) "Добавлено в избранное" else "Убрано из избранного", Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Bind endpoint probes to the physical network. When Astra is connected,
+     * ordinary app sockets follow the VPN and can loop back into the tunnel;
+     * an explicit Android Network socket factory avoids measuring that route.
+     */
+    private fun networkForLatencyProbe(): android.net.Network? {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val active = manager.activeNetwork
+        val activeCapabilities = active?.let(manager::getNetworkCapabilities)
+        if (active != null && activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
+            return active
+        }
+        return manager.allNetworks.asSequence()
+            .mapNotNull { network ->
+                manager.getNetworkCapabilities(network)?.let { capabilities -> network to capabilities }
+            }
+            .filter { (_, capabilities) ->
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+            .sortedWith(
+                compareByDescending<Pair<android.net.Network, NetworkCapabilities>> {
+                    it.second.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                }.thenByDescending {
+                    it.second.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                }
+            )
+            .firstOrNull()?.first
+    }
+
     private fun latencyQuality(ms: Long): String = when {
         ms < 50L -> "отлично"
         ms < 100L -> "хорошо"
@@ -1009,6 +1039,7 @@ class MainActivity : Activity() {
         // Probe on the bounded background pool, then redraw once after the
         // whole batch finishes instead of posting dozens of full list rebuilds.
         val remaining = java.util.concurrent.atomic.AtomicInteger(vlessProfiles.size)
+        val probeNetwork = networkForLatencyProbe()
         vlessProfiles.forEach { link ->
             val uri = Uri.parse(link)
             latencyMs.remove(link)
@@ -1020,7 +1051,7 @@ class MainActivity : Activity() {
                     remaining.decrementAndGet()
                     return@execute
                 }
-                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
+                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port, probeNetwork) }
                 if (generation == latencyCheckGeneration.get()) {
                     result.onSuccess {
                         latencyMs[link] = it.tcpMedianMs
@@ -1068,6 +1099,7 @@ class MainActivity : Activity() {
         candidates.forEach { latencyMs.remove(it); pingInfo[it] = "Проверяем…" }
         renderProfiles()
         val latch = java.util.concurrent.CountDownLatch(candidates.size)
+        val probeNetwork = networkForLatencyProbe()
         candidates.forEach { link ->
             autoSelectExecutor.execute {
                 val uri = Uri.parse(link)
