@@ -830,18 +830,13 @@ class MainActivity : Activity() {
         }
 
         val favorites = settingsPrefs.getStringSet("favorite_servers", emptySet()) ?: emptySet()
-        val sortedProfiles = when (sortMode) {
-            "ping" -> filteredProfiles.sortedWith(
-                compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }
-                    .thenByDescending { it in favorites }
-            )
-            "alphabet" -> filteredProfiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
-            else -> filteredProfiles
-        }
-        // In ping mode, successful servers always stay above unavailable / untested
-        // ones. Favorites only affect order inside the same latency bucket.
-        val displayProfiles = if (sortMode == "ping") sortedProfiles
-            else sortedProfiles.sortedByDescending { it in favorites }
+        val displayProfiles = ServerLatencySort.sort(
+            profiles = filteredProfiles,
+            mode = sortMode,
+            latencyMs = latencyMs,
+            favorites = favorites,
+            locale = java.util.Locale.getDefault()
+        )
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
