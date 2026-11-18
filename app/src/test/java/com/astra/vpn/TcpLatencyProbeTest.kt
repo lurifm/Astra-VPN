@@ -12,7 +12,7 @@ class TcpLatencyProbeTest {
 
     @Test
     fun medianAveragesTwoMiddleSamplesForEvenCount() {
-        assertEquals(45L, TcpLatencyProbe.median(listOf(80L, 30L, 60L, 40L)))
+        assertEquals(50L, TcpLatencyProbe.median(listOf(80L, 30L, 60L, 40L)))
     }
 
     @Test
