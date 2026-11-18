@@ -1233,7 +1233,12 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(14), dp(14), dp(10), dp(14))
-                background = serverRowBackground(isSelected)
+                // The active tunnel stays visually identifiable even when another
+                // server is selected as the next destination.
+                background = serverRowBackground(
+                    selected = isSelected,
+                    active = connected && link == activeProfile
+                )
                 // A restrained Material-style ripple gives immediate touch feedback
                 // without changing the selected/unselected server card colors.
                 foreground = android.graphics.drawable.RippleDrawable(
@@ -1250,6 +1255,7 @@ class MainActivity : Activity() {
                     append(", ")
                     append(pingInfo[link] ?: "задержка не проверена")
                     if (isSelected) append(", выбран")
+                    if (connected && link == activeProfile) append(", активное VPN-соединение")
                 }
                 setOnClickListener {
                     if (connecting) {
@@ -2641,14 +2647,27 @@ class MainActivity : Activity() {
         cornerRadius = dp(radius).toFloat()
     }
 
-    /** Subtle outline makes the selected server unmistakable without visual clutter. */
-    private fun serverRowBackground(selected: Boolean) = GradientDrawable(
+    /**
+     * Selected destination and currently active tunnel use separate accents:
+     * blue for selection, green for the live connection, violet when both match.
+     */
+    private fun serverRowBackground(selected: Boolean, active: Boolean) = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        if (selected) intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
-        else intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
+        when {
+            selected && active -> intArrayOf(0xFF26385A.toInt(), 0xFF1B2B43.toInt())
+            selected -> intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
+            active -> intArrayOf(0xFF193B3A.toInt(), 0xFF142B30.toInt())
+            else -> intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
+        }
     ).apply {
         cornerRadius = dp(20).toFloat()
-        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF718AFF.toInt() else 0xFF26344D.toInt())
+        val outline = when {
+            selected && active -> 0xFF8C9BFF.toInt()
+            selected -> 0xFF718AFF.toInt()
+            active -> 0xFF55B99A.toInt()
+            else -> 0xFF26344D.toInt()
+        }
+        setStroke(dp(1), outline)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
