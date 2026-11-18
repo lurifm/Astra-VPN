@@ -601,30 +601,57 @@ class MainActivity : Activity() {
     }
 
     private fun showImportDialog() {
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(6))
+            setPadding(dp(20), dp(10), dp(20), dp(20))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF111A2B.toInt(), 0xFF080D18.toInt())
+            ).apply {
+                cornerRadii = floatArrayOf(
+                    dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
+            }
         }
-        panel.addView(TextView(this).apply {
-            text = "✦"
-            textSize = 30f
-            gravity = Gravity.CENTER
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(2), 0, dp(5))
-        })
-        panel.addView(TextView(this).apply {
-            text = "Добавить серверы"
-            textSize = 18f
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        topRow.addView(View(this), LinearLayout.LayoutParams(0, dp(38), 1f))
+        topRow.addView(TextView(this).apply {
+            text = "ДОБАВЛЕНИЕ СЕРВЕРОВ"
+            textSize = 10f
+            letterSpacing = .14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-        })
-        panel.addView(TextView(this).apply {
-            text = "Вставь ссылку на отдельный сервер или HTTPS-подписку. Данные профилей сохраняются в зашифрованном хранилище на устройстве."
-            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+        }, LinearLayout.LayoutParams(0, dp(38), 3f))
+        topRow.addView(TextView(this).apply {
+            text = "×"
+            textSize = 28f
             gravity = Gravity.CENTER
             setTextColor(MUTED)
-            setPadding(dp(4), dp(7), dp(4), dp(15))
+            background = rounded(CARD, 14)
+            contentDescription = "Закрыть"
+            setOnClickListener { dialog.dismiss() }
+        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        panel.addView(topRow)
+
+        panel.addView(TextView(this).apply {
+            text = "Добавить серверы"
+            textSize = 23f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(15), 0, dp(3))
+        })
+        panel.addView(TextView(this).apply {
+            text = "Вставь ссылку на сервер или HTTPS-подписку. Импортированные профили хранятся в защищённом хранилище устройства."
+            textSize = 13f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(18))
         })
         panel.addView(TextView(this).apply {
             text = "ССЫЛКА ИЛИ АДРЕС ПОДПИСКИ"
@@ -632,8 +659,9 @@ class MainActivity : Activity() {
             letterSpacing = .09f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
-            setPadding(dp(2), 0, 0, dp(7))
+            setPadding(dp(2), 0, 0, dp(8))
         })
+
         val input = EditText(this).apply {
             hint = "https://… или vless://…"
             setTextColor(Color.WHITE)
@@ -645,16 +673,17 @@ class MainActivity : Activity() {
             minLines = 2
             maxLines = 4
             gravity = Gravity.TOP or Gravity.START
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(13), dp(14), dp(13))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF172238.toInt(), 0xFF111A2B.toInt())
+                intArrayOf(0xFF1A2942.toInt(), 0xFF121C2E.toInt())
             ).apply {
-                cornerRadius = dp(15).toFloat()
-                setStroke(dp(1), 0xFF3A4B70.toInt())
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), 0xFF465B85.toInt())
             }
         }
-        panel.addView(input, matchWidth().apply { bottomMargin = dp(9) })
+        panel.addView(input, matchWidth().apply { bottomMargin = dp(10) })
+
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
@@ -662,12 +691,6 @@ class MainActivity : Activity() {
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
-            icon = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(LIGHT_ACCENT)
-                setSize(dp(8), dp(8))
-            }
-            iconPadding = dp(8)
             setOnClickListener {
                 val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 val clipText = runCatching {
@@ -685,72 +708,93 @@ class MainActivity : Activity() {
         }
         panel.addView(pasteButton, matchWidth())
         panel.addView(TextView(this).apply {
-            text = "Поддерживаются VLESS, Hysteria2, TUIC и HTTPS-подписки."
+            text = "VLESS  ·  Hysteria2  ·  TUIC  ·  HTTPS-подписки"
             textSize = 11f
             setTextColor(MUTED)
-            setPadding(dp(2), dp(10), dp(2), dp(2))
+            setPadding(dp(2), dp(12), dp(2), dp(16))
         })
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Добавить серверы")
-            .setView(panel)
-            .setNegativeButton("Отмена", null)
-            .setPositiveButton("Импортировать", null)
-            .create()
-            .also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val value = input.text.toString().trim()
-                        if (value.isEmpty()) {
-                            input.error = "Вставь ссылку"
-                            return@setOnClickListener
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val cancelButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            text = "Отмена"
+            isAllCaps = false
+            setTextColor(LIGHT_ACCENT)
+            setOnClickListener { dialog.dismiss() }
+        }
+        val importButton = MaterialButton(this).apply {
+            text = "Импортировать"
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+        }
+        actions.addView(cancelButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
+        actions.addView(importButton, LinearLayout.LayoutParams(0, dp(52), 1.35f))
+        panel.addView(actions)
+        dialog.setContentView(panel)
+        dialog.setOnShowListener {
+            val sheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            sheet?.setBackgroundColor(Color.TRANSPARENT)
+            sheet?.layoutParams?.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            sheet?.let {
+                com.google.android.material.bottomsheet.BottomSheetBehavior.from(it).apply {
+                    state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+                    skipCollapsed = true
+                }
+            }
+        }
+        importButton.setOnClickListener {
+            val value = input.text.toString().trim()
+            if (value.isEmpty()) {
+                input.error = "Вставь ссылку"
+                return@setOnClickListener
+            }
+            importButton.isEnabled = false
+            cancelButton.isEnabled = false
+            input.isEnabled = false
+            pasteButton.isEnabled = false
+            importButton.text = "Импортируем…"
+            status.text = "Импортируем серверы…"
+            importExecutor.execute {
+                val result = runCatching {
+                    val parsed = SubscriptionParser.importDetailed(value)
+                    val links = parsed.links
+                    if (value.startsWith("https://", ignoreCase = true)) {
+                        profileStore.replaceSubscription(value, links, parsed.metadata)
+                    } else {
+                        profileStore.addAll(links)
+                    }
+                    links
+                }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    dialog.dismiss()
+                    result.onSuccess { links ->
+                        renderProfiles()
+                        checkAllLatencies()
+                        status.text = "Импортировано: ${links.size}"
+                        status.setTextColor(GREEN)
+                        Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                    }.onFailure { error ->
+                        status.text = "Ошибка импорта"
+                        status.setTextColor(RED)
+                        val message = if (error is ProfileStorageException) {
+                            error.message ?: "Не удалось открыть защищённое хранилище."
+                        } else {
+                            "Не удалось прочитать ссылку или получить серверы. Проверь адрес и подключение к интернету."
                         }
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-                        input.isEnabled = false
-                        pasteButton.isEnabled = false
-                        status.text = "Импортируем серверы…"
-                        importExecutor.execute {
-                            // Keep network, parsing and encrypted persistence off the UI thread.
-                            // A storage failure is reported in the dialog instead of crashing Activity.
-                            val result = runCatching {
-                                val parsed = SubscriptionParser.importDetailed(value)
-                                val links = parsed.links
-                                if (value.startsWith("https://", ignoreCase = true)) {
-                                    profileStore.replaceSubscription(value, links, parsed.metadata)
-                                } else {
-                                    profileStore.addAll(links)
-                                }
-                                links
-                            }
-                            runOnUiThread {
-                                if (isFinishing || isDestroyed) return@runOnUiThread
-                                dialog.dismiss()
-                                result.onSuccess { links ->
-                                    renderProfiles()
-                                    checkAllLatencies()
-                                    status.text = "Импортировано: ${links.size}"
-                                    status.setTextColor(GREEN)
-                                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
-                                }.onFailure { error ->
-                                    status.text = "Ошибка импорта"
-                                    status.setTextColor(RED)
-                                    // Never echo a submitted URL: subscription links may contain credentials.
-                                    val message = if (error is ProfileStorageException) {
-                                        error.message ?: "Не удалось открыть защищённое хранилище."
-                                    } else {
-                                        "Не удалось прочитать ссылку или получить серверы. Проверь адрес и подключение к интернету."
-                                    }
-                                    MaterialAlertDialogBuilder(this)
-                                        .setTitle("Не удалось импортировать")
-                                        .setMessage(message)
-                                        .setPositiveButton("ОК", null).show()
-                                }
-                            }
-                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Не удалось импортировать")
+                            .setMessage(message)
+                            .setPositiveButton("ОК", null).show()
                     }
                 }
-                dialog.show()
             }
+        }
+        dialog.show()
     }
 
     /**
