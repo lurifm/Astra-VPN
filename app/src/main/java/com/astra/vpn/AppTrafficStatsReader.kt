@@ -75,12 +75,14 @@ internal object AppTrafficStatsReader {
                 .format(calendar.time).toInt()
             calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
             val end = minOf(calendar.timeInMillis, now)
-            if (start < end) {
-                val day = runCatching { readPeriod(context, start, end) }.getOrNull()
-                if (day != null) result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), day.apps)
+            val apps = if (start < end) {
+                runCatching { readPeriod(context, start, end).apps }.getOrDefault(emptyList())
             } else {
-                result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), emptyList())
+                emptyList()
             }
+            // Always keep one slot per calendar day. A failed Android query must
+            // not shift the indexes used for yesterday/previous-day comparisons.
+            result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), apps)
         }
         return result
     }
