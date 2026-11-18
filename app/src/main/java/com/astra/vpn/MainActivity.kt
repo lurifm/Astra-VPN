@@ -129,6 +129,7 @@ class MainActivity : Activity() {
     private lateinit var monitorUpload: TextView
     private lateinit var monitorLocation: TextView
     private lateinit var speedGraph: SpeedGraphView
+    private lateinit var monitorSpeedStats: TextView
     private val monitorExecutor = Executors.newSingleThreadExecutor()
     private val monitorHandler = Handler(Looper.getMainLooper())
     private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
@@ -600,6 +601,12 @@ class MainActivity : Activity() {
         speedRow.addView(monitorDownload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedRow.addView(monitorUpload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedGraph = SpeedGraphView(this)
+        monitorSpeedStats = TextView(this).apply {
+            text = "Средняя: ↓ — / ↑ — Мбит/с   ·   Пик: ↓ — / ↑ —"
+            textSize = 10f
+            setTextColor(MUTED)
+            setPadding(0, dp(4), 0, dp(5))
+        }
         monitorVpnCountry = TextView(this).apply {
             text = "Страна выхода VPN: —"
             textSize = 13f
@@ -617,6 +624,7 @@ class MainActivity : Activity() {
         })
         monitorDetails.addView(speedRow)
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
+        monitorDetails.addView(monitorSpeedStats)
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
             textSize = 12f
@@ -2614,6 +2622,13 @@ class MainActivity : Activity() {
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
             monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
             speedGraph.addSample(down, up)
+            val stats = speedGraph.currentStats()
+            monitorSpeedStats.text = String.format(
+                java.util.Locale.US,
+                "Средняя: ↓ %.2f / ↑ %.2f Мбит/с   ·   Пик: ↓ %.2f / ↑ %.2f",
+                stats.averageDownloadMbps, stats.averageUploadMbps,
+                stats.peakDownloadMbps, stats.peakUploadMbps
+            )
         }
         lastRxBytes = rx
         lastTxBytes = tx
