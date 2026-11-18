@@ -1604,7 +1604,10 @@ class MainActivity : Activity() {
                 letterSpacing = .07f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(LIGHT_ACCENT)
-                setPadding(0, dp(3), 0, dp(5))
+                // Keep protocol/country metadata visually separate from the server
+                // name, like a compact badge rather than another plain text line.
+                background = rounded(0x1C8298FF, 7)
+                setPadding(dp(7), dp(4), dp(7), dp(4))
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
