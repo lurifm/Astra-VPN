@@ -1727,13 +1727,23 @@ class MainActivity : Activity() {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
             val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
-            monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
+            monitorDownload.text = "↓ " + formatTrafficRate(down)
+            monitorUpload.text = "↑ " + formatTrafficRate(up)
             speedGraph.addSample(down, up)
         }
         lastRxBytes = rx
         lastTxBytes = tx
         lastTrafficAt = now
+    }
+
+    private fun formatTrafficRate(mbps: Float): String {
+        // Preserve useful precision at low mobile-network speeds instead of
+        // displaying 0.00 Mbps for every rate below 10 Kbit/s.
+        return if (mbps < 1f) {
+            String.format(java.util.Locale.US, "%.0f Кбит/с", mbps.coerceAtLeast(0f) * 1000f)
+        } else {
+            String.format(java.util.Locale.US, "%.2f Мбит/с", mbps)
+        }
     }
 
     private fun updateGeoLocationForState() {
