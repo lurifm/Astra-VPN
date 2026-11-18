@@ -92,6 +92,8 @@ class MainActivity : Activity() {
     private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
     private var lastTxBytes = TrafficStats.UNSUPPORTED.toLong()
     private var lastTrafficAt = 0L
+    // Network type and carrier metadata change infrequently; avoid querying telephony every frame.
+    private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
@@ -1413,6 +1415,9 @@ class MainActivity : Activity() {
     }
 
     private fun updateNetworkLabel() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastNetworkLabelAt != 0L && now - lastNetworkLabelAt < 5_000L) return
+        lastNetworkLabelAt = now
         val caps = underlyingNetworkCapabilities()
         val telephony = getSystemService(TelephonyManager::class.java)
         when {
