@@ -141,7 +141,7 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(16))
+            setPadding(dp(18), dp(16), dp(18), dp(14))
             setBackgroundColor(BG)
         }
 
@@ -158,8 +158,8 @@ class MainActivity : Activity() {
             setOnClickListener { showAppSettingsDialog() }
         }
         val brand = TextView(this).apply {
-            text = "ASTRA VPN"
-            textSize = 25f
+            text = "ASTRA"
+            textSize = 27f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             letterSpacing = .12f
@@ -177,7 +177,7 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "Быстрый и защищённый интернет"
+            text = "PRIVATE CONNECTION  ·  ANDROID"
             textSize = 14f
             setTextColor(MUTED)
             setPadding(0, dp(3), 0, dp(20))
@@ -186,8 +186,8 @@ class MainActivity : Activity() {
         val connectCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(18), dp(22), dp(18), dp(20))
-            background = rounded(CARD, 26)
+            setPadding(dp(20), dp(24), dp(20), dp(22))
+            background = rounded(CARD, 28)
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
@@ -237,13 +237,13 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "Мои серверы"
+            text = "Серверы"
             textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
         }
         val updateSubscriptions = TextView(this).apply {
-            text = "Обновить"
+            text = "↻ Обновить"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL
@@ -251,7 +251,7 @@ class MainActivity : Activity() {
             setOnClickListener { refreshSubscriptions() }
         }
         val refresh = TextView(this).apply {
-            text = "Автовыбор"
+            text = "⚡ Быстрый"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
@@ -273,7 +273,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
             setPadding(dp(12), 0, dp(8), 0)
-            background = rounded(CARD, 12)
+            background = rounded(CARD, 15)
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { renderProfiles() }
@@ -304,7 +304,7 @@ class MainActivity : Activity() {
             background = rounded(CARD, 20)
         }
         monitorCard.addView(TextView(this).apply {
-            text = "МОНИТОРИНГ СОЕДИНЕНИЯ"
+            text = "СОСТОЯНИЕ ПОДКЛЮЧЕНИЯ"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .08f
@@ -899,6 +899,7 @@ class MainActivity : Activity() {
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
                 setTextColor(if (latencyMs[link] != null) GREEN else MUTED)
+                contentDescription = "Задержка измерена реальным TCP-соединением до сервера. Для UDP-протоколов значение пока не измеряется."
                 setPadding(0, dp(4), 0, 0)
             }
             details.addView(title)
@@ -1765,7 +1766,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
             setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = rounded(CARD, 12)
+            background = rounded(CARD, 15)
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -1908,11 +1909,11 @@ class MainActivity : Activity() {
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
         private const val REQUEST_PHONE_STATE_PERMISSION = 7003
-        private const val BG = 0xFF0B1020.toInt()
-        private const val CARD = 0xFF171F35.toInt()
-        private const val SELECTED_CARD = 0xFF202D50.toInt()
-        private const val ACCENT = 0xFF526FE8.toInt()
-        private const val LIGHT_ACCENT = 0xFF9EAEFF.toInt()
+        private const val BG = 0xFF080B14.toInt()
+        private const val CARD = 0xFF111827.toInt()
+        private const val SELECTED_CARD = 0xFF182746.toInt()
+        private const val ACCENT = 0xFF647CFF.toInt()
+        private const val LIGHT_ACCENT = 0xFFA9B8FF.toInt()
         private const val GREEN = 0xFF55D69A.toInt()
         private const val AMBER = 0xFFFFC66D.toInt()
         private const val RED = 0xFFFF7777.toInt()
