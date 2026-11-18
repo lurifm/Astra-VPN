@@ -357,13 +357,48 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = rounded(CARD, 20).apply { setStroke(dp(1), 0xFF26344C.toInt()) }
         }
-        monitorCard.addView(TextView(this).apply {
-            text = "СОСТОЯНИЕ ПОДКЛЮЧЕНИЯ"
+        val monitorHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            setPadding(0, 0, 0, dp(2))
+        }
+        monitorHeader.addView(TextView(this).apply {
+            text = "МОНИТОРИНГ СЕТИ"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .08f
             setTextColor(LIGHT_ACCENT)
-        }, matchWidth())
+        }, LinearLayout.LayoutParams(0, dp(28), 1f))
+        val monitorExpand = TextView(this).apply {
+            text = "Подробнее  ⌄"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER_VERTICAL
+            contentDescription = "Развернуть мониторинг сети"
+        }
+        monitorHeader.addView(monitorExpand)
+        monitorCard.addView(monitorHeader, matchWidth())
+        monitorProtection = TextView(this).apply {
+            text = "🛡 Защита: отключена"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(MUTED)
+            setPadding(0, dp(5), 0, 0)
+        }
+        monitorCard.addView(monitorProtection)
+        val monitorDetails = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(7), 0, 0)
+        }
+        monitorHeader.setOnClickListener {
+            val expanded = monitorDetails.visibility != View.VISIBLE
+            monitorDetails.visibility = if (expanded) View.VISIBLE else View.GONE
+            monitorExpand.text = if (expanded) "Свернуть  ⌃" else "Подробнее  ⌄"
+            monitorExpand.contentDescription = if (expanded) "Свернуть мониторинг сети" else "Развернуть мониторинг сети"
+        }
         monitorNetwork = TextView(this).apply {
             text = "Сеть: определяем…"
             textSize = 14f
@@ -392,13 +427,6 @@ class MainActivity : Activity() {
         speedRow.addView(monitorDownload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedRow.addView(monitorUpload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedGraph = SpeedGraphView(this)
-        monitorProtection = TextView(this).apply {
-            text = "🛡 Защита: отключена"
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(MUTED)
-            setPadding(0, dp(10), 0, dp(4))
-        }
         monitorVpnCountry = TextView(this).apply {
             text = "Страна выхода VPN: —"
             textSize = 13f
@@ -406,25 +434,26 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(6))
         }
         monitorCard.addView(monitorProtection)
-        monitorCard.addView(monitorVpnCountry)
-        monitorCard.addView(monitorNetwork)
-        monitorCard.addView(monitorOperator)
-        monitorCard.addView(TextView(this).apply {
+        monitorDetails.addView(monitorVpnCountry)
+        monitorDetails.addView(monitorNetwork)
+        monitorDetails.addView(monitorOperator)
+        monitorDetails.addView(TextView(this).apply {
             text = "Скорость всего устройства"
             textSize = 11f
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
         })
-        monitorCard.addView(speedRow)
-        monitorCard.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
+        monitorDetails.addView(speedRow)
+        monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
             textSize = 12f
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
         }
-        monitorCard.addView(monitorLocation)
-        // Keep live connection diagnostics visible instead of building an unreachable card.
+        monitorDetails.addView(monitorLocation)
+        monitorCard.addView(monitorDetails, matchWidth())
+        // Keep the main screen compact; detailed live metrics expand on demand.
         // The card is compact and sits above the server list; the list retains the remaining space.
         root.addView(monitorCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
