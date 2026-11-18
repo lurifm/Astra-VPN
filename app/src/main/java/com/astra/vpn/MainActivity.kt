@@ -3082,7 +3082,7 @@ class MainActivity : Activity() {
                             setPadding(0, dp(5), 0, dp(3))
                         })
                         target.addView(TextView(this).apply {
-                            text = totalSparkline + "    " + AppTrafficStatsReader.formatBytes(dailyTotals.sum())
+                            text = totalSparkline + "    " + AppTrafficStatsReader.formatBytes(AppTrafficTrend.safeSum(dailyTotals))
                             textSize = 12f
                             setTextColor(0xFFB9C8FF.toInt())
                         })
@@ -3102,7 +3102,7 @@ class MainActivity : Activity() {
                         val dayBeforeApps = weekly.getOrNull(weekly.size - 3)?.apps.orEmpty().associateBy { it.uid }
                         val weeklyApps = weekly.flatMap { it.apps }
                             .groupBy { it.uid }
-                            .mapValues { (_, entries) -> entries.sumOf { it.totalBytes }.coerceAtLeast(0L) }
+                            .mapValues { (_, entries) -> AppTrafficTrend.safeSum(entries.map { it.totalBytes }) }
                             .entries.sortedByDescending { it.value }.take(5)
                         if (weeklyApps.isEmpty()) {
                             target.addView(TextView(this).apply {
