@@ -830,9 +830,21 @@ class MainActivity : Activity() {
             connecting -> "ПОДКЛЮЧАЕМСЯ…"
             else -> "ПОДКЛЮЧИТЬСЯ"
         }
-        selectedInfo.text = selected?.let {
-            if (connected && it == activeProfile) "🛡 Защищено · ${profileSummary(it)}" else profileSummary(it)
-        } ?: "Сначала добавь сервер"
+        if (selected != null && connected && selected == activeProfile) {
+            selectedInfo.text = when (tunnelInternetOk) {
+                true -> "🛡 Защита проверена · интернет через VPN работает\n${profileSummary(selected)}"
+                false -> "⚠ СОЕДИНЕНИЕ НЕ ЗАЩИЩЕНО · интернет через сервер недоступен\n${profileSummary(selected)}"
+                null -> "◌ Проверяем защиту соединения…\n${profileSummary(selected)}"
+            }
+            selectedInfo.setTextColor(when (tunnelInternetOk) {
+                true -> GREEN
+                false -> RED
+                null -> AMBER
+            })
+        } else {
+            selectedInfo.text = selected?.let(::profileSummary) ?: "Сначала добавь сервер"
+            selectedInfo.setTextColor(MUTED)
+        }
 
         if (profiles.isEmpty() || filteredProfiles.isEmpty()) {
             profileList.addView(TextView(this).apply {
@@ -913,7 +925,14 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "не проверен"
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
-                setTextColor(latencyMs[link]?.let { latencyColor(it) } ?: MUTED)
+                setTextColor(
+                    latencyMs[link]?.let { latencyColor(it) }
+                        ?: when (pingInfo[link]) {
+                            "н/д" -> RED
+                            "Проверяем…" -> AMBER
+                            else -> MUTED
+                        }
+                )
                 contentDescription = "Задержка измерена реальным TCP-соединением до сервера. Для UDP-протоколов значение пока не измеряется."
                 setPadding(0, dp(4), 0, 0)
             }
@@ -1465,7 +1484,10 @@ class MainActivity : Activity() {
             tunnelInternetOk = ok
             healthCheckInFlight.set(false)
             runOnUiThread {
-                if (!isFinishing && !isDestroyed && connected) updateProtectionLabels()
+                if (!isFinishing && !isDestroyed && connected) {
+                    updateProtectionLabels()
+                    renderProfiles()
+                }
             }
         }
     }
