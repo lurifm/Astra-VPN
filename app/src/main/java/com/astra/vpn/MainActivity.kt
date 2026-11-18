@@ -197,6 +197,7 @@ class MainActivity : Activity() {
         }
         val settingsButton = TextView(this).apply {
             text = "⚙"
+            contentDescription = "Настройки Astra VPN"
             textSize = 27f
             gravity = Gravity.CENTER
             setTextColor(LIGHT_ACCENT)
@@ -212,6 +213,7 @@ class MainActivity : Activity() {
         }
         val addButton = TextView(this).apply {
             text = "+"
+            contentDescription = "Добавить сервер или подписку"
             textSize = 34f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -269,6 +271,7 @@ class MainActivity : Activity() {
         }
         connectButton = MaterialButton(this).apply {
             text = "ПОДКЛЮЧИТЬСЯ"
+            contentDescription = "Подключить или отключить VPN"
             isAllCaps = false
             textSize = 16f
             letterSpacing = .02f
@@ -315,6 +318,7 @@ class MainActivity : Activity() {
         }
         val updateSubscriptions = TextView(this).apply {
             text = "↻ Обновить"
+            contentDescription = "Обновить подписки"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL
@@ -323,6 +327,7 @@ class MainActivity : Activity() {
         }
         val refresh = TextView(this).apply {
             text = "⚡ Быстрый"
+            contentDescription = "Найти сервер с наименьшей измеренной задержкой"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
@@ -1438,6 +1443,7 @@ class MainActivity : Activity() {
             MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
                 .setMessage("Не удалось подготовить конфигурацию сервера. Проверь ссылку и параметры подключения.")
                 .setPositiveButton("ОК", null).show()
+            renderProfiles()
             return
         }
         pendingConfig = config
@@ -1465,6 +1471,8 @@ class MainActivity : Activity() {
                 pendingConfig = null
                 status.text = "Разрешение VPN не выдано"
                 status.setTextColor(RED)
+                renderProfiles()
+                updateProtectionLabels()
             }
         }
     }
