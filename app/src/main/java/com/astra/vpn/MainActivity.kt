@@ -345,8 +345,17 @@ class MainActivity : Activity() {
             contentDescription = "Обновить подписки"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(8), 0)
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            setPadding(dp(10), 0, dp(10), 0)
+            isClickable = true
+            isFocusable = true
+            background = rounded(0x1A9AA6BF, 12)
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                null,
+                null
+            )
             setOnClickListener { refreshSubscriptions() }
         }
         val refresh = TextView(this).apply {
@@ -354,12 +363,24 @@ class MainActivity : Activity() {
             contentDescription = "Найти сервер с наименьшей измеренной задержкой"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
-            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            setPadding(dp(10), 0, dp(10), 0)
+            isClickable = true
+            isFocusable = true
+            background = rounded(0x1A9AA6BF, 12)
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                null,
+                null
+            )
             setOnClickListener { selectFastestServer() }
         }
-        listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(32), 1f))
-        listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
-        listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
+        listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
+        listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
+        listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            leftMargin = dp(6)
+        })
 
         val filterRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
