@@ -99,6 +99,7 @@ class MainActivity : Activity() {
     // Keep auto-selection probes isolated from background list refresh probes.
     private val autoSelectExecutor = Executors.newFixedThreadPool(3)
     private var selectingFastest = false
+    private var tilePendingStart = false
     private var selectedProfile: String? = null
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
@@ -2276,9 +2277,40 @@ class MainActivity : Activity() {
         restorePendingLatencyResult()
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
+        if (intent?.action == ACTION_TILE_TOGGLE) {
+            intent.action = null
+            handleQuickTileToggle()
+        }
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent == null) return
+        setIntent(intent)
+        if (intent.action == ACTION_TILE_TOGGLE) {
+            intent.action = null
+            handleQuickTileToggle()
+        }
+    }
+
+    private fun handleQuickTileToggle() {
+        if (connected) {
+            stopTunnel()
+            return
+        }
+        if (connecting) {
+            Toast.makeText(this, "Подключение уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (selectedProfile != null) {
+            connectSelectedProfile()
+        } else {
+            tilePendingStart = true
+            selectFastestServer()
+        }
     }
 
     private fun restorePendingLatencyResult() {
@@ -2338,7 +2370,12 @@ class MainActivity : Activity() {
                 status.setTextColor(GREEN)
                 selectedInfo.text = profileSummary(fastest)
                 Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+                if (tilePendingStart) {
+                    tilePendingStart = false
+                    connectSelectedProfile()
+                }
             } else {
+                tilePendingStart = false
                 Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
             }
         }
@@ -3484,6 +3521,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
