@@ -1068,7 +1068,7 @@ class MainActivity : Activity() {
                         pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
                     }.onFailure {
                         latencyMs.remove(link)
-                        pingInfo[link] = "TCP недоступен"
+                        pingInfo[link] = "н/д"
                     }
                 }
                 // Keep the list stable while probes finish; the coordinator
