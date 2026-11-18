@@ -1103,10 +1103,18 @@ class MainActivity : Activity() {
                     true
                 }
             }
+            val countryFlag = CountryFlagResolver.flagFor(name)
             val flag = TextView(this).apply {
-                text = CountryFlagResolver.flagFor(name)
-                textSize = 25f
+                text = countryFlag
+                textSize = 23f
                 gravity = Gravity.CENTER
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(0xFF29365A.toInt(), 0xFF1B2540.toInt())
+                ).apply {
+                    cornerRadius = dp(14).toFloat()
+                    setStroke(dp(1), 0xFF394A70.toInt())
+                }
             }
             val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val title = TextView(this).apply {
@@ -1118,12 +1126,17 @@ class MainActivity : Activity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val protocol = TextView(this).apply {
-                text = protocolName(link)
-                textSize = 10f
-                letterSpacing = .08f
+                val countryName = CountryFlagResolver.countryNameForFlag(countryFlag)
+                text = if (countryFlag.isNotBlank() && countryFlag != "🌐") {
+                    "${countryName.uppercase(java.util.Locale.getDefault())}  ·  ${protocolName(link)}"
+                } else protocolName(link)
+                textSize = 9.5f
+                letterSpacing = .07f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(MUTED)
+                setTextColor(LIGHT_ACCENT)
                 setPadding(0, dp(3), 0, dp(5))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
