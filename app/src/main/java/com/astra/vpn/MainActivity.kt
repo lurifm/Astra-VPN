@@ -514,7 +514,8 @@ class MainActivity : Activity() {
         // Check the open-app option immediately and keep a lightweight scheduler alive
         // while this screen is active; the worker checks settings every minute.
         SubscriptionRefreshScheduler.sync(this)
-        maybeAutoUpdateSubscriptions(true)
+        // onStart() performs the open-time subscription check. Avoid doing the
+        // same preference/source scan here during cold-start initialization.
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Let the first frame become interactive before starting the isolated
