@@ -262,7 +262,7 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "СВОЯ ОРБИТА. СВОЯ СКОРОСТЬ. СВОЯ ЗАЩИТА."
+            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
@@ -284,7 +284,7 @@ class MainActivity : Activity() {
             elevation = dp(3).toFloat()
         }
         val connectionCaption = TextView(this).apply {
-            text = "✦  СТАТУС СОЕДИНЕНИЯ"
+            text = "ASTRA VPN  ·  СОЕДИНЕНИЕ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
@@ -349,7 +349,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "ТВОЯ ОРБИТА"
+            text = "СЕРВЕРЫ"
             textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -1540,7 +1540,7 @@ class MainActivity : Activity() {
                 val measuredLatency = latencyMs[link]
                 text = when {
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
-                    latency == "н/д" -> "●  PING  н/д"
+                    latency == "н/д" -> "●  PING  нет замера"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
                     else -> "○  PING  не проверен"
                 }
@@ -1562,7 +1562,7 @@ class MainActivity : Activity() {
                 background = rounded(pillColor, 8)
                 contentDescription = when {
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
-                    latency == "н/д" -> "Пинг недоступен"
+                    latency == "н/д" -> "Задержка пока не измерена"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
                 }
@@ -2397,7 +2397,7 @@ class MainActivity : Activity() {
             background = rounded(BG, 22)
         }
         historyContent.addView(TextView(this).apply {
-            text = "✦  СОБЫТИЯ ТВОЕЙ ОРБИТЫ"
+            text = "✦  ИСТОРИЯ ПОДКЛЮЧЕНИЙ"
             textSize = 10f
             letterSpacing = 0.12f
             typeface = Typeface.DEFAULT_BOLD
@@ -2527,7 +2527,7 @@ class MainActivity : Activity() {
         panel.addView(sortGroup)
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
-            text = "📊  Мониторинг сети  ›"
+            text = "Мониторинг сети  ›"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
@@ -2537,7 +2537,7 @@ class MainActivity : Activity() {
         panel.addView(monitorEntry)
 
         val diagnosticsEntry = TextView(this).apply {
-            text = "🧰  Диагностика соединения  ›"
+            text = "Диагностика соединения  ›"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
@@ -2547,7 +2547,7 @@ class MainActivity : Activity() {
         panel.addView(diagnosticsEntry)
 
         val historyEntry = TextView(this).apply {
-            text = "🕘  История подключений  ›"
+            text = "История подключений  ›"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
@@ -2557,7 +2557,7 @@ class MainActivity : Activity() {
         panel.addView(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
-            text = "📱  Приложения через VPN  ›"
+            text = "Приложения через VPN  ›"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
@@ -2640,11 +2640,39 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(4))
             addView(panel)
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Настройки Astra")
-            .setView(settingsScroll)
-            .setNegativeButton("Отмена", null)
-            .setPositiveButton("Сохранить") { _, _ ->
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val sheetContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(18))
+            background = rounded(BG, 24)
+        }
+        val sheetHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sheetHeader.addView(TextView(this).apply {
+            text = "Настройки"
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        sheetHeader.addView(TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(MUTED)
+            contentDescription = "Закрыть настройки"
+            setOnClickListener { sheet.dismiss() }
+        }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        sheetContent.addView(sheetHeader)
+        sheetContent.addView(settingsScroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+        val saveButton = MaterialButton(this).apply {
+            text = "Сохранить"
+            isAllCaps = false
+            cornerRadius = dp(14)
+            setOnClickListener {
                 val selectedId = sortGroup.checkedRadioButtonId
                 val mode = sortGroup.findViewById<RadioButton>(selectedId)?.tag as? String ?: "original"
                 sortMode = mode
@@ -2658,8 +2686,25 @@ class MainActivity : Activity() {
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
                 maybeAutoUpdateSubscriptions(true)
+                sheet.dismiss()
             }
-            .show()
+        }
+        sheetContent.addView(saveButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)
+        ).apply { topMargin = dp(10) })
+        sheet.setContentView(sheetContent)
+        sheet.setOnShowListener {
+            val bottomSheet = sheet.findViewById<android.view.View>(
+                com.google.android.material.R.id.design_bottom_sheet
+            )
+            bottomSheet?.let {
+                it.setBackgroundColor(Color.TRANSPARENT)
+                val behavior = com.google.android.material.bottomsheet.BottomSheetBehavior.from(it)
+                behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+                behavior.skipCollapsed = true
+            }
+        }
+        sheet.show()
     }
 
 
