@@ -303,7 +303,7 @@ class MainActivity : Activity() {
             rightMargin = dp(8)
         })
         connectionCaption.addView(TextView(this).apply {
-            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            text = "СТАТУС СОЕДИНЕНИЯ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
@@ -472,7 +472,7 @@ class MainActivity : Activity() {
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4) })
-        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(4) })
+        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(132), dp(48)).apply { leftMargin = dp(4) })
         serverCountLabel = TextView(this).apply {
             text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
             textSize = 10f
@@ -908,9 +908,7 @@ class MainActivity : Activity() {
                     result.onSuccess { links ->
                         renderProfiles()
                         checkAllLatencies()
-                        status.text = "Импортировано: ${links.size}"
-                        status.setTextColor(GREEN)
-                        Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        status.Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
@@ -1296,7 +1294,7 @@ class MainActivity : Activity() {
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 subscriptionHeader.addView(TextView(this).apply {
-                    text = "☁  ${subscription.title}"
+                    text = "☁  ${subscription.title.takeUnless { title -> title.startsWith("base64:", true) || (title.length > 48 && title.matches(Regex("[A-Za-z0-9+/=_-]+"))) } ?: (Uri.parse(subscription.sourceUrl).host ?: "Подписка")}"
                     textSize = 15f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.WHITE)
@@ -1435,7 +1433,7 @@ class MainActivity : Activity() {
             "  ·  PING: ${measuredPingCount}/${profiles.size} ИЗМЕРЕНО"
         }
         serverCountLabel.text =
-            "ПОКАЗАНО ${filteredProfiles.size} ИЗ ${profiles.size}  ·  СОРТИРОВКА: $sortLabel$pingProgress  ›"
+            "${filteredProfiles.size} серверов  ·  $sortLabel"
         serverCountLabel.contentDescription =
             "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: ${measuredPingCount} из ${profiles.size}. Нажмите для настроек."
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
@@ -1722,7 +1720,7 @@ class MainActivity : Activity() {
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                maxLines = 1
+                maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val protocolText = TextView(this).apply {
@@ -1747,7 +1745,7 @@ class MainActivity : Activity() {
                 text = when {
                     measuredLatency != null && isFastestProfile -> "✦  ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
-                    latency == "н/д" -> "●  PING  нет замера"
+                    latency == "н/д" -> "●  Не отвечает"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
                     else -> "○  PING  не проверен"
                 }
@@ -1771,7 +1769,7 @@ class MainActivity : Activity() {
                 contentDescription = when {
                     measuredLatency != null && isFastestProfile -> "Самый быстрый измеренный сервер: $measuredLatency миллисекунд"
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
-                    latency == "н/д" -> "Задержка пока не измерена"
+                    latency == "н/д" -> "Сервер не ответил на проверку"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
                 }
@@ -1819,20 +1817,12 @@ class MainActivity : Activity() {
                 contentDescription = if (link in favorites) "Убрать сервер $name из избранного" else "Добавить сервер $name в избранное"
                 setOnClickListener { toggleFavoriteServer(link) }
             }
-            val selectMark = TextView(this).apply {
-                text = if (isSelected) "✓" else "›"
-                textSize = 23f
-                setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
-                gravity = Gravity.CENTER
-                contentDescription = if (isSelected) "Выбранный сервер" else "Выбрать сервер"
-            }
-            row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
+                        row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
             row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-            row.addView(selectMark, LinearLayout.LayoutParams(dp(28), dp(42)))
-            profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
             })
         }
@@ -1926,14 +1916,13 @@ class MainActivity : Activity() {
     private fun latencyQuality(ms: Long): String = when {
         ms < 50L -> "отлично"
         ms < 100L -> "хорошо"
-        ms < 180L -> "средне"
-        ms < 250L -> "высоко"
-        else -> "очень высоко"
+        ms <= 250L -> "средне"
+        else -> "высоко"
     }
 
     private fun latencyColor(ms: Long): Int = when {
         ms < 100L -> GREEN
-        ms < 180L -> AMBER
+        ms <= 250L -> AMBER
         else -> RED
     }
 
