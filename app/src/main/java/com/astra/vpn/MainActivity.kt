@@ -69,6 +69,8 @@ class MainActivity : Activity() {
     private lateinit var serverCountLabel: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
+    private lateinit var connectionCard: LinearLayout
+    private var connectionVisualState: String? = null
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -321,6 +323,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        connectionCard = connectCard
         connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
@@ -1215,6 +1218,12 @@ class MainActivity : Activity() {
         }
         connectButton.backgroundTintList =
             android.content.res.ColorStateList.valueOf(actionColor)
+        updateConnectionCardAppearance(when {
+            connecting -> "connecting"
+            connected && selected == activeProfile -> "connected"
+            connected -> "switching"
+            else -> "idle"
+        })
         connectButton.contentDescription = when {
             connecting -> "Подключение VPN выполняется"
             connected && selected == activeProfile -> "Отключить VPN"
@@ -2785,6 +2794,30 @@ class MainActivity : Activity() {
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(radius).toFloat()
+    }
+
+    /** Updates the hero card only when its connection state changes. */
+    private fun updateConnectionCardAppearance(state: String) {
+        if (connectionVisualState == state || !::connectionCard.isInitialized) return
+        connectionVisualState = state
+        val colors = when (state) {
+            "connected" -> intArrayOf(0xFF173F3A.toInt(), 0xFF173044.toInt(), 0xFF101F30.toInt())
+            "connecting" -> intArrayOf(0xFF51402A.toInt(), 0xFF302C38.toInt(), 0xFF171D2B.toInt())
+            "switching" -> intArrayOf(0xFF30345F.toInt(), 0xFF202B4A.toInt(), 0xFF101A30.toInt())
+            else -> intArrayOf(0xFF30295F.toInt(), 0xFF1C2948.toInt(), 0xFF101A30.toInt())
+        }
+        val stroke = when (state) {
+            "connected" -> 0xFF4BAF91.toInt()
+            "connecting" -> 0xFFD6A45C.toInt()
+            "switching" -> 0xFF8290E8.toInt()
+            else -> 0xFF7569B8.toInt()
+        }
+        connectionCard.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR, colors
+        ).apply {
+            cornerRadius = dp(26).toFloat()
+            setStroke(dp(1), stroke)
+        }
     }
 
     /**
