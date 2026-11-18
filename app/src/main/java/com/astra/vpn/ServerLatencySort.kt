@@ -17,7 +17,6 @@ object ServerLatencySort {
         "ping" -> profiles.sortedWith(
             compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }
                 .thenByDescending { it in favorites }
-                .thenBy { it }
         )
         "alphabet" -> profiles.sortedBy { it.lowercase(locale) }
         else -> profiles.sortedByDescending { it in favorites }
