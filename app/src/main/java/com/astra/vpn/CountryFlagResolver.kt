@@ -62,11 +62,11 @@ object CountryFlagResolver {
 
     // Compile token-boundary matchers once: flag resolution runs for every
     // server row whenever the profile list is rendered.
-    private val separatorRegex = Regex("[^\\\\p{L}\\\\p{N}]+")
+    private val separatorRegex = Regex("[^\\p{L}\\p{N}]+")
     private val compiledCountries = countries.map { (flag, aliases) ->
         flag to aliases.map { alias ->
             val tokenRegex = if (alias.length <= 3 && alias.all(Char::isLetter)) {
-                Regex("(^|\\\\s)${Regex.escape(alias)}($|\\\\s)")
+                Regex("(^|\\s)${Regex.escape(alias)}($|\\s)")
             } else {
                 null
             }
