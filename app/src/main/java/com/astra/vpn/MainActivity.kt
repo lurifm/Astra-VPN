@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
     private lateinit var connectionCard: LinearLayout
+    private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -289,15 +290,26 @@ class MainActivity : Activity() {
             }
             elevation = dp(3).toFloat()
         }
-        val connectionCaption = TextView(this).apply {
+        val connectionCaption = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(9))
+        }
+        connectionIndicator = View(this).apply {
+            background = rounded(0xFF8290E8.toInt(), 99)
+            contentDescription = "Индикатор состояния VPN"
+        }
+        connectionCaption.addView(connectionIndicator, LinearLayout.LayoutParams(dp(7), dp(7)).apply {
+            rightMargin = dp(8)
+        })
+        connectionCaption.addView(TextView(this).apply {
             text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
             gravity = Gravity.CENTER
             setTextColor(LIGHT_ACCENT)
-            setPadding(0, 0, 0, dp(9))
-        }
+        })
         status = TextView(this).apply {
             text = "Выбери сервер"
             textSize = 20f
@@ -3220,6 +3232,21 @@ class MainActivity : Activity() {
         ).apply {
             cornerRadius = dp(26).toFloat()
             setStroke(dp(1), stroke)
+        }
+        if (::connectionIndicator.isInitialized) {
+            val indicatorColor = when (state) {
+                "connected" -> GREEN
+                "connecting" -> AMBER
+                "switching" -> 0xFF9AA8FF.toInt()
+                else -> 0xFF71809D.toInt()
+            }
+            connectionIndicator.background = rounded(indicatorColor, 99)
+            connectionIndicator.contentDescription = when (state) {
+                "connected" -> "VPN подключён"
+                "connecting" -> "VPN подключается"
+                "switching" -> "VPN переключает сервер"
+                else -> "VPN отключён"
+            }
         }
     }
 
