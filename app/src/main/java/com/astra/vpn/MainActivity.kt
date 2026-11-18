@@ -1577,14 +1577,26 @@ class MainActivity : Activity() {
     }
 
     private fun showNetworkMonitorDialog() {
-        val content = ScrollView(this).apply {
-            setPadding(dp(16), dp(8), dp(16), dp(8))
-            (monitorCard.parent as? ViewGroup)?.removeView(monitorCard)
-            addView(monitorCard)
+        // The live monitor card is part of the main layout. Never detach/reparent it
+        // into a dialog: doing so would silently remove monitoring from the home screen.
+        val details = TextView(this).apply {
+            text = listOf(
+                monitorProtection.text,
+                monitorVpnCountry.text,
+                monitorNetwork.text,
+                monitorOperator.text,
+                monitorDownload.text,
+                monitorUpload.text,
+                monitorLocation.text
+            ).joinToString("\n")
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setLineSpacing(dp(5).toFloat(), 1f)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
         }
         MaterialAlertDialogBuilder(this)
             .setTitle("Мониторинг сети")
-            .setView(content)
+            .setView(ScrollView(this).apply { addView(details) })
             .setPositiveButton("Закрыть", null)
             .show()
     }
