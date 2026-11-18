@@ -33,8 +33,7 @@ object TunnelHealthChecker {
                 }
                 try {
                     val code = connection.responseCode
-                    code == HttpURLConnection.HTTP_NO_CONTENT ||
-                        code == HttpURLConnection.HTTP_OK
+                    code == HttpURLConnection.HTTP_NO_CONTENT
                 } finally {
                     connection.disconnect()
                 }
