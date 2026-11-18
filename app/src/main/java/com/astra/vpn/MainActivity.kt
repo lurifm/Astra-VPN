@@ -595,6 +595,19 @@ class MainActivity : Activity() {
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
+        // Accept server links shared from browsers, messengers and file viewers.
+        // The user still confirms the import explicitly in Astra's own sheet.
+        intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
+            val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                ?: sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.let { uri ->
+                    runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    }.getOrNull()
+                }
+            sharedText?.takeIf { it.isNotBlank() }?.let { text ->
+                root.post { if (!isFinishing && !isDestroyed) showImportDialog(text) }
+            }
+        }
         requestNotificationPermissionIfNeeded()
         // Phone-state permission is requested lazily when the optional network
         // monitor is expanded, keeping first launch focused on connecting.
@@ -615,7 +628,7 @@ class MainActivity : Activity() {
         }, 1_200L)
     }
 
-    private fun showImportDialog() {
+    private fun showImportDialog(initialText: String? = null) {
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -704,6 +717,10 @@ class MainActivity : Activity() {
                 cornerRadius = dp(16).toFloat()
                 setStroke(dp(1), 0xFF465B85.toInt())
             }
+        }
+        initialText?.trim()?.takeIf { it.isNotEmpty() }?.let { sharedText ->
+            input.setText(sharedText)
+            input.setSelection(input.text.length)
         }
         panel.addView(input, matchWidth().apply { bottomMargin = dp(10) })
 
