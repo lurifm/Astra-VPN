@@ -336,7 +336,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(7), 0, dp(17))
         }
         connectButton = MaterialButton(this).apply {
-            text = "⏻"
+            text = "✦"
             contentDescription = "Подключить или отключить VPN"
             isAllCaps = false
             textSize = 48f
@@ -2307,6 +2307,11 @@ class MainActivity : Activity() {
         }
         if (selectedProfile != null) {
             connectSelectedProfile()
+        } else if (latencyTestInFlight) {
+            tilePendingStart = true
+            pendingFastestSelection = true
+            selectingFastest = true
+            Toast.makeText(this, "Выберем лучший сервер после проверки…", Toast.LENGTH_SHORT).show()
         } else {
             tilePendingStart = true
             selectFastestServer()
@@ -3460,6 +3465,39 @@ class MainActivity : Activity() {
         ).apply {
             cornerRadius = dp(26).toFloat()
             setStroke(dp(1), stroke)
+        }
+        if (::connectButton.isInitialized) {
+            val starColor = when (state) {
+                "connected" -> Color.WHITE
+                "connecting" -> 0xFFFFE2B3.toInt()
+                "switching" -> 0xFFDDE2FF.toInt()
+                else -> 0xFFB6C0D2.toInt()
+            }
+            val buttonColor = when (state) {
+                "connected" -> 0xFF23866D.toInt()
+                "connecting" -> 0xFF80613A.toInt()
+                "switching" -> 0xFF4B579A.toInt()
+                else -> 0xFF414B60.toInt()
+            }
+            connectButton.setTextColor(starColor)
+            connectButton.backgroundTintList = android.content.res.ColorStateList.valueOf(buttonColor)
+            connectButton.elevation = dp(if (state == "connected") 12 else 4).toFloat()
+            connectButton.contentDescription = when (state) {
+                "connected" -> "Отключить VPN. Звезда активна"
+                "connecting" -> "Подключение VPN. Звезда загорается"
+                "switching" -> "Переключение сервера"
+                else -> "Подключить VPN. Звезда неактивна"
+            }
+            if (state == "connected") {
+                connectButton.animate().cancel()
+                connectButton.scaleX = 0.94f
+                connectButton.scaleY = 0.94f
+                connectButton.animate().scaleX(1.07f).scaleY(1.07f).setDuration(220L)
+                    .withEndAction { connectButton.animate().scaleX(1f).scaleY(1f).setDuration(360L).start() }.start()
+            } else if (state == "disconnected") {
+                connectButton.animate().cancel()
+                connectButton.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
+            }
         }
         if (::connectionIndicator.isInitialized) {
             val indicatorColor = when (state) {
