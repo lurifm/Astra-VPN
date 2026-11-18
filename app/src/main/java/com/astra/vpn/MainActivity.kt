@@ -1856,49 +1856,71 @@ class MainActivity : Activity() {
      */
     private fun networkForLatencyProbe(): android.net.Network? {
         val manager = getSystemService(ConnectivityManager::class.java)
+        val active = manager.activeNetwork
 
-        fun isUsablePhysicalNetwork(network: android.net.Network?): Boolean {
-            if (network == null) return false
-            val capabilities = runCatching { manager.getNetworkCapabilities(network) }.getOrNull()
-                ?: return false
-            return !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        fun capabilities(network: android.net.Network?): NetworkCapabilities? =
+            network?.let { runCatching { manager.getNetworkCapabilities(it) }.getOrNull() }
+
+        fun isPhysicalInternet(network: android.net.Network?): Boolean {
+            val caps = capabilities(network) ?: return false
+            return !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
 
-        // While Astra is connected, activeNetwork is the VPN itself. Reuse
-        // the underlay selected by AstraVpnService rather than guessing between
-        // simultaneously available Wi-Fi and cellular networks.
+        fun isReadyForProbe(network: android.net.Network?): Boolean {
+            val caps = capabilities(network) ?: return false
+            val notSuspended = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            } else {
+                true
+            }
+            return isPhysicalInternet(network) &&
+                caps!!.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                notSuspended
+        }
+
+        fun transportPriority(network: android.net.Network): Int {
+            val caps = capabilities(network) ?: return -1
+            return when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0
+                else -> -1
+            }
+        }
+
+        // While Astra is connected, activeNetwork is the VPN itself. Prefer the
+        // exact underlay selected by AstraVpnService, but only while Android still
+        // reports it as validated and not suspended.
         AstraPlatform.currentPhysicalNetwork
-            ?.takeIf(::isUsablePhysicalNetwork)
+            ?.takeIf(::isReadyForProbe)
             ?.let { return it }
 
-        val active = manager.activeNetwork
-        if (isUsablePhysicalNetwork(active)) return active
+        // A default network can advertise INTERNET before validation completes
+        // (or while a captive portal is present). Do not let that unready network
+        // hide another physical network that Android has already validated.
+        if (isReadyForProbe(active)) return active
+
+        val validated = manager.allNetworks.asSequence()
+            .filter(::isReadyForProbe)
+            .sortedWith(
+                compareByDescending<android.net.Network> { it == active }
+                    .thenByDescending(::transportPriority)
+            )
+            .firstOrNull()
+        if (validated != null) return validated
+
+        // If Android has not validated any network yet, retain the default
+        // physical route as a last resort instead of refusing to test entirely.
+        if (isPhysicalInternet(active)) return active
 
         return manager.allNetworks.asSequence()
-            .mapNotNull { network ->
-                val capabilities = manager.getNetworkCapabilities(network) ?: return@mapNotNull null
-                if (!isUsablePhysicalNetwork(network)) return@mapNotNull null
-                val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-                } else {
-                    true
-                }
-                val priority = when {
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0
-                    else -> -1
-                }
-                Triple(network, validated to notSuspended, priority)
-            }
+            .filter(::isPhysicalInternet)
             .sortedWith(
-                compareByDescending<Triple<android.net.Network, Pair<Boolean, Boolean>, Int>> { it.second.first }
-                    .thenByDescending { it.second.second }
-                    .thenByDescending { it.third }
+                compareByDescending<android.net.Network> { it == active }
+                    .thenByDescending(::transportPriority)
             )
-            .firstOrNull()?.first
+            .firstOrNull()
     }
 
     private fun latencyQuality(ms: Long): String = when {
