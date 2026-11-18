@@ -1,8 +1,10 @@
 package com.astra.vpn
 
+import android.net.Network
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import javax.net.SocketFactory
 
 /**
  * Measures DNS resolution separately from TCP connection establishment.
@@ -19,12 +21,13 @@ object TcpLatencyProbe {
     const val SAMPLE_COUNT = 5
     private const val CONNECT_TIMEOUT_MS = 1200
 
-    fun measure(host: String, port: Int): Result {
+    fun measure(host: String, port: Int, network: Network? = null): Result {
         require(host.isNotBlank()) { "Host is empty" }
         require(port in 1..65535) { "Invalid port" }
 
         val dnsStarted = System.nanoTime()
-        val addresses = InetAddress.getAllByName(host)
+        val addresses = network?.getAllByName(host) ?: InetAddress.getAllByName(host)
+        val socketFactory = network?.socketFactory ?: SocketFactory.getDefault()
         val dnsMs = elapsedMillis(dnsStarted)
         if (addresses.isEmpty()) throw IllegalStateException("DNS returned no addresses")
 
@@ -36,7 +39,7 @@ object TcpLatencyProbe {
             repeat(SAMPLE_COUNT) {
                 val started = System.nanoTime()
                 val connected = runCatching {
-                    Socket().use { socket ->
+                    socketFactory.createSocket().use { socket ->
                         socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                     }
                 }.isSuccess
