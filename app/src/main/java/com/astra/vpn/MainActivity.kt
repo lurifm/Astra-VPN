@@ -3061,7 +3061,7 @@ class MainActivity : Activity() {
                             setPadding(0, dp(16), 0, dp(5))
                         })
                         target.addView(TextView(this).apply {
-                            text = "Динамика общесистемного трафика по дням. Сегодня учитывается не полностью."
+                            text = "Динамика общесистемного трафика: слева старые дни, справа сегодня. Сегодня учитывается не полностью."
                             textSize = 10f
                             setTextColor(MUTED)
                             setPadding(0, 0, 0, dp(5))
