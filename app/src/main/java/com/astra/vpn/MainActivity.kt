@@ -2751,7 +2751,8 @@ class MainActivity : Activity() {
             updateProtectionLabels()
             return
         }
-        val now = System.currentTimeMillis()
+        // Use monotonic time so wall-clock changes cannot stall or spam health probes.
+        val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
         healthCheckExecutor.execute {
