@@ -1010,7 +1010,16 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(8), 0, dp(8))
             })
         }
-        val allCountries = profiles.map { CountryFlagResolver.flagFor(profileName(it)) }
+        // Parse each imported URI once per render. The list can be rebuilt after
+        // every ping result, so repeating Uri parsing in each filter/row pass adds
+        // avoidable main-thread work for large subscriptions.
+        val profileNames = profiles.associateWith(::profileName)
+        val profileProtocols = profiles.associateWith(::protocolName)
+        val profileFlags = profileNames.mapValues { (_, name) -> CountryFlagResolver.flagFor(name) }
+        val normalizedNames = profileNames.mapValues { (_, name) ->
+            name.lowercase(java.util.Locale.getDefault())
+        }
+        val allCountries = profileFlags.values
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
         val countryOptions = allCountries.map { "${it} ${CountryFlagResolver.countryNameForFlag(it)}" }
         val filterOptions = listOf("🌍 Все страны") + countryOptions
@@ -1025,10 +1034,10 @@ class MainActivity : Activity() {
             ?.takeIf { !it.startsWith("🌍") }?.substringBefore(" ")
         val query = serverSearch.text?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
         val filteredProfiles = profiles.filter { link ->
-            val name = profileName(link)
-            val matchesText = query.isBlank() || name.lowercase(java.util.Locale.getDefault()).contains(query) ||
-                link.lowercase(java.util.Locale.ROOT).contains(query) || protocolName(link).lowercase().contains(query)
-            val matchesCountry = selectedCountry == null || CountryFlagResolver.flagFor(name) == selectedCountry
+            val matchesText = query.isBlank() || normalizedNames[link].orEmpty().contains(query) ||
+                link.lowercase(java.util.Locale.ROOT).contains(query) ||
+                profileProtocols[link].orEmpty().lowercase(java.util.Locale.ROOT).contains(query)
+            val matchesCountry = selectedCountry == null || profileFlags[link] == selectedCountry
             matchesText && matchesCountry
         }
         val sortLabel = when (sortMode) {
@@ -1126,7 +1135,8 @@ class MainActivity : Activity() {
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
-            val name = profileName(link)
+            val name = profileNames[link] ?: profileName(link)
+            val protocol = profileProtocols[link] ?: protocolName(link)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1144,7 +1154,7 @@ class MainActivity : Activity() {
                 contentDescription = buildString {
                     append(name)
                     append(", ")
-                    append(protocolName(link))
+                    append(protocol)
                     append(", ")
                     append(pingInfo[link] ?: "задержка не проверена")
                     if (isSelected) append(", выбран")
