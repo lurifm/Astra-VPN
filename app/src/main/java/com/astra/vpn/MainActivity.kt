@@ -995,8 +995,8 @@ class MainActivity : Activity() {
                 val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
                 val historyText = when {
                     refreshingSubscriptions -> "Идёт синхронизация источников…"
-                    lastSuccess > 0L -> "Последняя успешная синхронизация: \${dateFormat.format(java.util.Date(lastSuccess))}"
-                    lastAttempt > 0L -> "Последняя попытка: \${dateFormat.format(java.util.Date(lastAttempt))} · успешных обновлений пока нет"
+                    lastSuccess > 0L -> "Последняя успешная синхронизация: ${dateFormat.format(java.util.Date(lastSuccess))}"
+                    lastAttempt > 0L -> "Последняя попытка: ${dateFormat.format(java.util.Date(lastAttempt))} · успешных обновлений пока нет"
                     else -> "Подписки ещё не обновлялись"
                 }
                 addView(TextView(this@MainActivity).apply {
