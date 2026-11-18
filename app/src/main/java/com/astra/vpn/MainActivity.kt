@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private lateinit var profileScroll: ScrollView
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
+    private lateinit var serverCountLabel: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
     private lateinit var selectedInfo: TextView
@@ -363,6 +364,19 @@ class MainActivity : Activity() {
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
+        serverCountLabel = TextView(this).apply {
+            text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
+            textSize = 10f
+            letterSpacing = .06f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(3), dp(2), dp(3), dp(9))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showAppSettingsDialog() }
+            contentDescription = "Количество серверов и настройки сортировки"
+        }
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         profileScroll = ScrollView(this).apply {
             isFillViewport = false
@@ -479,6 +493,7 @@ class MainActivity : Activity() {
         })
         root.addView(listHeader)
         root.addView(filterRow, matchWidth())
+        root.addView(serverCountLabel, matchWidth())
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
@@ -923,6 +938,12 @@ class MainActivity : Activity() {
             val matchesCountry = selectedCountry == null || CountryFlagResolver.flagFor(name) == selectedCountry
             matchesText && matchesCountry
         }
+        val sortLabel = when (sortMode) {
+            "ping" -> "по пингу"
+            "alphabet" -> "по алфавиту"
+            else -> "как в подписке"
+        }
+        serverCountLabel.text = "ПОКАЗАНО ${filteredProfiles.size} ИЗ ${profiles.size}  ·  СОРТИРОВКА: $sortLabel  ›"
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
