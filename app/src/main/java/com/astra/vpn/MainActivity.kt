@@ -1104,11 +1104,13 @@ class MainActivity : Activity() {
                 })
             })
             summaries.forEach { subscription ->
+                val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
+                val isSubscriptionRefreshing = refreshEntry?.state == "updating"
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(15), dp(13), dp(15), dp(13))
                     background = rounded(CARD, 16).apply {
-                        setStroke(dp(1), if (refreshingSubscriptions) 0xFF665A9D.toInt() else 0xFF2B3A55.toInt())
+                        setStroke(dp(1), if (isSubscriptionRefreshing) 0xFF665A9D.toInt() else 0xFF2B3A55.toInt())
                     }
                     isClickable = true
                     isFocusable = true
@@ -1129,14 +1131,14 @@ class MainActivity : Activity() {
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 val subscriptionState = subscriptionExpiryState(subscription)
                 subscriptionHeader.addView(TextView(this).apply {
-                    text = if (refreshingSubscriptions) "ОБНОВЛЕНИЕ" else subscriptionState.first
+                    text = if (isSubscriptionRefreshing) "ОБНОВЛЕНИЕ" else subscriptionState.first
                     textSize = 9f
                     typeface = Typeface.DEFAULT_BOLD
                     letterSpacing = .05f
-                    setTextColor(if (refreshingSubscriptions) AMBER else subscriptionState.second)
+                    setTextColor(if (isSubscriptionRefreshing) AMBER else subscriptionState.second)
                     gravity = Gravity.CENTER
                     setPadding(dp(9), dp(5), dp(9), dp(5))
-                    background = rounded(if (refreshingSubscriptions) 0xFF40351F.toInt() else subscriptionState.third, 10)
+                    background = rounded(if (isSubscriptionRefreshing) 0xFF40351F.toInt() else subscriptionState.third, 10)
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     leftMargin = dp(8)
                 })
@@ -1147,7 +1149,6 @@ class MainActivity : Activity() {
                     setTextColor(LIGHT_ACCENT)
                     setPadding(0, dp(6), 0, dp(5))
                 })
-                val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
                 val refreshLabel = when (refreshEntry?.state) {
                     "updating" -> "Синхронизация сейчас"
                     "success" -> "Последнее обновление: "
