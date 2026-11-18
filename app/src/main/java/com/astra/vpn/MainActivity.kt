@@ -217,12 +217,39 @@ class MainActivity : Activity() {
             background = rounded(CARD, 16)
             setOnClickListener { showAppSettingsDialog() }
         }
+        val brandBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+        }
         val brand = TextView(this).apply {
             text = "ASTRA"
-            textSize = 27f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 25f
+            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(Color.WHITE)
-            letterSpacing = .12f
+            letterSpacing = .18f
+        }
+        val brandCaption = TextView(this).apply {
+            text = "PRIVATE NETWORK  /  01"
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .16f
+            setTextColor(0xFF8E9DBA.toInt())
+            setPadding(1, dp(1), 0, 0)
+        }
+        brandBlock.addView(brand)
+        brandBlock.addView(brandCaption)
+        val brandMark = TextView(this).apply {
+            text = "✦"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF6C8CFF.toInt(), 0xFF8B62D9.toInt())).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(1), 0x66C8D3FF)
+            }
+            elevation = dp(4).toFloat()
         }
         val addButton = TextView(this).apply {
             text = "+"
@@ -232,12 +259,13 @@ class MainActivity : Activity() {
             background = rounded(CARD, 18)
             setOnClickListener { showImportDialog() }
         }
-        header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-        header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
-        header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
+        header.addView(settingsButton, LinearLayout.LayoutParams(dp(44), dp(44)))
+        header.addView(brandMark, LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(12) })
+        header.addView(brandBlock, LinearLayout.LayoutParams(0, dp(52), 1f))
+        header.addView(addButton, LinearLayout.LayoutParams(dp(48), dp(44)))
 
         val subtitle = TextView(this).apply {
-            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            text = "ENCRYPTED ROUTE  ·  BUILT FOR YOUR FREEDOM"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
@@ -251,21 +279,21 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF263B63.toInt(), 0xFF19263F.toInt(), 0xFF121C30.toInt())
+                intArrayOf(0xFF203D5A.toInt(), 0xFF1D2D50.toInt(), 0xFF171D38.toInt())
             ).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), 0xFF536B9B.toInt())
+                cornerRadius = dp(27).toFloat()
+                setStroke(dp(1), 0xFF547CA4.toInt())
             }
             elevation = dp(3).toFloat()
         }
         val connectionCaption = TextView(this).apply {
-            text = "СТАТУС СОЕДИНЕНИЯ"
+            text = "✧   ORBITAL LINK   ·   SECURE CHANNEL"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = .16f
+            letterSpacing = .12f
             gravity = Gravity.CENTER
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, 0, 0, dp(9))
+            setTextColor(0xFF9EDBFF.toInt())
+            setPadding(0, 0, 0, dp(13))
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
@@ -322,7 +350,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "Выбор сервера"
+            text = "Точки доступа"
             textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -380,7 +408,7 @@ class MainActivity : Activity() {
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
         serverCountLabel = TextView(this).apply {
-            text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
+            text = "ДОСТУПНЫЕ МАРШРУТЫ  ·  НАЖМИ ДЛЯ ВЫБОРА"
             textSize = 10f
             letterSpacing = .06f
             typeface = Typeface.DEFAULT_BOLD
@@ -1179,8 +1207,8 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             val selectMark = TextView(this).apply {
-                text = if (isSelected) "✓" else "›"
-                textSize = 23f
+                text = if (isSelected) "✦" else "›"
+                textSize = 21f
                 setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
                 gravity = Gravity.CENTER
             }
@@ -2255,11 +2283,11 @@ class MainActivity : Activity() {
     /** Subtle outline makes the selected server unmistakable without visual clutter. */
     private fun serverRowBackground(selected: Boolean) = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        if (selected) intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
-        else intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
+        if (selected) intArrayOf(0xFF253F60.toInt(), 0xFF20294A.toInt())
+        else intArrayOf(0xFF172536.toInt(), 0xFF121A2B.toInt())
     ).apply {
         cornerRadius = dp(20).toFloat()
-        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF718AFF.toInt() else 0xFF26344D.toInt())
+        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF83CFFF.toInt() else 0xFF263B50.toInt())
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
