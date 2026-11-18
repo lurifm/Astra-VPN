@@ -2893,6 +2893,24 @@ class MainActivity : Activity() {
                 }
             }
         })
+        val appTrafficText = TextView(this).apply {
+            text = "Топ приложений по трафику появится здесь."
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF111B2D.toInt(), 14)
+        }
+        content.addView(appTrafficText, matchWidth().apply { topMargin = dp(8) })
+        content.addView(TextView(this).apply {
+            text = "Обновить статистику"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFB9C8FF.toInt())
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnClickListener { loadAppTrafficStats(appTrafficText) }
+        })
+        if (hasAppUsageAccess()) loadAppTrafficStats(appTrafficText)
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
@@ -2904,15 +2922,45 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun hasAppUsageAccess(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
-        @Suppress("DEPRECATION")
-        val mode = appOps.checkOpNoThrow(
-            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
-            android.os.Process.myUid(),
-            packageName
-        )
-        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    private fun hasAppUsageAccess(): Boolean = AppTrafficStatsReader.hasAccess(this)
+
+    private fun loadAppTrafficStats(target: TextView) {
+        if (!hasAppUsageAccess()) {
+            target.text = "Разреши доступ выше, затем нажми «Обновить статистику»."
+            return
+        }
+        target.text = "Загружаю статистику Android…"
+        diagnosticsExecutor.execute {
+            val result = runCatching { AppTrafficStatsReader.readLastDay(this) }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                target.text = result.fold(
+                    onSuccess = { stats ->
+                        val availability = buildList {
+                            add(if (stats.wifiAvailable) "Wi-Fi ✓" else "Wi-Fi недоступен")
+                            add(if (stats.mobileAvailable) "Мобильная сеть ✓" else "мобильная статистика недоступна")
+                        }.joinToString(" · ")
+                        val top = stats.apps.take(8)
+                        buildString {
+                            appendLine("За последние 24 часа · $availability")
+                            appendLine("Системная статистика Android, не только трафик VPN.")
+                            if (top.isEmpty()) {
+                                append("Нет данных за выбранный период.")
+                            } else {
+                                top.forEachIndexed { index, app ->
+                                    appendLine()
+                                    appendLine("${index + 1}. ${app.label}")
+                                    append("↓ ${AppTrafficStatsReader.formatBytes(app.downloadedBytes)}  ↑ ${AppTrafficStatsReader.formatBytes(app.uploadedBytes)}")
+                                }
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        "Не удалось прочитать статистику: ${error.message ?: "ошибка Android"}. Проверь доступ Usage Access."
+                    }
+                )
+            }
+        }
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
