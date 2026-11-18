@@ -111,36 +111,8 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 AstraLatencyTestService.ACTION_RESULTS -> {
-                    latencyTestInFlight = false
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
-                    val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
-                    urlTestProfileMap.forEach { (tag, profile) ->
-                        val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
-                        if (ms > 0L) {
-                            latencyMs[profile] = ms
-                            pingInfo[profile] = "URL-test " + ms + " мс · " + latencyQuality(ms)
-                        } else {
-                            latencyMs.remove(profile)
-                            pingInfo[profile] = "н/д"
-                        }
-                    }
-                    if (pendingFastestSelection) {
-                        pendingFastestSelection = false
-                        selectingFastest = false
-                        val fastest = urlTestProfileMap.values.mapNotNull { link ->
-                            latencyMs[link]?.let { link to it }
-                        }.minByOrNull { it.second }?.first
-                        if (fastest != null) {
-                            selectedProfile = fastest
-                            status.text = "Выбран быстрый сервер"
-                            status.setTextColor(GREEN)
-                            selectedInfo.text = profileSummary(fastest)
-                            Toast.makeText(this@MainActivity, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
-                        } else {
-                            Toast.makeText(this@MainActivity, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                    runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
+                    applyLatencyResults(payload)
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
@@ -1133,6 +1105,12 @@ class MainActivity : Activity() {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
                 prepared.onSuccess { testConfig ->
                     urlTestProfileMap = testConfig.profileByOutboundTag
+                    // Keep the tag-to-profile map across Activity recreation. The
+                    // foreground test service may finish while Android recreates UI.
+                    getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                        .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
+                        .remove(KEY_LATENCY_PENDING_RESULTS)
+                        .apply()
                     runCatching {
                         AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
                     }.onFailure {
@@ -1246,11 +1224,60 @@ class MainActivity : Activity() {
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
             receiverRegistered = true
         }
+        restorePendingLatencyResult()
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
+    }
+
+    private fun restorePendingLatencyResult() {
+        val prefs = getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE)
+        val mapJson = prefs.getString(KEY_LATENCY_PROFILE_MAP, null)
+        if (mapJson != null) {
+            runCatching {
+                val json = JSONObject(mapJson)
+                urlTestProfileMap = buildMap {
+                    json.keys().forEach { tag -> put(tag, json.getString(tag)) }
+                }
+            }
+        }
+        val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null) ?: return
+        prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
+        applyLatencyResults(pending)
+    }
+
+    private fun applyLatencyResults(payload: String) {
+        latencyTestInFlight = false
+        val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        urlTestProfileMap.forEach { (tag, profile) ->
+            val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
+            if (ms > 0L) {
+                latencyMs[profile] = ms
+                pingInfo[profile] = "URL-test $ms мс · ${latencyQuality(ms)}"
+            } else {
+                latencyMs.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+        }
+        if (pendingFastestSelection) {
+            pendingFastestSelection = false
+            selectingFastest = false
+            val fastest = urlTestProfileMap.values.mapNotNull { link ->
+                latencyMs[link]?.let { link to it }
+            }.minByOrNull { it.second }?.first
+            if (fastest != null) {
+                selectedProfile = fastest
+                status.text = "Выбран быстрый сервер"
+                status.setTextColor(GREEN)
+                selectedInfo.text = profileSummary(fastest)
+                Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
+            }
+        }
+        if (!isFinishing && !isDestroyed) renderProfiles()
     }
 
     private fun restoreVpnState() {
@@ -2061,6 +2088,9 @@ class MainActivity : Activity() {
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
         private const val REQUEST_PHONE_STATE_PERMISSION = 7003
+        private const val LATENCY_PREFS = "astra_latency_results"
+        private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
+        private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
