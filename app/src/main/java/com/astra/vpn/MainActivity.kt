@@ -251,10 +251,11 @@ class MainActivity : Activity() {
         }
         val brand = TextView(this).apply {
             text = "ASTRA VPN"
-            textSize = 24f
+            textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            letterSpacing = .12f
+            includeFontPadding = true
+            letterSpacing = .045f
         }
         val addButton = TextView(this).apply {
             text = "＋ Добавить"
@@ -273,9 +274,10 @@ class MainActivity : Activity() {
 
         val subtitle = TextView(this).apply {
             text = "VPN-защита для повседневного использования"
-            textSize = 9f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = .14f
+            textSize = 11f
+            typeface = Typeface.DEFAULT_NORMAL
+            includeFontPadding = true
+            letterSpacing = .025f
             setTextColor(MUTED)
             setPadding(dp(2), dp(1), 0, dp(18))
         }
@@ -331,11 +333,12 @@ class MainActivity : Activity() {
             text = "ПОДКЛЮЧИТЬСЯ"
             contentDescription = "Подключить или отключить VPN"
             isAllCaps = false
-            textSize = 16f
-            letterSpacing = .02f
+            textSize = 17f
+            letterSpacing = .01f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            cornerRadius = dp(16)
+            cornerRadius = dp(28)
+            minHeight = dp(60)
             backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
             rippleColor = android.content.res.ColorStateList.valueOf(0x33FFFFFF)
             insetTop = 0
