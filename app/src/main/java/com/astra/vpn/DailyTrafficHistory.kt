@@ -15,6 +15,8 @@ internal class DailyTrafficHistory private constructor(
     constructor() : this(linkedMapOf())
 
     fun record(dayKey: Int, downloadedBytes: Long, uploadedBytes: Long) {
+        // Keep the same strict calendar-date validation for live writes as for restored data.
+        if (!isValidDayKey(dayKey)) return
         days[dayKey] = Totals(downloadedBytes.coerceAtLeast(0L), uploadedBytes.coerceAtLeast(0L))
         val keep = days.keys.sortedDescending().take(MAX_DAYS).toSet()
         days.keys.filter { it !in keep }.toList().forEach(days::remove)
