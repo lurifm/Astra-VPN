@@ -85,9 +85,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         try {
-            val platform = AstraPlatform(this) { descriptor ->
+            val platform = AstraPlatform(this, { descriptor ->
                 handleTunCreated(descriptor)
-            }
+            })
             val server = CommandServer(this, platform)
             commandServer = server
             server.start()
