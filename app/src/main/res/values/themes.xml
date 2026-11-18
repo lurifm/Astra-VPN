@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Astra" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">#8B9CFF</item>
+        <item name="colorPrimary">#83CFFF</item>
         <item name="colorOnPrimary">#091126</item>
-        <item name="colorSecondary">#A9B8FF</item>
+        <item name="colorSecondary">#B8C2FF</item>
         <item name="colorOnSecondary">#10152A</item>
         <item name="colorSurface">#101522</item>
         <item name="colorOnSurface">#F4F6FF</item>

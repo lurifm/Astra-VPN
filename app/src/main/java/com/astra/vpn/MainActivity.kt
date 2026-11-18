@@ -55,6 +55,19 @@ class MainActivity : Activity() {
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
     private var pendingFastestSelection = false
+    // UI-side safety net if Android kills the measurement service or a broadcast is missed.
+    private val latencyUiTimeout = Runnable {
+        if (latencyTestInFlight) {
+            latencyTestInFlight = false
+            pendingFastestSelection = false
+            selectingFastest = false
+            urlTestProfileMap.values.forEach { profile ->
+                if (pingInfo[profile] == "Проверяем…") pingInfo[profile] = "н/д"
+            }
+            Toast.makeText(this, "Проверка заняла слишком много времени. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+            renderProfiles()
+        }
+    }
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
@@ -115,11 +128,13 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 AstraLatencyTestService.ACTION_RESULTS -> {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     applyLatencyResults(payload)
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -167,11 +182,12 @@ class MainActivity : Activity() {
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("Не удалось подключиться")
-                        .setMessage("VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету.")
-                        .setPositiveButton("Понятно", null)
-                        .show()
+                    val errorMessage = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "Проверь выбранный сервер и подключение к интернету."
+                    // A non-blocking message is safer if the Activity is backgrounded
+                    // while its receiver remains registered for asynchronous results.
+                    Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
                 }
             }
             updateGeoLocationForState()
@@ -202,12 +218,39 @@ class MainActivity : Activity() {
             background = rounded(CARD, 16)
             setOnClickListener { showAppSettingsDialog() }
         }
+        val brandBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+        }
         val brand = TextView(this).apply {
             text = "ASTRA"
-            textSize = 27f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 25f
+            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(Color.WHITE)
-            letterSpacing = .12f
+            letterSpacing = .18f
+        }
+        val brandCaption = TextView(this).apply {
+            text = "PRIVATE NETWORK  /  01"
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .16f
+            setTextColor(0xFF8E9DBA.toInt())
+            setPadding(1, dp(1), 0, 0)
+        }
+        brandBlock.addView(brand)
+        brandBlock.addView(brandCaption)
+        val brandMark = TextView(this).apply {
+            text = "✦"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF6C8CFF.toInt(), 0xFF8B62D9.toInt())).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(1), 0x66C8D3FF)
+            }
+            elevation = dp(4).toFloat()
         }
         val addButton = TextView(this).apply {
             text = "+"
@@ -217,12 +260,13 @@ class MainActivity : Activity() {
             background = rounded(CARD, 18)
             setOnClickListener { showImportDialog() }
         }
-        header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-        header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
-        header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
+        header.addView(settingsButton, LinearLayout.LayoutParams(dp(44), dp(44)))
+        header.addView(brandMark, LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(12) })
+        header.addView(brandBlock, LinearLayout.LayoutParams(0, dp(52), 1f))
+        header.addView(addButton, LinearLayout.LayoutParams(dp(48), dp(44)))
 
         val subtitle = TextView(this).apply {
-            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            text = "ENCRYPTED ROUTE  ·  BUILT FOR YOUR FREEDOM"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
@@ -236,21 +280,38 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF263B63.toInt(), 0xFF19263F.toInt(), 0xFF121C30.toInt())
+                intArrayOf(0xFF203D5A.toInt(), 0xFF1D2D50.toInt(), 0xFF171D38.toInt())
             ).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), 0xFF536B9B.toInt())
+                cornerRadius = dp(27).toFloat()
+                setStroke(dp(1), 0xFF547CA4.toInt())
             }
             elevation = dp(3).toFloat()
         }
         val connectionCaption = TextView(this).apply {
-            text = "СТАТУС СОЕДИНЕНИЯ"
+            text = "✧   ORBITAL LINK   ·   SECURE CHANNEL"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = .16f
+            letterSpacing = .12f
             gravity = Gravity.CENTER
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, 0, 0, dp(9))
+            setTextColor(0xFF9EDBFF.toInt())
+            setPadding(0, 0, 0, dp(13))
+        }
+        // A compact orbital emblem gives the connection panel a clear visual focal point.
+        // It is a static drawable-backed view, so it adds no startup or animation overhead.
+        val orbitalCore = TextView(this).apply {
+            text = "✦"
+            textSize = 38f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF5AADEB.toInt(), 0xFF5368C9.toInt(), 0xFF7854B8.toInt())
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(2), 0x668FE3FF)
+            }
+            elevation = dp(8).toFloat()
+            contentDescription = "Символ защищённого соединения Astra"
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
@@ -297,6 +358,9 @@ class MainActivity : Activity() {
             }
         }
         connectCard.addView(connectionCaption, matchWidth())
+        connectCard.addView(orbitalCore, LinearLayout.LayoutParams(dp(78), dp(78)).apply {
+            bottomMargin = dp(15)
+        })
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
         connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
@@ -307,7 +371,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "Выбор сервера"
+            text = "Точки доступа"
             textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -365,7 +429,7 @@ class MainActivity : Activity() {
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
         serverCountLabel = TextView(this).apply {
-            text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
+            text = "ДОСТУПНЫЕ МАРШРУТЫ  ·  НАЖМИ ДЛЯ ВЫБОРА"
             textSize = 10f
             letterSpacing = .06f
             typeface = Typeface.DEFAULT_BOLD
@@ -422,6 +486,16 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         }
         monitorCard.addView(monitorProtection)
+        // Keep the two most useful live metrics visible without expanding the card.
+        // Values come from Android's aggregate device counters, not a VPN-only counter.
+        monitorCard.addView(TextView(this).apply {
+            text = "ТРАФИК УСТРОЙСТВА"
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .12f
+            setTextColor(MUTED)
+            setPadding(0, dp(10), 0, dp(1))
+        })
         val monitorDetails = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -476,7 +550,7 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
         })
-        monitorDetails.addView(speedRow)
+        monitorCard.addView(speedRow, LinearLayout.LayoutParams(matchWidth().width, dp(30)))
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
@@ -498,13 +572,14 @@ class MainActivity : Activity() {
         setContentView(root)
         requestNotificationPermissionIfNeeded()
         requestPhoneStatePermissionIfNeeded()
-        // onStart() restores tunnel state and renders the profile list once.
-        // Avoid building every server row twice during a cold launch.
-        updateNetworkLabel()
-        // Check the open-app option immediately and keep a lightweight scheduler alive
-        // while this screen is active; the worker checks settings every minute.
-        SubscriptionRefreshScheduler.sync(this)
-        maybeAutoUpdateSubscriptions(true)
+        // onStart() restores tunnel state and the first monitor tick refreshes
+        // network metadata. Avoid doing either operation twice during cold launch.
+        // WorkManager scheduling is deferred until after the first frame so the
+        // server list and connect controls become interactive as early as possible.
+        autoUpdateHandler.postDelayed({
+            if (!isFinishing && !isDestroyed) SubscriptionRefreshScheduler.sync(this)
+        }, 500L)
+        // onStart() performs the one-time subscription freshness check.
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Let the first frame become interactive before starting the isolated
@@ -1098,6 +1173,18 @@ class MainActivity : Activity() {
                     true
                 }
             }
+            // Slim luminous rail makes the selected route recognizable at a glance.
+            val selectionRail = View(this).apply {
+                background = if (isSelected) {
+                    GradientDrawable(
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        intArrayOf(0xFF75D8FF.toInt(), 0xFF7776E8.toInt())
+                    ).apply { cornerRadius = dp(3).toFloat() }
+                } else {
+                    rounded(0x00000000, 3)
+                }
+                contentDescription = if (isSelected) "Выбранный сервер" else null
+            }
             val flag = TextView(this).apply {
                 text = CountryFlagResolver.flagFor(name)
                 textSize = 25f
@@ -1137,11 +1224,24 @@ class MainActivity : Activity() {
                         else -> MUTED
                     }
                 setTextColor(tone)
-                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else if (pingInfo[link] == "н/д") 0x1AFF7777 else 0x1A9AA6BF, 8)
+                // Match the pill tint to the measured quality instead of painting
+                // every successful result green (a 400 ms route is not "fast").
+                val pillTint = 0x1A000000 or (tone and 0x00FFFFFF)
+                background = rounded(pillTint, 8)
                 contentDescription = "Задержка измеряется HTTP URL-test через соответствующий сервер sing-box. Недоступные серверы отображаются как н/д."
                 setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             details.addView(title)
+            if (isSelected && !(connected && link == activeProfile)) {
+                details.addView(TextView(this).apply {
+                    text = "✦  ВЫБРАННЫЙ МАРШРУТ"
+                    textSize = 9f
+                    letterSpacing = .06f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(LIGHT_ACCENT)
+                    setPadding(0, dp(2), 0, dp(3))
+                })
+            }
             if (connected && link == activeProfile) {
                 details.addView(TextView(this).apply {
                     text = "●  АКТИВНОЕ СОЕДИНЕНИЕ"
@@ -1164,11 +1264,14 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             val selectMark = TextView(this).apply {
-                text = if (isSelected) "✓" else "›"
-                textSize = 23f
+                text = if (isSelected) "✦" else "›"
+                textSize = 21f
                 setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
                 gravity = Gravity.CENTER
             }
+            row.addView(selectionRail, LinearLayout.LayoutParams(dp(3), dp(42)).apply {
+                rightMargin = dp(9)
+            })
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
@@ -1259,8 +1362,8 @@ class MainActivity : Activity() {
         }
 
         profiles.forEach { profile ->
-            latencyMs.remove(profile)
-            pingInfo[profile] = "Проверяем…"
+            // Keep the last valid measurement visible while refreshing it.
+            pingInfo[profile] = latencyMs[profile]?.let { "Обновляем · $it мс" } ?: "Проверяем…"
         }
         renderProfiles()
         Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
@@ -1268,6 +1371,8 @@ class MainActivity : Activity() {
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         latencyTestInFlight = true
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
+        autoUpdateHandler.postDelayed(latencyUiTimeout, LATENCY_UI_TIMEOUT_MS)
         val generation = latencyCheckGeneration.get()
         pingExecutor.execute {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
@@ -1284,6 +1389,7 @@ class MainActivity : Activity() {
                     runCatching {
                         AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
                     }.onFailure {
+                        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                         latencyTestInFlight = false
                         pendingFastestSelection = false
                         selectingFastest = false
@@ -1295,6 +1401,7 @@ class MainActivity : Activity() {
                         renderProfiles()
                     }
                 }.onFailure {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -1408,6 +1515,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyLatencyResults(payload: String) {
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_LATENCY_PENDING_RESULTS)
             .apply()
@@ -1417,7 +1525,7 @@ class MainActivity : Activity() {
             val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
-                pingInfo[profile] = "URL-test $ms мс · ${latencyQuality(ms)}"
+                pingInfo[profile] = "$ms мс · через сервер · ${latencyQuality(ms)}"
             } else {
                 latencyMs.remove(profile)
                 pingInfo[profile] = "н/д"
@@ -1502,6 +1610,7 @@ class MainActivity : Activity() {
             connecting = true
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
+            updateProtectionLabels()
         } catch (error: Exception) {
             // Do not leave a stale configuration behind after a failed service start.
             pendingConfig = null
@@ -1509,6 +1618,7 @@ class MainActivity : Activity() {
             connected = false
             status.text = "Не удалось запустить VPN"
             status.setTextColor(RED)
+            updateProtectionLabels()
             Toast.makeText(this, "Не удалось запустить VPN. Проверь выбранный сервер и разрешение на VPN.", Toast.LENGTH_LONG).show()
         }
         renderProfiles()
@@ -1521,6 +1631,8 @@ class MainActivity : Activity() {
         connecting = false
         status.text = "Отключаемся…"
         status.setTextColor(MUTED)
+        tunnelInternetOk = null
+        updateProtectionLabels()
         renderProfiles()
     }
 
@@ -1620,13 +1732,23 @@ class MainActivity : Activity() {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
             val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
-            monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
+            monitorDownload.text = "↓ " + formatTrafficRate(down)
+            monitorUpload.text = "↑ " + formatTrafficRate(up)
             speedGraph.addSample(down, up)
         }
         lastRxBytes = rx
         lastTxBytes = tx
         lastTrafficAt = now
+    }
+
+    private fun formatTrafficRate(mbps: Float): String {
+        // Preserve useful precision at low mobile-network speeds instead of
+        // displaying 0.00 Mbps for every rate below 10 Kbit/s.
+        return if (mbps < 1f) {
+            String.format(java.util.Locale.US, "%.0f Кбит/с", mbps.coerceAtLeast(0f) * 1000f)
+        } else {
+            String.format(java.util.Locale.US, "%.2f Мбит/с", mbps)
+        }
     }
 
     private fun updateGeoLocationForState() {
@@ -2235,11 +2357,11 @@ class MainActivity : Activity() {
     /** Subtle outline makes the selected server unmistakable without visual clutter. */
     private fun serverRowBackground(selected: Boolean) = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        if (selected) intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
-        else intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
+        if (selected) intArrayOf(0xFF253F60.toInt(), 0xFF20294A.toInt())
+        else intArrayOf(0xFF172536.toInt(), 0xFF121A2B.toInt())
     ).apply {
         cornerRadius = dp(20).toFloat()
-        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF718AFF.toInt() else 0xFF26344D.toInt())
+        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF83CFFF.toInt() else 0xFF263B50.toInt())
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -2247,6 +2369,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         if (receiverRegistered) {
@@ -2268,11 +2391,12 @@ class MainActivity : Activity() {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
+        private const val LATENCY_UI_TIMEOUT_MS = 25_000L
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
-        private const val ACCENT = 0xFF647CFF.toInt()
-        private const val LIGHT_ACCENT = 0xFFA9B8FF.toInt()
+        private const val ACCENT = 0xFF69BFFF.toInt()
+        private const val LIGHT_ACCENT = 0xFFB7DFFF.toInt()
         private const val GREEN = 0xFF55D69A.toInt()
         private const val AMBER = 0xFFFFC66D.toInt()
         private const val RED = 0xFFFF7777.toInt()
