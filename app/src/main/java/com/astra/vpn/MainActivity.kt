@@ -1408,9 +1408,13 @@ class MainActivity : Activity() {
     private fun scheduleTunnelHealthCheck() {
         if (!connected || isFinishing || isDestroyed) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
-        val vpnNetwork = connectivity.activeNetwork ?: return
-        val vpnCapabilities = connectivity.getNetworkCapabilities(vpnNetwork) ?: return
-        if (!vpnCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+        val vpnNetwork = connectivity.activeNetwork
+        val vpnCapabilities = vpnNetwork?.let(connectivity::getNetworkCapabilities)
+        if (vpnNetwork == null || vpnCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
+            tunnelInternetOk = false
+            updateProtectionLabels()
+            return
+        }
         val now = System.currentTimeMillis()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
