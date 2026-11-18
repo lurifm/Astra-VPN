@@ -27,6 +27,17 @@ class ServerLatencySortTest {
     }
 
     @Test
+    fun equalLatencyServersKeepTheirOriginalOrderAfterFavoriteTieBreak() {
+        val result = ServerLatencySort.sort(
+            profiles = listOf("z-server", "a-server", "favorite"),
+            mode = "ping",
+            latencyMs = mapOf("z-server" to 50L, "a-server" to 50L, "favorite" to 50L),
+            favorites = setOf("favorite")
+        )
+        assertEquals(listOf("favorite", "z-server", "a-server"), result)
+    }
+
+    @Test
     fun alphabeticalModeIsCaseInsensitive() {
         val result = ServerLatencySort.sort(
             profiles = listOf("zeta", "Alpha", "beta"),
