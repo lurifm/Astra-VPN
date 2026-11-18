@@ -32,7 +32,8 @@ import java.net.NetworkInterface as JavaNetworkInterface
  */
 class AstraPlatform(
     private val vpnService: VpnService,
-    private val onTunCreated: (ParcelFileDescriptor) -> Unit
+    private val onTunCreated: (ParcelFileDescriptor) -> Unit,
+    private val protectSockets: Boolean = true
 ) : PlatformInterface {
 
     private val connectivity = vpnService.getSystemService(ConnectivityManager::class.java)
@@ -58,10 +59,16 @@ class AstraPlatform(
         private const val TAG = "AstraPlatform"
     }
 
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
+    // The latency runner lives outside the active VPN process. Its sockets
+    // already use Android's physical default network, so calling VpnService.protect()
+    // there is both unnecessary and unsafe: that service is not the system-bound
+    // VPN owner. Keep protection enabled only for the actual tunnel service.
+    override fun usePlatformAutoDetectInterfaceControl(): Boolean = protectSockets
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        check(vpnService.protect(fd)) { "Не удалось исключить сокет sing-box из VPN-туннеля" }
+        if (protectSockets) {
+            check(vpnService.protect(fd)) { "Не удалось исключить сокет sing-box из VPN-туннеля" }
+        }
     }
 
     override fun openTun(options: TunOptions): Int {
