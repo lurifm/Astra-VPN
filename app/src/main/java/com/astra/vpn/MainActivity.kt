@@ -2004,15 +2004,61 @@ class MainActivity : Activity() {
                 "$stateLabel\n$date\n${item.serverName} · ${item.protocol}"
             }
         }
-        val historyText = TextView(this).apply {
-            text = body
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setPadding(dp(18), dp(12), dp(18), dp(12))
+        val historyContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(12))
+            background = rounded(BG, 22)
+        }
+        historyContent.addView(TextView(this).apply {
+            text = "✦  СОБЫТИЯ ТВОЕЙ ОРБИТЫ"
+            textSize = 10f
+            letterSpacing = 0.12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF9EAEFF.toInt())
+            setPadding(0, 0, 0, dp(12))
+        })
+        if (entries.isEmpty()) {
+            historyContent.addView(TextView(this).apply {
+                text = body
+                textSize = 13f
+                setTextColor(MUTED)
+                setPadding(dp(12), dp(16), dp(12), dp(16))
+                background = rounded(0xFF151F32.toInt(), 14)
+            })
+        } else entries.forEach { item ->
+            val date = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(item.timestamp))
+            val (label, tint) = when (item.state) {
+                "connecting" -> "◌  Подключение" to AMBER
+                "connected" -> "●  Подключено" to GREEN
+                "disconnected" -> "○  Отключено" to MUTED
+                "error" -> "●  Ошибка подключения" to RED
+                else -> item.state to LIGHT_ACCENT
+            }
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(0xFF151F32.toInt(), 14)
+            }
+            card.addView(TextView(this).apply {
+                text = label
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(tint)
+            })
+            card.addView(TextView(this).apply {
+                text = "$date\n${item.serverName} · ${item.protocol}"
+                textSize = 11f
+                setTextColor(MUTED)
+                setPadding(0, dp(4), 0, 0)
+            })
+            historyContent.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(7) })
         }
         val scroll = ScrollView(this).apply {
-            addView(historyText)
             isFillViewport = true
+            addView(historyContent)
         }
         MaterialAlertDialogBuilder(this)
             .setTitle("История подключений · ${entries.size}")
@@ -2288,6 +2334,9 @@ class MainActivity : Activity() {
             appList.addView(check)
         }
         val listScroll = ScrollView(this).apply {
+            background = rounded(0xFF151F32.toInt(), 15)
+            clipToPadding = false
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             addView(appList)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
@@ -2315,18 +2364,36 @@ class MainActivity : Activity() {
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(8), dp(18), dp(4))
+            setPadding(dp(16), dp(10), dp(16), dp(12))
+            background = rounded(BG, 22)
             addView(TextView(this@MainActivity).apply {
                 text = "Выбери приложения и режим маршрутизации. Изменения применятся после следующего подключения VPN."
                 textSize = 12f
                 setTextColor(MUTED)
                 setPadding(0, 0, 0, dp(10))
             })
+            addView(TextView(this@MainActivity).apply {
+                text = "✦  ПРАВИЛА МАРШРУТИЗАЦИИ"
+                textSize = 10f
+                letterSpacing = 0.12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF9EAEFF.toInt())
+                setPadding(0, dp(6), 0, dp(8))
+            })
             addView(modeGroup)
+            addView(TextView(this@MainActivity).apply {
+                text = "ПОИСК ПРИЛОЖЕНИЙ"
+                textSize = 10f
+                letterSpacing = 0.12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(MUTED)
+                setPadding(dp(2), dp(10), 0, dp(5))
+            })
             addView(appSearch, matchWidth().apply { bottomMargin = dp(8) })
             addView(TextView(this@MainActivity).apply {
-                text = "Приложения"
-                textSize = 14f
+                text = "УСТАНОВЛЕННЫЕ ПРИЛОЖЕНИЯ"
+                textSize = 10f
+                letterSpacing = 0.12f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
                 setPadding(0, dp(8), 0, dp(4))
