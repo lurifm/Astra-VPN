@@ -954,22 +954,44 @@ class MainActivity : Activity() {
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(15), dp(13), dp(15), dp(13))
-                    background = rounded(CARD, 16)
+                    background = rounded(CARD, 16).apply {
+                        setStroke(dp(1), if (refreshingSubscriptions) 0xFF665A9D.toInt() else 0xFF2B3A55.toInt())
+                    }
                     isClickable = true
+                    isFocusable = true
+                    contentDescription = "Подписка ${subscription.title}, ${subscription.serverCount} серверов. Нажмите для управления."
                     setOnClickListener { showSubscriptionDetails(subscription) }
                 }
-                card.addView(TextView(this).apply {
+                val subscriptionHeader = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                subscriptionHeader.addView(TextView(this).apply {
                     text = "☁  ${subscription.title}"
                     textSize = 15f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.WHITE)
                     maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                subscriptionHeader.addView(TextView(this).apply {
+                    text = if (refreshingSubscriptions) "ОБНОВЛЕНИЕ" else "HTTPS"
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    letterSpacing = .05f
+                    setTextColor(if (refreshingSubscriptions) AMBER else LIGHT_ACCENT)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(9), dp(5), dp(9), dp(5))
+                    background = rounded(if (refreshingSubscriptions) 0xFF40351F.toInt() else 0xFF252B48.toInt(), 10)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    leftMargin = dp(8)
                 })
+                card.addView(subscriptionHeader, matchWidth())
                 card.addView(TextView(this).apply {
-                    text = "${subscription.serverCount} серверов  ·  HTTPS-подписка"
+                    text = "${subscription.serverCount} серверов  ·  Нажми для управления"
                     textSize = 12f
                     setTextColor(LIGHT_ACCENT)
-                    setPadding(0, dp(5), 0, dp(3))
+                    setPadding(0, dp(6), 0, dp(5))
                 })
                 card.addView(TextView(this).apply {
                     text = subscriptionUsageText(subscription)
