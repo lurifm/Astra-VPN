@@ -2869,6 +2869,30 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(7) })
         }
+        content.addView(TextView(this).apply {
+            text = if (hasAppUsageAccess()) {
+                "Статистика приложений: доступ разрешён"
+            } else {
+                "Статистика приложений: нужен дополнительный доступ Android"
+            }
+            textSize = 12f
+            setTextColor(if (hasAppUsageAccess()) GREEN else AMBER)
+            setPadding(dp(12), dp(10), dp(12), dp(8))
+        })
+        content.addView(TextView(this).apply {
+            text = "Открыть доступ к статистике приложений"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener {
+                val usageIntent = Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                runCatching { startActivity(usageIntent) }.onFailure {
+                    Toast.makeText(this@MainActivity, "Не удалось открыть настройки доступа", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
@@ -2878,6 +2902,17 @@ class MainActivity : Activity() {
             .setView(scroll)
             .setPositiveButton("Готово", null)
             .show()
+    }
+
+    private fun hasAppUsageAccess(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        @Suppress("DEPRECATION")
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
