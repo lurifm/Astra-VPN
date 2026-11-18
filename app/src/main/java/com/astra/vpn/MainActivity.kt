@@ -953,13 +953,31 @@ class MainActivity : Activity() {
             profileScroll.post { profileScroll.scrollTo(0, previousScrollY) }
         }
         if (summaries.isNotEmpty()) {
-            profileList.addView(TextView(this).apply {
-                text = "ПОДПИСКИ"
-                textSize = 11f
-                letterSpacing = .10f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(LIGHT_ACCENT)
-                setPadding(dp(2), dp(2), 0, dp(8))
+            profileList.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(2), 0, dp(10))
+                addView(TextView(this@MainActivity).apply {
+                    text = "ПОДПИСКИ"
+                    textSize = 11f
+                    letterSpacing = .10f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(LIGHT_ACCENT)
+                })
+                val lastSuccess = settingsPrefs.getLong("last_subscription_update", 0L)
+                val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", 0L)
+                val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
+                val historyText = when {
+                    refreshingSubscriptions -> "Идёт синхронизация источников…"
+                    lastSuccess > 0L -> "Последняя успешная синхронизация: \${dateFormat.format(java.util.Date(lastSuccess))}"
+                    lastAttempt > 0L -> "Последняя попытка: \${dateFormat.format(java.util.Date(lastAttempt))} · успешных обновлений пока нет"
+                    else -> "Подписки ещё не обновлялись"
+                }
+                addView(TextView(this@MainActivity).apply {
+                    text = historyText
+                    textSize = 10f
+                    setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
+                    setPadding(0, dp(4), 0, 0)
+                })
             })
             summaries.forEach { subscription ->
                 val card = LinearLayout(this).apply {
