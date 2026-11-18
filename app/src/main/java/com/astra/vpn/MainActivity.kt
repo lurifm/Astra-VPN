@@ -1860,7 +1860,7 @@ class MainActivity : Activity() {
             row.addView(TextView(this).apply {
                 text = value.ifBlank { "—" }
                 textSize = 14f
-                typeface = Typeface.DEFAULT_MEDIUM
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(Color.WHITE)
                 setPadding(0, dp(3), 0, 0)
             })
