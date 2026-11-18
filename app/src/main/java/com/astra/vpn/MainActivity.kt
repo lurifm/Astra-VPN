@@ -2920,10 +2920,8 @@ class MainActivity : Activity() {
                 val results = ServiceReachabilityChecker.checkAll(network)
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
-                    val serviceReport = results.joinToString("\\n") { it.display() }
-                    latestReport = report.substringBefore("Проверка выполняется через VPN…") +
-                        serviceReport + "\\n" +
-                        report.substringAfter("Проверка выполняется через VPN…").substringAfter("\\n")
+                    val serviceReport = results.joinToString("\n") { it.display() }
+                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport)
                     reportView.text = latestReport
                 }
             }
