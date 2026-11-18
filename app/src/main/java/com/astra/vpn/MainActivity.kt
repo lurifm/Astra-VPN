@@ -1231,15 +1231,32 @@ class MainActivity : Activity() {
 
     private fun underlyingNetworkCapabilities(): NetworkCapabilities? {
         val connectivity = getSystemService(ConnectivityManager::class.java)
+        val activeNetwork = connectivity.activeNetwork
+        val activeCapabilities = activeNetwork?.let(connectivity::getNetworkCapabilities)
+
+        // Outside a VPN, Android's active network is the authoritative default.
+        // While VPN is active, activeNetwork describes the tunnel, so select the
+        // best validated physical underlay from the remaining connected networks.
+        if (activeCapabilities != null &&
+            !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        ) {
+            return activeCapabilities
+        }
+
         return connectivity.allNetworks
             .asSequence()
             .mapNotNull { network -> connectivity.getNetworkCapabilities(network) }
-            .firstOrNull { caps ->
+            .filter { caps ->
                 !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
                     (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                         caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
                         caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
             }
+            .sortedByDescending { caps ->
+                (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 2 else 0) +
+                    (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) 1 else 0)
+            }
+            .firstOrNull()
     }
 
     private fun updateNetworkLabel() {
