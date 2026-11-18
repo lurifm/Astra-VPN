@@ -849,10 +849,10 @@ class MainActivity : Activity() {
         val trafficDetails = when {
             item.totalBytes != null && item.totalBytes >= 0L -> {
                 val remaining = SubscriptionUsageCalculator.remainingBytes(usedBytes, item.totalBytes) ?: 0L
-                "Использовано: ${formatTraffic(usedBytes)} из ${formatTraffic(item.totalBytes)}\\nОсталось: ${formatTraffic(remaining)}"
+                "Использовано: ${formatTraffic(usedBytes)} из ${formatTraffic(item.totalBytes)}\nОсталось: ${formatTraffic(remaining)}"
             }
             item.uploadBytes != null || item.downloadBytes != null ->
-                "Использовано: ${formatTraffic(usedBytes)}\\nОбщий лимит не указан"
+                "Использовано: ${formatTraffic(usedBytes)}\nОбщий лимит не указан"
             else -> "Провайдер не передал данные о трафике"
         }
         val expiry = item.expiresAtEpochSeconds?.let { seconds ->
