@@ -422,6 +422,11 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, 0)
         }
         monitorCard.addView(monitorLocation)
+        // Keep live connection diagnostics visible instead of building an unreachable card.
+        // The card is compact and sits above the server list; the list retains the remaining space.
+        root.addView(monitorCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
         root.addView(listHeader)
         root.addView(filterRow, matchWidth())
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
