@@ -1772,6 +1772,7 @@ class MainActivity : Activity() {
                     getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                         .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
                         .remove(KEY_LATENCY_PENDING_RESULTS)
+                        .remove(KEY_LATENCY_LAST_RESULTS)
                         .apply()
                     runCatching {
                         AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
@@ -1916,9 +1917,14 @@ class MainActivity : Activity() {
                 }
             }
         }
-        val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null) ?: return
-        prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
-        applyLatencyResults(pending, finished = true)
+        val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null)
+        val cached = pending ?: prefs.getString(KEY_LATENCY_LAST_RESULTS, null) ?: return
+        if (pending != null) {
+            prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
+        }
+        // Completed values remain visible after relaunch; pending is consumed
+        // only once, while the reusable cache is retained until the next test.
+        applyLatencyResults(cached, finished = true)
     }
 
     private fun applyLatencyResults(payload: String, finished: Boolean) {
@@ -3043,6 +3049,7 @@ class MainActivity : Activity() {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
+        private const val KEY_LATENCY_LAST_RESULTS = "last_results"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
