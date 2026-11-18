@@ -138,24 +138,47 @@ class ProfileStore(context: Context) {
 
     /** Safe local summary; usage and expiry are displayed only when provider metadata exists. */
     fun subscriptionSummaries(): List<SubscriptionSummary> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        summariesCache ?: prefs.all.entries
-        .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
-        .map { (key, value) ->
-            val source = decryptStored(value as String)
-            val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
-            val count = prefs.all.keys.count { it.startsWith(SUBSCRIPTION_PROFILE_PREFIX + id + "_") }
-            val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
-            val usage = SubscriptionMetadataCodec.decode(
-                prefs.getString(SUBSCRIPTION_META_PREFIX + id, null)
-            )
-            val title = prefs.getString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, null)
-                ?: prefs.getString(SUBSCRIPTION_TITLE_PREFIX + id, null) // legacy custom/provider title
-                ?: prefs.getString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, null)
-                ?: host?.takeIf { it.isNotBlank() } ?: "Подписка"
-            SubscriptionSummary(source, title, count, usage.uploadBytes, usage.downloadBytes, usage.totalBytes, usage.expiresAtEpochSeconds)
+        summariesCache ?: run {
+            // Read one SharedPreferences snapshot instead of repeatedly copying
+            // the complete map while counting every subscription's profiles.
+            val snapshot = prefs.all
+            val profileCounts = HashMap<String, Int>()
+            snapshot.keys.forEach { key ->
+                if (key.startsWith(SUBSCRIPTION_PROFILE_PREFIX)) {
+                    val remainder = key.removePrefix(SUBSCRIPTION_PROFILE_PREFIX)
+                    val separator = remainder.indexOf('_')
+                    if (separator > 0) {
+                        val sourceId = remainder.substring(0, separator)
+                        profileCounts[sourceId] = (profileCounts[sourceId] ?: 0) + 1
+                    }
+                }
+            }
+            snapshot.entries
+                .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
+                .map { (key, value) ->
+                    val source = decryptStored(value as String)
+                    val id = key.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
+                    val host = runCatching { android.net.Uri.parse(source).host }.getOrNull()
+                    val usage = SubscriptionMetadataCodec.decode(
+                        snapshot[SUBSCRIPTION_META_PREFIX + id] as? String
+                    )
+                    val title = snapshot[SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id] as? String
+                        ?: snapshot[SUBSCRIPTION_TITLE_PREFIX + id] as? String // legacy custom/provider title
+                        ?: snapshot[SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id] as? String
+                        ?: host?.takeIf { it.isNotBlank() } ?: "Подписка"
+                    SubscriptionSummary(
+                        source,
+                        title,
+                        profileCounts[id] ?: 0,
+                        usage.uploadBytes,
+                        usage.downloadBytes,
+                        usage.totalBytes,
+                        usage.expiresAtEpochSeconds
+                    )
+                }
+                .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
+                .also { summariesCache = it }
         }
-        .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
-        .also { summariesCache = it }
     }
 
     fun remove(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
