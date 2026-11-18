@@ -642,10 +642,15 @@ class MainActivity : Activity() {
 
     private fun startQrScan() {
         runCatching {
+            val options = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+                .enableAutoZoom()
+                .build()
             com.google.mlkit.vision.codescanner.GmsBarcodeScanning
-                .getClient(this)
+                .getClient(this, options)
                 .startScan()
                 .addOnSuccessListener { barcode ->
+                    if (isFinishing || isDestroyed) return@addOnSuccessListener
                     val value = barcode.rawValue?.trim().orEmpty()
                     if (value.isEmpty()) {
                         Toast.makeText(this, "В QR-коде не найден текст", Toast.LENGTH_SHORT).show()
@@ -653,19 +658,28 @@ class MainActivity : Activity() {
                         showImportDialog(value)
                     }
                 }
+                .addOnCanceledListener {
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this, "Сканирование отменено", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 .addOnFailureListener {
-                    Toast.makeText(
-                        this,
-                        "Не удалось запустить сканер. Проверь наличие и обновление Google Play services.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(
+                            this,
+                            "Не удалось запустить сканер. Проверь наличие и обновление Google Play services.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
         }.onFailure {
-            Toast.makeText(
-                this,
-                "Сканирование QR-кодов сейчас недоступно на этом устройстве.",
-                Toast.LENGTH_LONG
-            ).show()
+            if (!isFinishing && !isDestroyed) {
+                Toast.makeText(
+                    this,
+                    "Сканирование QR-кодов сейчас недоступно на этом устройстве.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
