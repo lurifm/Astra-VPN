@@ -1403,6 +1403,10 @@ class MainActivity : Activity() {
             favorites = favorites,
             locale = java.util.Locale.getDefault()
         )
+        // In ping-sorted mode, make the best measured node explicit in the list.
+        // Unknown/unmeasured nodes never receive this marker.
+        val fastestProfile = displayProfiles.firstOrNull { latencyMs[it] != null }
+            ?.takeIf { sortMode == "ping" }
 
         if (displayProfiles.isEmpty()) {
             val hasProfiles = profiles.isNotEmpty()
@@ -1469,6 +1473,7 @@ class MainActivity : Activity() {
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
+            val isFastestProfile = link == fastestProfile
             // displayProfiles is derived from profiles, so every row already has
             // prepared details; keep a defensive label without reparsing the URI.
             val detailsForProfile = profileDetails[link]
@@ -1583,6 +1588,7 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "Не проверен"
                 val measuredLatency = latencyMs[link]
                 text = when {
+                    measuredLatency != null && isFastestProfile -> "✦  ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
                     latency == "н/д" -> "●  PING  нет замера"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
@@ -1590,7 +1596,8 @@ class MainActivity : Activity() {
                 }
                 textSize = 11f
                 typeface = Typeface.DEFAULT_BOLD
-                val tone = measuredLatency?.let { latencyColor(it) }
+                val tone = if (isFastestProfile && measuredLatency != null) GREEN
+                    else measuredLatency?.let { latencyColor(it) }
                     ?: when (latency) {
                         "н/д" -> RED
                         "Проверяем…" -> AMBER
@@ -1605,6 +1612,7 @@ class MainActivity : Activity() {
                 }
                 background = rounded(pillColor, 8)
                 contentDescription = when {
+                    measuredLatency != null && isFastestProfile -> "Самый быстрый измеренный сервер: $measuredLatency миллисекунд"
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
                     latency == "н/д" -> "Задержка пока не измерена"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
