@@ -77,4 +77,13 @@ class BestServerSelectorTest {
         assertEquals("vless://node", selected)
     }
 
+
+    @Test
+    fun extremeLatencyCannotWrapIntoBestScore() {
+        val selected = BestServerSelector.select(
+            listOf("hysteria2://extreme", "vless://normal"),
+            mapOf("hysteria2://extreme" to Long.MAX_VALUE, "vless://normal" to 100L)
+        )
+        assertEquals("vless://normal", selected)
+    }
 }
