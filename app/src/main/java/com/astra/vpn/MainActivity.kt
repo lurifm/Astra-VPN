@@ -1467,10 +1467,16 @@ class MainActivity : Activity() {
         } else {
             "  ·  PING: ${measuredPingCount}/${profiles.size} ИЗМЕРЕНО"
         }
-        serverCountLabel.text =
+        serverCountLabel.text = if (latencyTestInFlight) {
+            "${filteredProfiles.size} серверов  ·  пинг $measuredPingCount/${profiles.size}"
+        } else {
             "${filteredProfiles.size} серверов  ·  $sortLabel"
-        serverCountLabel.contentDescription =
-            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: ${measuredPingCount} из ${profiles.size}. Нажмите для настроек."
+        }
+        serverCountLabel.contentDescription = if (latencyTestInFlight) {
+            "Проверка задержки: получены результаты для $measuredPingCount из ${profiles.size} серверов. Нажмите для настроек."
+        } else {
+            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: $measuredPingCount из ${profiles.size}. Нажмите для настроек."
+        }
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
@@ -1956,7 +1962,7 @@ class MainActivity : Activity() {
     }
 
     private fun latencyColor(ms: Long): Int = when {
-        ms < 100L -> GREEN
+        ms <= 100L -> GREEN
         ms <= 250L -> AMBER
         else -> RED
     }
