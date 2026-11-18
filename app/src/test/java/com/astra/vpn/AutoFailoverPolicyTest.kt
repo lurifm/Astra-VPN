@@ -32,6 +32,11 @@ class AutoFailoverPolicyTest {
         assertTrue(AutoFailoverPolicy.nextFailureCount(-7) == 1)
     }
 
+    @Test fun cooldownComparisonDoesNotOverflowForExtremeTimestamps() {
+        assertFalse(AutoFailoverPolicy.shouldSwitch(3, Long.MIN_VALUE, 0L))
+        assertFalse(AutoFailoverPolicy.shouldSwitch(3, Long.MAX_VALUE - 1L, Long.MAX_VALUE))
+    }
+
     @Test fun ignoresClockMovingBackwards() {
         assertFalse(AutoFailoverPolicy.shouldSwitch(4, 100_000L, 99_000L))
     }
