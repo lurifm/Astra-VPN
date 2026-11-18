@@ -137,6 +137,7 @@ class MainActivity : Activity() {
     // Network type and carrier metadata change infrequently; avoid querying telephony every frame.
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
+    private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
@@ -2864,6 +2865,9 @@ class MainActivity : Activity() {
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
+            appendLine()
+            appendLine("ДОСТУПНОСТЬ СЕРВИСОВ")
+            appendLine(if (vpnTransport) "Проверка выполняется через VPN…" else "Для проверки сервисов через VPN сначала подключись.")
             appendLine("Время отчёта: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()))
         }
         val content = LinearLayout(this).apply {
@@ -2884,30 +2888,46 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF151F32.toInt(), 14)
         })
-        content.addView(TextView(this).apply {
+        val reportView = TextView(this).apply {
             text = report
             textSize = 12f
             setTextColor(0xFFD8E0F2.toInt())
             setLineSpacing(dp(4).toFloat(), 1f)
             setPadding(dp(4), dp(12), dp(4), dp(4))
-        })
+        }
+        content.addView(reportView)
+        var latestReport = report
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
         }
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Диагностика соединения")
             .setView(scroll)
-            .setPositiveButton("Поделиться") { _, _ ->
-                val share = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — диагностика")
-                    putExtra(Intent.EXTRA_TEXT, report)
-                }
-                startActivity(Intent.createChooser(share, "Отправить отчёт"))
-            }
+            .setPositiveButton("Поделиться", null)
             .setNegativeButton("Закрыть", null)
             .show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — диагностика")
+                putExtra(Intent.EXTRA_TEXT, latestReport)
+            }
+            startActivity(Intent.createChooser(share, "Отправить отчёт"))
+        }
+        if (vpnTransport && network != null) {
+            diagnosticsExecutor.execute {
+                val results = ServiceReachabilityChecker.checkAll(network)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
+                    val serviceReport = results.joinToString("\\n") { it.display() }
+                    latestReport = report.substringBefore("Проверка выполняется через VPN…") +
+                        serviceReport + "\\n" +
+                        report.substringAfter("Проверка выполняется через VPN…").substringAfter("\\n")
+                    reportView.text = latestReport
+                }
+            }
+        }
     }
 
     private fun showConnectionHistoryDialog() {
@@ -3598,6 +3618,7 @@ class MainActivity : Activity() {
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
+        diagnosticsExecutor.shutdownNow()
         super.onDestroy()
     }
 
