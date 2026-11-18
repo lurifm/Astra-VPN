@@ -11,7 +11,7 @@ internal object AutoFailoverPolicy {
 
     fun shouldSwitch(consecutiveFailures: Int, lastSwitchAt: Long, now: Long): Boolean {
         if (consecutiveFailures < REQUIRED_FAILURES) return false
-        if (now < lastSwitchAt) return false
-        return now - lastSwitchAt >= COOLDOWN_MS
+        if (lastSwitchAt > Long.MAX_VALUE - COOLDOWN_MS) return false
+        return now >= lastSwitchAt + COOLDOWN_MS
     }
 }
