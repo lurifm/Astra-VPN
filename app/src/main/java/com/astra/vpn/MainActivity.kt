@@ -1010,14 +1010,25 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(8), 0, dp(8))
             })
         }
-        // Parse each imported URI once per render. The list can be rebuilt after
-        // every ping result, so repeating Uri parsing in each filter/row pass adds
-        // avoidable main-thread work for large subscriptions.
-        val profileNames = profiles.associateWith(::profileName)
-        val profileProtocols = profiles.associateWith(::protocolName)
-        val profileFlags = profileNames.mapValues { (_, name) -> CountryFlagResolver.flagFor(name) }
-        val normalizedNames = profileNames.mapValues { (_, name) ->
-            name.lowercase(java.util.Locale.getDefault())
+        // Parse each imported URI once per render. Partial ping updates can rebuild
+        // this list frequently, so keep both the display name and protocol together.
+        val profileDetails = profiles.associateWith { link ->
+            val uri = Uri.parse(link)
+            val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+            val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+            val protocol = when (uri.scheme?.lowercase()) {
+                "vless" -> "VLESS"
+                "hysteria2", "hy2" -> "Hysteria2"
+                "tuic" -> "TUIC"
+                else -> "VPN"
+            }
+            name to protocol
+        }
+        val profileFlags = profileDetails.mapValues { (_, details) ->
+            CountryFlagResolver.flagFor(details.first)
+        }
+        val normalizedNames = profileDetails.mapValues { (_, details) ->
+            details.first.lowercase(java.util.Locale.getDefault())
         }
         val allCountries = profileFlags.values
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
@@ -1036,7 +1047,7 @@ class MainActivity : Activity() {
         val filteredProfiles = profiles.filter { link ->
             val matchesText = query.isBlank() || normalizedNames[link].orEmpty().contains(query) ||
                 link.lowercase(java.util.Locale.ROOT).contains(query) ||
-                profileProtocols[link].orEmpty().lowercase(java.util.Locale.ROOT).contains(query)
+                profileDetails[link]?.second.orEmpty().lowercase(java.util.Locale.ROOT).contains(query)
             val matchesCountry = selectedCountry == null || profileFlags[link] == selectedCountry
             matchesText && matchesCountry
         }
@@ -1135,8 +1146,8 @@ class MainActivity : Activity() {
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
-            val name = profileNames[link] ?: profileName(link)
-            val protocolLabel = profileProtocols[link] ?: protocolName(link)
+            val name = profileDetails[link]?.first ?: profileName(link)
+            val protocolLabel = profileDetails[link]?.second ?: protocolName(link)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
