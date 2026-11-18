@@ -1798,7 +1798,14 @@ class MainActivity : Activity() {
                         .remove(KEY_LATENCY_LAST_RESULTS)
                         .apply()
                     runCatching {
-                        AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
+                        val physicalNetwork = networkForLatencyProbe()
+                            ?: error("Не найдена физическая сеть для проверки серверов")
+                        AstraLatencyTestService.start(
+                            this,
+                            testConfig.json,
+                            testConfig.profileByOutboundTag.keys,
+                            physicalNetwork
+                        )
                     }.onFailure {
                         latencyTestInFlight = false
                         pendingFastestSelection = false
