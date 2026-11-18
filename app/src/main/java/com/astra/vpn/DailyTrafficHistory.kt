@@ -36,6 +36,17 @@ internal class DailyTrafficHistory private constructor(
     companion object {
         const val MAX_DAYS = 7
 
+        private fun isValidDayKey(dayKey: Int): Boolean {
+            if (dayKey !in 19000101..29991231) return false
+            val parser = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).apply {
+                isLenient = false
+            }
+            return runCatching {
+                val parsed = parser.parse(dayKey.toString()) ?: return false
+                parser.format(parsed) == dayKey.toString()
+            }.getOrDefault(false)
+        }
+
         fun decode(raw: String?): DailyTrafficHistory {
             val parsed = linkedMapOf<Int, Totals>()
             raw.orEmpty().split(";").forEach { row ->
@@ -44,7 +55,7 @@ internal class DailyTrafficHistory private constructor(
                     val day = fields[0].toIntOrNull()
                     val rx = fields[1].toLongOrNull()
                     val tx = fields[2].toLongOrNull()
-                    if (day != null && day in 19000101..29991231 && rx != null && tx != null &&
+                    if (day != null && isValidDayKey(day) && rx != null && tx != null &&
                         rx >= 0L && tx >= 0L) {
                         parsed[day] = Totals(rx, tx)
                     }
