@@ -11,6 +11,8 @@ internal object AutoFailoverPolicy {
 
     fun shouldSwitch(consecutiveFailures: Int, lastSwitchAt: Long, now: Long): Boolean {
         if (consecutiveFailures < REQUIRED_FAILURES) return false
+        // Timestamps come from the system clock; negative values are invalid/corrupt.
+        if (lastSwitchAt < 0L || now < 0L) return false
         if (lastSwitchAt > Long.MAX_VALUE - COOLDOWN_MS) return false
         return now >= lastSwitchAt + COOLDOWN_MS
     }
