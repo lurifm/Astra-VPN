@@ -617,7 +617,7 @@ class MainActivity : Activity() {
         monitorDetails.addView(monitorNetwork)
         monitorDetails.addView(monitorOperator)
         monitorDetails.addView(TextView(this).apply {
-            text = "Скорость всего устройства"
+            text = "Скорость всего устройства · последние 60 секунд"
             textSize = 11f
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
