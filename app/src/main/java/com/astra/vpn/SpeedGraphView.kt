@@ -40,7 +40,7 @@ class SpeedGraphView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun currentStats(): SpeedSampleWindow.Stats = statistics.stats()
+    internal fun currentStats(): SpeedSampleWindow.Stats = statistics.stats()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
