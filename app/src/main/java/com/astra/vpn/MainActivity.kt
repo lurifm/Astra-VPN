@@ -142,7 +142,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(16), dp(18), dp(14))
-            setBackgroundColor(BG)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(BG, 0xFF101A30.toInt()))
         }
 
         val header = LinearLayout(this).apply {
@@ -187,7 +187,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(24), dp(20), dp(22))
-            background = rounded(CARD, 28)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF1A2744.toInt(), CARD)).apply { cornerRadius = dp(28).toFloat(); setStroke(dp(1), 0xFF34476C.toInt()) }
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
@@ -301,7 +301,7 @@ class MainActivity : Activity() {
         monitorCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = rounded(CARD, 20)
+            background = rounded(CARD, 20).apply { setStroke(dp(1), 0xFF26344C.toInt()) }
         }
         monitorCard.addView(TextView(this).apply {
             text = "СОСТОЯНИЕ ПОДКЛЮЧЕНИЯ"
@@ -989,7 +989,7 @@ class MainActivity : Activity() {
                 val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
                 result.onSuccess {
                     latencyMs[link] = it.tcpMedianMs
-                    pingInfo[link] = "TCP ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
+                    pingInfo[link] = "TCP-пинг ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
                 }.onFailure {
                     latencyMs.remove(link)
                     pingInfo[link] = "н/д"
@@ -1039,7 +1039,7 @@ class MainActivity : Activity() {
                 synchronized(latencyMs) {
                     result.onSuccess {
                         latencyMs[link] = it.tcpMedianMs
-                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
+                        pingInfo[link] = "TCP-пинг ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
                     }.onFailure {
                         latencyMs.remove(link)
                         pingInfo[link] = "TCP недоступен"
