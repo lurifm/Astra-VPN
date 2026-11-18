@@ -39,6 +39,27 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
 
+/** Per-source refresh state. Only SHA-256 fingerprints are used as preference keys. */
+internal object SubscriptionRefreshHistory {
+    data class Entry(val state: String, val timestamp: Long)
+    private fun prefix(source: String) = "subscription_history_${SubscriptionSourceFingerprint.of(source)}"
+    fun recordAttempt(settings: android.content.SharedPreferences, source: String, at: Long = System.currentTimeMillis()) {
+        settings.edit().putString("${prefix(source)}_state", "updating").putLong("${prefix(source)}_time", at).apply()
+    }
+    fun recordSuccess(settings: android.content.SharedPreferences, source: String, at: Long = System.currentTimeMillis()) {
+        settings.edit().putString("${prefix(source)}_state", "success").putLong("${prefix(source)}_time", at).apply()
+    }
+    fun recordFailure(settings: android.content.SharedPreferences, source: String, at: Long = System.currentTimeMillis()) {
+        settings.edit().putString("${prefix(source)}_state", "failure").putLong("${prefix(source)}_time", at).apply()
+    }
+    fun get(settings: android.content.SharedPreferences, source: String): Entry? {
+        val key = prefix(source)
+        val state = settings.getString("${key}_state", null) ?: return null
+        val timestamp = settings.getLong("${key}_time", 0L)
+        return if (timestamp > 0L) Entry(state, timestamp) else null
+    }
+}
+
 class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
@@ -705,13 +726,16 @@ class MainActivity : Activity() {
             val errors = mutableListOf<String>()
             val failedSources = linkedSetOf<String>()
             sources.forEachIndexed { index, source ->
+                SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
                 val result = runCatching {
                     SubscriptionRefreshCoordinator.refresh(profileStore, source)
                 }
                 result.onSuccess {
+                    SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
                     updated++
                     totalProfiles += it
                 }.onFailure {
+                    SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
                     // Parser/network exceptions may contain the full subscription URL
                     // (including credentials). Keep provider secrets out of dialogs.
                     errors += "Подписка ${index + 1}: не удалось обновить"
@@ -902,11 +926,14 @@ class MainActivity : Activity() {
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
         importExecutor.execute {
+            SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
             val result = runCatching {
                 // Use the same transaction lock as foreground bulk refresh and
                 // WorkManager so an older response cannot overwrite newer data.
                 SubscriptionRefreshCoordinator.refresh(profileStore, source)
             }
+            result.onSuccess { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) }
+                .onFailure { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1023,6 +1050,27 @@ class MainActivity : Activity() {
                     setTextColor(LIGHT_ACCENT)
                     setPadding(0, dp(6), 0, dp(5))
                 })
+                val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
+                val refreshLabel = when (refreshEntry?.state) {
+                    "updating" -> "Синхронизация сейчас"
+                    "success" -> "Последнее обновление: "
+                    "failure" -> "Ошибка обновления: "
+                    else -> null
+                }
+                if (refreshLabel != null) {
+                    val stamp = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(refreshEntry!!.timestamp))
+                    card.addView(TextView(this).apply {
+                        text = refreshLabel + stamp
+                        textSize = 10f
+                        setTextColor(when (refreshEntry.state) {
+                            "updating" -> AMBER
+                            "success" -> GREEN
+                            else -> RED
+                        })
+                        setPadding(0, 0, 0, dp(5))
+                    })
+                }
                 card.addView(TextView(this).apply {
                     text = subscriptionUsageText(subscription)
                     textSize = 11f
