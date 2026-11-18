@@ -2707,10 +2707,19 @@ class MainActivity : Activity() {
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
         val profiles = safeProfiles() ?: return
         val current = activeProfile ?: selectedProfile
+        // A failed end-to-end health check invalidates the cached ping result
+        // for this node; otherwise a later failover could bounce straight back.
+        if (current != null) {
+            latencyMs.remove(current)
+            pingInfo[current] = "Не отвечает · проверка соединения не пройдена"
+        }
         val alternate = BestServerSelector.select(
             profiles = profiles.filterNot { it == current },
             latencyMs = latencyMs
-        ) ?: return
+        ) ?: run {
+            renderProfiles()
+            return
+        }
         lastAutoFailoverAt = now
         consecutiveHealthFailures = 0
         selectedProfile = alternate
