@@ -909,7 +909,7 @@ class MainActivity : Activity() {
                 maxLines = 1
             }
             val meta = TextView(this).apply {
-                val latency = pingInfo[link] ?: "н/д"
+                val latency = pingInfo[link] ?: "не проверен"
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
                 setTextColor(latencyMs[link]?.let { latencyColor(it) } ?: MUTED)
