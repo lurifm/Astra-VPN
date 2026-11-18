@@ -1523,7 +1523,18 @@ class MainActivity : Activity() {
                 textSize = 22f
                 setTextColor(if (link in favorites) AMBER else MUTED)
                 gravity = Gravity.CENTER
-                contentDescription = if (link in favorites) "Убрать из избранного" else "Добавить в избранное"
+                // A 48dp hit target is easier to use than the visual star's bounds.
+                minimumWidth = dp(48)
+                minimumHeight = dp(48)
+                isClickable = true
+                isFocusable = true
+                background = rounded(0x1A9AA6BF, 14)
+                foreground = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                    null,
+                    null
+                )
+                contentDescription = if (link in favorites) "Убрать сервер $name из избранного" else "Добавить сервер $name в избранное"
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             val selectMark = TextView(this).apply {
@@ -1531,12 +1542,13 @@ class MainActivity : Activity() {
                 textSize = 23f
                 setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
                 gravity = Gravity.CENTER
+                contentDescription = if (isSelected) "Выбранный сервер" else "Выбрать сервер"
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
-            row.addView(favoriteButton, LinearLayout.LayoutParams(dp(34), dp(42)))
+            row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
             row.addView(selectMark, LinearLayout.LayoutParams(dp(28), dp(42)))
             profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
