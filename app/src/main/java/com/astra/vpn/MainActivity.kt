@@ -784,6 +784,17 @@ class MainActivity : Activity() {
         null
     }
 
+    private fun subscriptionExpiryState(item: SubscriptionSummary): Triple<String, Int, Int> {
+        val expiry = item.expiresAtEpochSeconds ?: return Triple("HTTPS", LIGHT_ACCENT, 0xFF252B48.toInt())
+        if (expiry <= 0L) return Triple("БЕЗ СРОКА", GREEN, 0xFF193B35.toInt())
+        val remainingSeconds = expiry - System.currentTimeMillis() / 1000L
+        return when {
+            remainingSeconds <= 0L -> Triple("СРОК ИСТЁК", RED, 0xFF462832.toInt())
+            remainingSeconds <= 7L * 24L * 60L * 60L -> Triple("СКОРО ИСТЕКАЕТ", AMBER, 0xFF40351F.toInt())
+            else -> Triple("АКТИВНА", GREEN, 0xFF193B35.toInt())
+        }
+    }
+
     private fun subscriptionUsedBytes(item: SubscriptionSummary): Long =
         SubscriptionUsageCalculator.usedBytes(item.uploadBytes, item.downloadBytes)
 
@@ -974,15 +985,16 @@ class MainActivity : Activity() {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                val subscriptionState = subscriptionExpiryState(subscription)
                 subscriptionHeader.addView(TextView(this).apply {
-                    text = if (refreshingSubscriptions) "ОБНОВЛЕНИЕ" else "HTTPS"
+                    text = if (refreshingSubscriptions) "ОБНОВЛЕНИЕ" else subscriptionState.first
                     textSize = 9f
                     typeface = Typeface.DEFAULT_BOLD
                     letterSpacing = .05f
-                    setTextColor(if (refreshingSubscriptions) AMBER else LIGHT_ACCENT)
+                    setTextColor(if (refreshingSubscriptions) AMBER else subscriptionState.second)
                     gravity = Gravity.CENTER
                     setPadding(dp(9), dp(5), dp(9), dp(5))
-                    background = rounded(if (refreshingSubscriptions) 0xFF40351F.toInt() else 0xFF252B48.toInt(), 10)
+                    background = rounded(if (refreshingSubscriptions) 0xFF40351F.toInt() else subscriptionState.third, 10)
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     leftMargin = dp(8)
                 })
