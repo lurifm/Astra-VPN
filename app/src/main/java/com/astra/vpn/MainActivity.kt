@@ -68,6 +68,8 @@ class MainActivity : Activity() {
     private var sortMode = "original"
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
+    private val searchRenderHandler = Handler(Looper.getMainLooper())
+    private val searchRenderTask = Runnable { if (!isFinishing && !isDestroyed) renderProfiles() }
     private val autoUpdateTick = object : Runnable {
         override fun run() {
             maybeAutoUpdateSubscriptions(false)
@@ -208,7 +210,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(16), dp(18), dp(14))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(BG, 0xFF101A30.toInt()))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF070B13.toInt(), 0xFF111B2D.toInt(), 0xFF090F1B.toInt()))
         }
 
         val header = LinearLayout(this).apply {
@@ -253,7 +255,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(24), dp(20), dp(22))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF1A2744.toInt(), CARD)).apply { cornerRadius = dp(28).toFloat(); setStroke(dp(1), 0xFF34476C.toInt()) }
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF263B63.toInt(), 0xFF151F34.toInt())).apply { cornerRadius = dp(28).toFloat(); setStroke(dp(1), 0xFF40577F.toInt()) }
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
@@ -347,7 +349,12 @@ class MainActivity : Activity() {
             background = rounded(CARD, 15)
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { renderProfiles() }
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    // Debounce fast typing: rebuilding hundreds of server rows on every
+                    // keystroke causes avoidable UI-thread work on mid-range phones.
+                    searchRenderHandler.removeCallbacks(searchRenderTask)
+                    searchRenderHandler.postDelayed(searchRenderTask, 140L)
+                }
                 override fun afterTextChanged(s: android.text.Editable?) {}
             })
         }
@@ -989,16 +996,16 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "не проверен"
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
-                setTextColor(
-                    latencyMs[link]?.let { latencyColor(it) }
-                        ?: when (pingInfo[link]) {
-                            "н/д" -> RED
-                            "Проверяем…" -> AMBER
-                            else -> MUTED
-                        }
-                )
-                contentDescription = "Задержка измерена реальным TCP-соединением до сервера. Для UDP-протоколов значение пока не измеряется."
-                setPadding(0, dp(4), 0, 0)
+                val tone = latencyMs[link]?.let { latencyColor(it) }
+                    ?: when (pingInfo[link]) {
+                        "н/д" -> RED
+                        "Проверяем…" -> AMBER
+                        else -> MUTED
+                    }
+                setTextColor(tone)
+                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else 0x1A9AA6BF, 9)
+                contentDescription = "Задержка измеряется HTTP URL-test через соответствующий сервер sing-box. Недоступные серверы отображаются как н/д."
+                setPadding(dp(8), dp(4), dp(8), dp(4))
             }
             details.addView(title)
             details.addView(meta)
@@ -1112,14 +1119,29 @@ class MainActivity : Activity() {
         renderProfiles()
         Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
 
-        // sing-box URLTest checks each proxy by sending an HTTP request through it.
-        // This measures VLESS, Hysteria2 and TUIC using their actual transports.
-        runCatching { SingBoxUrlTestConfig.build(profiles) }
-            .onSuccess { testConfig ->
-                urlTestProfileMap = testConfig.profileByOutboundTag
-                latencyTestInFlight = true
-                runCatching {
-                    AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
+        // Build/validate the sing-box config off the main thread. Libbox.checkConfig
+        // can be expensive with large subscriptions and must not freeze touch feedback.
+        latencyTestInFlight = true
+        val generation = latencyCheckGeneration.get()
+        pingExecutor.execute {
+            val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
+                prepared.onSuccess { testConfig ->
+                    urlTestProfileMap = testConfig.profileByOutboundTag
+                    runCatching {
+                        AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
+                    }.onFailure {
+                        latencyTestInFlight = false
+                        pendingFastestSelection = false
+                        selectingFastest = false
+                        profiles.forEach { profile ->
+                            latencyMs.remove(profile)
+                            pingInfo[profile] = "н/д"
+                        }
+                        Toast.makeText(this, "Не удалось запустить проверку серверов", Toast.LENGTH_SHORT).show()
+                        renderProfiles()
+                    }
                 }.onFailure {
                     latencyTestInFlight = false
                     pendingFastestSelection = false
@@ -1128,20 +1150,11 @@ class MainActivity : Activity() {
                         latencyMs.remove(profile)
                         pingInfo[profile] = "н/д"
                     }
-                    Toast.makeText(this, "Не удалось запустить проверку серверов", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Не удалось подготовить проверку серверов", Toast.LENGTH_SHORT).show()
                     renderProfiles()
                 }
             }
-            .onFailure {
-                pendingFastestSelection = false
-                selectingFastest = false
-                profiles.forEach { profile ->
-                    latencyMs.remove(profile)
-                    pingInfo[profile] = "н/д"
-                }
-                Toast.makeText(this, "Не удалось подготовить проверку серверов", Toast.LENGTH_SHORT).show()
-                renderProfiles()
-            }
+        }
     }
 
     /**
@@ -1275,6 +1288,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         if (receiverRegistered) {
             unregisterReceiver(vpnStateReceiver)
@@ -2012,10 +2026,13 @@ class MainActivity : Activity() {
     }
 
     /** Subtle outline makes the selected server unmistakable without visual clutter. */
-    private fun serverRowBackground(selected: Boolean) = GradientDrawable().apply {
-        setColor(if (selected) SELECTED_CARD else CARD)
-        cornerRadius = dp(18).toFloat()
-        setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else 0xFF26324B.toInt())
+    private fun serverRowBackground(selected: Boolean) = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        if (selected) intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
+        else intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
+    ).apply {
+        cornerRadius = dp(20).toFloat()
+        setStroke(dp(if (selected) 1 else 1), if (selected) 0xFF718AFF.toInt() else 0xFF26344D.toInt())
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
