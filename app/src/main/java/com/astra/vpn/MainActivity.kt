@@ -3061,7 +3061,7 @@ class MainActivity : Activity() {
                             setPadding(0, dp(16), 0, dp(5))
                         })
                         target.addView(TextView(this).apply {
-                            text = "Динамика общесистемного трафика: слева старые дни, справа сегодня. Сегодня учитывается не полностью."
+                            text = "Трафик приложений: слева старые дни, справа сегодня. Сегодня учитывается не полностью."
                             textSize = 10f
                             setTextColor(MUTED)
                             setPadding(0, 0, 0, dp(5))
@@ -3091,6 +3091,12 @@ class MainActivity : Activity() {
                             textSize = 9f
                             setTextColor(MUTED)
                             setPadding(0, 0, 0, dp(7))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "Динамика приложений · вчера к позавчера (изменение от 50 МБ)"
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, dp(7), 0, dp(3))
                         })
                         val yesterdayApps = weekly.getOrNull(weekly.size - 2)?.apps.orEmpty().associateBy { it.uid }
                         val dayBeforeApps = weekly.getOrNull(weekly.size - 3)?.apps.orEmpty().associateBy { it.uid }
