@@ -1201,7 +1201,7 @@ class MainActivity : Activity() {
                     true
                 }
             }
-            val countryFlag = CountryFlagResolver.flagFor(name)
+            val countryFlag = profileFlags[link] ?: "🌐"
             val flag = TextView(this).apply {
                 text = countryFlag
                 textSize = 23f
