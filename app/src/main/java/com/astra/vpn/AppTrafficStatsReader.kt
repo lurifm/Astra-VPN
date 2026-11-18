@@ -27,6 +27,12 @@ internal object AppTrafficStatsReader {
         val totalBytes: Long get() = downloadedBytes + uploadedBytes
     }
 
+    data class DailySnapshot(
+        val dayKey: Int,
+        val dayLabel: String,
+        val apps: List<AppTraffic>
+    )
+
     data class Result(
         val apps: List<AppTraffic>,
         val mobileAvailable: Boolean,
@@ -50,6 +56,34 @@ internal object AppTrafficStatsReader {
 
     fun readLastDay(context: Context, now: Long = System.currentTimeMillis()): Result =
         readPeriod(context, now - TimeUnit.DAYS.toMillis(1), now)
+
+    /** Reads seven local calendar days; today's entry is partial up to the current time. */
+    fun readLastSevenDays(context: Context, now: Long = System.currentTimeMillis()): List<DailySnapshot> {
+        val calendar = java.util.Calendar.getInstance().apply {
+            timeInMillis = now
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.DAY_OF_YEAR, -6)
+        }
+        val dateFormat = java.text.SimpleDateFormat("EE", java.util.Locale.getDefault())
+        val result = mutableListOf<DailySnapshot>()
+        repeat(7) {
+            val start = calendar.timeInMillis
+            val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+                .format(calendar.time).toInt()
+            calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            val end = minOf(calendar.timeInMillis, now)
+            if (start < end) {
+                val day = runCatching { readPeriod(context, start, end) }.getOrNull()
+                if (day != null) result += DailySnapshot(dayKey, dateFormat.format(start), day.apps)
+            } else {
+                result += DailySnapshot(dayKey, dateFormat.format(start), emptyList())
+            }
+        }
+        return result
+    }
 
     fun readPeriod(context: Context, start: Long, end: Long): Result {
         check(hasAccess(context)) { "Для статистики приложений нужен доступ Usage Access" }
