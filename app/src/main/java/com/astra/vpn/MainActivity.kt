@@ -2942,15 +2942,29 @@ class MainActivity : Activity() {
             setTextColor(0xFFD8E0F2.toInt())
         })
         diagnosticsExecutor.execute {
-            val result = runCatching { AppTrafficStatsReader.readLastDay(this) }
+            val now = System.currentTimeMillis()
+            val dayMs = 24L * 60L * 60L * 1000L
+            val result = runCatching {
+                val current = AppTrafficStatsReader.readPeriod(this, now - dayMs, now)
+                val previous = runCatching {
+                    AppTrafficStatsReader.readPeriod(this, now - 2L * dayMs, now - dayMs)
+                }.getOrNull()
+                current to previous
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 target.removeAllViews()
                 result.fold(
-                    onSuccess = { stats ->
-                        val total = stats.apps.sumOf { it.totalBytes }.coerceAtLeast(0L)
-                        val downloaded = stats.apps.sumOf { it.downloadedBytes }.coerceAtLeast(0L)
-                        val uploaded = stats.apps.sumOf { it.uploadedBytes }.coerceAtLeast(0L)
+                    onSuccess = { period ->
+                        val stats = period.first
+                        val previous = period.second
+                        val total = stats.totalDownloadedBytes + stats.totalUploadedBytes
+                        val downloaded = stats.totalDownloadedBytes
+                        val uploaded = stats.totalUploadedBytes
+                        val currentTotals = TrafficUsageInsights.Totals(downloaded, uploaded)
+                        val previousTotals = previous?.let {
+                            TrafficUsageInsights.Totals(it.totalDownloadedBytes, it.totalUploadedBytes)
+                        }
                         val availability = buildList {
                             add(if (stats.wifiAvailable) "Wi-Fi" else "Wi-Fi —")
                             add(if (stats.mobileAvailable) "Мобильная сеть" else "Мобильная сеть —")
@@ -2980,6 +2994,25 @@ class MainActivity : Activity() {
                             setTextColor(MUTED)
                             setPadding(0, dp(5), 0, dp(10))
                         })
+                        target.addView(TextView(this).apply {
+                            text = previousTotals?.let { TrafficUsageInsights.comparison(currentTotals, it) }
+                                ?: "Сравнение со вчера недоступно: Android не вернул данные за предыдущие 24 часа."
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(0xFFD8E0F2.toInt())
+                            setPadding(0, 0, 0, dp(5))
+                        })
+                        val warning = previousTotals?.let { TrafficUsageInsights.warning(currentTotals, it) }
+                        if (warning != null) {
+                            target.addView(TextView(this).apply {
+                                text = "⚠ $warning"
+                                textSize = 11f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(AMBER)
+                                setPadding(dp(9), dp(7), dp(9), dp(7))
+                                background = rounded(0xFF332819.toInt(), 10)
+                            })
+                        }
                         val top = stats.apps.take(8)
                         if (top.isEmpty()) {
                             target.addView(TextView(this).apply {
