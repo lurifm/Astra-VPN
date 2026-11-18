@@ -1992,8 +1992,20 @@ class MainActivity : Activity() {
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(4))
+            setPadding(dp(18), dp(8), dp(18), dp(12))
+            background = rounded(BG, 22)
         }
+        fun addSectionLabel(label: String) {
+            panel.addView(TextView(this).apply {
+                text = label
+                textSize = 10f
+                letterSpacing = 0.14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF8296D8.toInt())
+                setPadding(dp(2), dp(14), 0, dp(5))
+            })
+        }
+        addSectionLabel("✦  ВЫБОР СЕРВЕРА")
         panel.addView(TextView(this).apply {
             text = "Сортировка серверов"
             textSize = 15f
@@ -2018,6 +2030,7 @@ class MainActivity : Activity() {
             })
         }
         panel.addView(sortGroup)
+        addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
             text = "📊  Мониторинг сети  ›"
             textSize = 15f
@@ -2057,6 +2070,7 @@ class MainActivity : Activity() {
             setOnClickListener { showAppRoutingDialog() }
         }
         panel.addView(appRoutingEntry)
+        addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
         val autoUpdate = CheckBox(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
@@ -2125,9 +2139,15 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, 0, 0, dp(8))
         })
+        val settingsScroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(4))
+            addView(panel)
+        }
         MaterialAlertDialogBuilder(this)
             .setTitle("Настройки Astra")
-            .setView(panel)
+            .setView(settingsScroll)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Сохранить") { _, _ ->
                 val selectedId = sortGroup.checkedRadioButtonId
