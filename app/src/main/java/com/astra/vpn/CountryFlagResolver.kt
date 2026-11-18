@@ -60,6 +60,19 @@ object CountryFlagResolver {
         "🇿🇦" to listOf("южная африк", "south africa", "zaf")
     )
 
+    // Compile token-boundary matchers once: flag resolution runs for every
+    // server row whenever the profile list is rendered.
+    private val separatorRegex = Regex("[^\\\\p{L}\\\\p{N}]+")
+    private val compiledCountries = countries.map { (flag, aliases) ->
+        flag to aliases.map { alias ->
+            val tokenRegex = if (alias.length <= 3 && alias.all(Char::isLetter)) {
+                Regex("(^|\\\\s)${Regex.escape(alias)}($|\\\\s)")
+            } else {
+                null
+            }
+            alias to tokenRegex
+        }
+    }
     private val namesByFlag = mapOf(
         "🇸🇪" to "Швеция", "🇳🇱" to "Нидерланды", "🇬🇧" to "Великобритания",
         "🇩🇪" to "Германия", "🇫🇷" to "Франция", "🇷🇺" to "Россия",
@@ -85,17 +98,13 @@ object CountryFlagResolver {
 
     fun flagFor(label: String): String {
         val normalized = label.lowercase()
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .replace(separatorRegex, " ")
             .trim()
         if (normalized.isEmpty()) return "🌐"
 
-        return countries.firstOrNull { (_, aliases) ->
-            aliases.any { alias ->
-                if (alias.length <= 3 && alias.all(Char::isLetter)) {
-                    Regex("(^|\\s)${Regex.escape(alias)}($|\\s)").containsMatchIn(normalized)
-                } else {
-                    normalized.contains(alias)
-                }
+        return compiledCountries.firstOrNull { (_, aliases) ->
+            aliases.any { (alias, tokenRegex) ->
+                tokenRegex?.containsMatchIn(normalized) ?: normalized.contains(alias)
             }
         }?.first ?: "🌐"
     }
