@@ -42,6 +42,7 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
+    private lateinit var profileScroll: ScrollView
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
     private lateinit var status: TextView
@@ -341,7 +342,7 @@ class MainActivity : Activity() {
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply {
+        profileScroll = ScrollView(this).apply {
             isFillViewport = false
             addView(profileList)
         }
@@ -423,7 +424,7 @@ class MainActivity : Activity() {
         monitorCard.addView(monitorLocation)
         root.addView(listHeader)
         root.addView(filterRow, matchWidth())
-        root.addView(scroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
+        root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
         requestPhoneStatePermissionIfNeeded()
@@ -769,7 +770,13 @@ class MainActivity : Activity() {
     private fun renderProfiles() {
         val profiles = safeProfiles() ?: return
         val summaries = safeSubscriptionSummaries() ?: return
+        val previousScrollY = if (::profileScroll.isInitialized) profileScroll.scrollY else 0
         profileList.removeAllViews()
+        // Latency updates and favorite changes rebuild the current rows. Keep the user's
+        // place in a long server list instead of jumping back to the top each time.
+        if (::profileScroll.isInitialized) {
+            profileScroll.post { profileScroll.scrollTo(0, previousScrollY) }
+        }
         if (summaries.isNotEmpty()) {
             profileList.addView(TextView(this).apply {
                 text = "ПОДПИСКИ"
