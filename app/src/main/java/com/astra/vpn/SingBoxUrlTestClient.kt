@@ -83,7 +83,7 @@ internal class SingBoxUrlTestClient(
         override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
     }
 
-    private val client = CommandClient(handler, options)
+    private val client: CommandClient = CommandClient(handler, options)
 
     /** Connect to the already-running local CommandServer. */
     fun start() {
