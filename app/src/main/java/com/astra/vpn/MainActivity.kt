@@ -463,7 +463,8 @@ class MainActivity : Activity() {
         setContentView(root)
         requestNotificationPermissionIfNeeded()
         requestPhoneStatePermissionIfNeeded()
-        renderProfiles()
+        // onStart() restores tunnel state and renders the profile list once.
+        // Avoid building every server row twice during a cold launch.
         updateNetworkLabel()
         // Check the open-app option immediately and keep a lightweight scheduler alive
         // while this screen is active; the worker checks settings every minute.
