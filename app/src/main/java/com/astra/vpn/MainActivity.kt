@@ -2771,6 +2771,16 @@ class MainActivity : Activity() {
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed && connected) {
+                        // Discard a probe result if Android replaced the VPN Network
+                        // while the request was in flight; it says nothing about the new tunnel.
+                        val currentNetwork = connectivity.activeNetwork
+                        val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
+                        if (currentNetwork != vpnNetwork ||
+                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                        ) {
+                            lastHealthCheckAt = 0L
+                            return@runOnUiThread
+                        }
                         tunnelInternetOk = ok
                         if (ok) {
                             consecutiveHealthFailures = 0
