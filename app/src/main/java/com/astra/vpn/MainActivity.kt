@@ -1146,8 +1146,11 @@ class MainActivity : Activity() {
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
-            val name = profileDetails[link]?.first ?: profileName(link)
-            val protocolLabel = profileDetails[link]?.second ?: protocolName(link)
+            // displayProfiles is derived from profiles, so every row already has
+            // prepared details; keep a defensive label without reparsing the URI.
+            val detailsForProfile = profileDetails[link]
+            val name = detailsForProfile?.first ?: "Сервер"
+            val protocolLabel = detailsForProfile?.second ?: "VPN"
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
