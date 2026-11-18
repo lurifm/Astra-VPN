@@ -230,7 +230,7 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(16), dp(18), dp(14))
+            setPadding(dp(18), dp(14), dp(18), dp(14))
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF070B13.toInt(), 0xFF111B2D.toInt(), 0xFF090F1B.toInt()))
         }
 
@@ -248,8 +248,8 @@ class MainActivity : Activity() {
             setOnClickListener { showAppSettingsDialog() }
         }
         val brand = TextView(this).apply {
-            text = "✦  ASTRA"
-            textSize = 27f
+            text = "ASTRA VPN"
+            textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             letterSpacing = .12f
@@ -268,8 +268,8 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
-            textSize = 10f
+            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ  ·  БЕЗ ЛИШНИХ НАСТРОЕК"
+            textSize = 9f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
             setTextColor(MUTED)
@@ -290,7 +290,7 @@ class MainActivity : Activity() {
             elevation = dp(3).toFloat()
         }
         val connectionCaption = TextView(this).apply {
-            text = "ASTRA VPN  ·  СОЕДИНЕНИЕ"
+            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
@@ -431,7 +431,10 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
             setPadding(dp(12), 0, dp(8), 0)
-            background = rounded(CARD, 15)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF172238.toInt(), 0xFF111A2A.toInt())).apply {
+                cornerRadius = dp(15).toFloat()
+                setStroke(dp(1), 0xFF2D3B56.toInt())
+            }
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -445,7 +448,11 @@ class MainActivity : Activity() {
             })
         }
         countryFilter = Spinner(this).apply {
-            setPadding(dp(4), 0, dp(4), 0)
+            setPadding(dp(8), 0, dp(6), 0)
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF172238.toInt(), 0xFF111A2A.toInt())).apply {
+                cornerRadius = dp(15).toFloat()
+                setStroke(dp(1), 0xFF2D3B56.toInt())
+            }
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) { renderProfiles() }
@@ -461,7 +468,9 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(3), dp(2), dp(3), dp(9))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            minHeight = dp(40)
+            background = rounded(0xFF141E31.toInt(), 12).apply { setStroke(dp(1), 0xFF26344D.toInt()) }
             isClickable = true
             isFocusable = true
             setOnClickListener { showAppSettingsDialog() }
@@ -475,7 +484,7 @@ class MainActivity : Activity() {
 
         root.addView(header)
         root.addView(subtitle)
-        root.addView(connectCard, matchWidth())
+        root.addView(connectCard, matchWidth().apply { bottomMargin = dp(8) })
         monitorCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -583,7 +592,7 @@ class MainActivity : Activity() {
         // It remains available from Settings → Tools.
         root.addView(listHeader)
         root.addView(filterRow, matchWidth())
-        root.addView(serverCountLabel, matchWidth())
+        root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
