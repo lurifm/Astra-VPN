@@ -35,6 +35,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private var expectedTags: Set<String> = emptySet()
     private val latestResults = linkedMapOf<String, Long?>()
     private val timeout = Runnable { finishAndPublish() }
+    private val completionDebounce = Runnable { finishAndPublish() }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -127,7 +128,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 synchronized(latestResults) {
                     latestResults.putAll(snapshot)
                     if (latestResults.keys.containsAll(expectedTags)) {
-                        handler.post { finishAndPublish() }
+                        handler.removeCallbacks(completionDebounce)
+                        handler.postDelayed(completionDebounce, RESULT_SETTLE_MS)
                     }
                 }
             }
@@ -159,6 +161,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
         handler.removeCallbacks(timeout)
+        handler.removeCallbacks(completionDebounce)
         runCatching { client?.disconnect() }
         client = null
         val currentServer = server
@@ -197,6 +200,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         private const val TEST_TIMEOUT_MS = 90_000L
+        private const val RESULT_SETTLE_MS = 10_000L
 
         fun start(context: Context, config: String, tags: Set<String>) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
