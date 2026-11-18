@@ -730,6 +730,29 @@ class MainActivity : Activity() {
             }
         }
         panel.addView(pasteButton, matchWidth())
+        val fileButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = "Выбрать файл конфигурации"
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(LIGHT_ACCENT)
+            setOnClickListener {
+                dialog.dismiss()
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                        "text/plain", "application/octet-stream", "application/x-yaml"
+                    ))
+                }
+                runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
+                    .onFailure {
+                        Toast.makeText(this@MainActivity, "Не удалось открыть выбор файла", Toast.LENGTH_SHORT).show()
+                    }
+            }
+        }
+        panel.addView(fileButton, matchWidth())
         panel.addView(TextView(this).apply {
             text = "VLESS  ·  Hysteria2  ·  TUIC  ·  HTTPS-подписки"
             textSize = 11f
@@ -1953,6 +1976,35 @@ class MainActivity : Activity() {
                 renderProfiles()
                 updateProtectionLabels()
             }
+        } else if (requestCode == REQUEST_IMPORT_FILE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            importExecutor.execute {
+                val result = runCatching {
+                    val content = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: error("Не удалось открыть файл")
+                    val parsed = SubscriptionParser.importDetailed(content)
+                    val links = parsed.links
+                    profileStore.addAll(links)
+                    links
+                }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    result.onSuccess { links ->
+                        renderProfiles()
+                        checkAllLatencies()
+                        status.text = "Импортировано: ${links.size}"
+                        status.setTextColor(GREEN)
+                        Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                    }.onFailure { error ->
+                        status.text = "Ошибка импорта"
+                        status.setTextColor(RED)
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Не удалось импортировать файл")
+                            .setMessage(error.message ?: "Проверь формат файла и попробуй ещё раз.")
+                            .setPositiveButton("ОК", null).show()
+                    }
+                }
+            }
         }
     }
 
@@ -3149,6 +3201,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
         private const val REQUEST_PHONE_STATE_PERMISSION = 7003
