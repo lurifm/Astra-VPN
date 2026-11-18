@@ -1301,7 +1301,16 @@ class MainActivity : Activity() {
             "alphabet" -> "по алфавиту"
             else -> "как в подписке"
         }
-        serverCountLabel.text = "ПОКАЗАНО ${filteredProfiles.size} ИЗ ${profiles.size}  ·  СОРТИРОВКА: $sortLabel  ›"
+        val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
+        val pingProgress = if (latencyTestInFlight) {
+            "  ·  PING: ${measuredPingCount}/${profiles.size}"
+        } else {
+            "  ·  PING: ${measuredPingCount}/${profiles.size} ИЗМЕРЕНО"
+        }
+        serverCountLabel.text =
+            "ПОКАЗАНО ${filteredProfiles.size} ИЗ ${profiles.size}  ·  СОРТИРОВКА: $sortLabel$pingProgress  ›"
+        serverCountLabel.contentDescription =
+            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: ${measuredPingCount} из ${profiles.size}. Нажмите для настроек."
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
