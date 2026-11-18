@@ -1473,11 +1473,6 @@ class MainActivity : Activity() {
             else -> "как в подписке"
         }
         val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
-        val pingProgress = if (latencyTestInFlight) {
-            "  ·  PING: ${measuredPingCount}/${profiles.size}"
-        } else {
-            "  ·  PING: ${measuredPingCount}/${profiles.size} ИЗМЕРЕНО"
-        }
         serverCountLabel.text = if (latencyTestInFlight) {
             "${filteredProfiles.size} серверов  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
@@ -2004,12 +1999,14 @@ class MainActivity : Activity() {
             latencyMs.remove(profile)
             pingInfo[profile] = "Проверяем…"
         }
+        // Flip the state before rendering so the progress counter immediately
+        // shows 0/N instead of briefly displaying the idle sorting label.
+        latencyTestInFlight = true
         renderProfiles()
         Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
 
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
-        latencyTestInFlight = true
         val generation = latencyCheckGeneration.get()
         pingExecutor.execute {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
