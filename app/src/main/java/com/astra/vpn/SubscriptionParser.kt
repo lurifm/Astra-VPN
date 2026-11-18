@@ -23,6 +23,7 @@ object SubscriptionParser {
     fun importText(input: String): List<String> = importDetailed(input).links
 
     fun importDetailed(input: String): ParsedSubscription {
+        validateInputSize(input)
         val text = input.trim()
         require(text.isNotEmpty()) { "Пустая ссылка или подписка" }
 
@@ -56,6 +57,12 @@ object SubscriptionParser {
             "Ссылки найдены, но конфигурации серверов не прошли проверку sing-box"
         }
         return ParsedSubscription(links, parseMetadata(downloaded?.headers.orEmpty()))
+    }
+
+    internal fun validateInputSize(input: String) {
+        require(input.toByteArray(Charsets.UTF_8).size <= MAX_RESPONSE_BYTES) {
+            "Текст подписки слишком большой (максимум 2 МБ)"
+        }
     }
 
     internal fun parseMetadata(headers: Map<String, String>): SubscriptionMetadata {
