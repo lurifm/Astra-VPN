@@ -1487,7 +1487,7 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "Не проверен"
                 val measuredLatency = latencyMs[link]
                 text = when {
-                    measuredLatency != null -> "●  PING  $latency"
+                    measuredLatency != null -> "●  PING  ${measuredLatency} мс"
                     latency == "н/д" -> "●  PING  н/д"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
                     else -> "○  PING  не проверен"
@@ -1509,7 +1509,7 @@ class MainActivity : Activity() {
                 }
                 background = rounded(pillColor, 8)
                 contentDescription = when {
-                    measuredLatency != null -> "Пинг сервера: $latency"
+                    measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
                     latency == "н/д" -> "Пинг недоступен"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
