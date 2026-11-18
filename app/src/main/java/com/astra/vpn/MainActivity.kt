@@ -295,6 +295,23 @@ class MainActivity : Activity() {
             setTextColor(0xFF9EDBFF.toInt())
             setPadding(0, 0, 0, dp(13))
         }
+        // A compact orbital emblem gives the connection panel a clear visual focal point.
+        // It is a static drawable-backed view, so it adds no startup or animation overhead.
+        val orbitalCore = TextView(this).apply {
+            text = "✦"
+            textSize = 38f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF5AADEB.toInt(), 0xFF5368C9.toInt(), 0xFF7854B8.toInt())
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(2), 0x668FE3FF)
+            }
+            elevation = dp(8).toFloat()
+            contentDescription = "Символ защищённого соединения Astra"
+        }
         status = TextView(this).apply {
             text = "Выбери сервер"
             textSize = 20f
@@ -340,6 +357,9 @@ class MainActivity : Activity() {
             }
         }
         connectCard.addView(connectionCaption, matchWidth())
+        connectCard.addView(orbitalCore, LinearLayout.LayoutParams(dp(78), dp(78)).apply {
+            bottomMargin = dp(15)
+        })
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
         connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
