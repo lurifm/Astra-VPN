@@ -59,6 +59,13 @@ class AstraPlatform(
 
     companion object {
         private const val TAG = "AstraPlatform"
+
+        // Shared only inside the main app process. MainActivity uses the
+        // underlay selected by the active VpnService instead of guessing from
+        // allNetworks while Android reports the VPN as active.
+        @Volatile
+        var currentPhysicalNetwork: Network? = null
+            private set
     }
 
     // The latency runner is a separate process but shares the app UID with the
@@ -261,6 +268,7 @@ class AstraPlatform(
             defaultNetworkCallback = null
             interfaceListener = null
             lastUnderlyingNetwork = null
+            if (protectSockets) currentPhysicalNetwork = null
             lastInterfaceSnapshot = null
             hasReportedNoInterface = false
             current
@@ -273,14 +281,19 @@ class AstraPlatform(
         val listener = interfaceListener ?: return
         val selectedNetwork = resolveUnderlyingNetwork(network)
         if (selectedNetwork == null) {
-            if (lastUnderlyingNetwork != null) {
+            if (manageVpnUnderlyingNetworks && lastUnderlyingNetwork != null) {
                 runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
                     .onFailure { Log.w(TAG, "Не удалось обновить базовую сеть VPN", it) }
                 lastUnderlyingNetwork = null
             }
+            if (protectSockets) currentPhysicalNetwork = null
             notifyNoDefaultInterfaceIfChanged(listener)
             return
         }
+
+        // Publish the exact underlay chosen by the active VPN process so
+        // latency checks launched from MainActivity can reuse it.
+        if (protectSockets) currentPhysicalNetwork = selectedNetwork
 
         // Update Android only when the physical underlay actually changes.
         // Connectivity callbacks can arrive in bursts during Wi-Fi/mobile handover.
