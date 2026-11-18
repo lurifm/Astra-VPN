@@ -2366,9 +2366,10 @@ class MainActivity : Activity() {
         if (pendingFastestSelection && finished) {
             pendingFastestSelection = false
             selectingFastest = false
-            val fastest = urlTestProfileMap.values.mapNotNull { link ->
-                latencyMs[link]?.let { link to it }
-            }.minByOrNull { it.second }?.first
+            val fastest = BestServerSelector.select(
+                profiles = urlTestProfileMap.values.toList(),
+                latencyMs = latencyMs
+            )
             if (fastest != null) {
                 selectedProfile = fastest
                 status.text = "Выбран быстрый сервер"
