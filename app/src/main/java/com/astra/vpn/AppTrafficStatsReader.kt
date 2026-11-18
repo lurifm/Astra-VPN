@@ -32,7 +32,9 @@ internal object AppTrafficStatsReader {
         val mobileAvailable: Boolean,
         val wifiAvailable: Boolean,
         val startTime: Long,
-        val endTime: Long
+        val endTime: Long,
+        val totalDownloadedBytes: Long,
+        val totalUploadedBytes: Long
     )
 
     fun hasAccess(context: Context): Boolean {
@@ -46,9 +48,13 @@ internal object AppTrafficStatsReader {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    fun readLastDay(context: Context, now: Long = System.currentTimeMillis()): Result {
+    fun readLastDay(context: Context, now: Long = System.currentTimeMillis()): Result =
+        readPeriod(context, now - TimeUnit.DAYS.toMillis(1), now)
+
+    fun readPeriod(context: Context, start: Long, end: Long): Result {
         check(hasAccess(context)) { "Для статистики приложений нужен доступ Usage Access" }
-        val start = now - TimeUnit.DAYS.toMillis(1)
+        require(start < end) { "Некорректный период статистики" }
+        val now = end
         val totals = HashMap<Int, LongArray>()
         var wifiAvailable = false
         var mobileAvailable = false
@@ -99,7 +105,11 @@ internal object AppTrafficStatsReader {
             else AppTraffic(uid, labels[uid] ?: "Системное приложение ($uid)", bytes[0], bytes[1])
         }.sortedByDescending { it.totalBytes }
 
-        return Result(apps, mobileAvailable, wifiAvailable, start, now)
+        return Result(
+            apps, mobileAvailable, wifiAvailable, start, now,
+            apps.sumOf { it.downloadedBytes }.coerceAtLeast(0L),
+            apps.sumOf { it.uploadedBytes }.coerceAtLeast(0L)
+        )
     }
 
     fun formatBytes(bytes: Long): String {
