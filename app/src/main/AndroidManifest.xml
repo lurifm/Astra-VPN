@@ -32,6 +32,7 @@
              user's active device-wide VPN. -->
         <service
             android:name=".AstraLatencyTestService"
+            android:process=":latency"
             android:foregroundServiceType="specialUse"
             android:exported="false">
             <property
