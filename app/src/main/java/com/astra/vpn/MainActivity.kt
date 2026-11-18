@@ -26,6 +26,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.widget.CheckBox
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -190,7 +191,7 @@ class MainActivity : Activity() {
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
-                    AlertDialog.Builder(this@MainActivity)
+                    MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("Не удалось подключиться")
                         .setMessage("VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету.")
                         .setPositiveButton("Понятно", null)
@@ -462,8 +463,11 @@ class MainActivity : Activity() {
         maybeAutoUpdateSubscriptions(true)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
-        // Populate visible latency information as soon as saved profiles are loaded.
-        checkAllLatencies()
+        // Let the first frame become interactive before starting the isolated
+        // sing-box measurement engine. This avoids competing with cold app startup.
+        autoUpdateHandler.postDelayed({
+            if (!isFinishing && !isDestroyed && !latencyTestInFlight) checkAllLatencies()
+        }, 1_200L)
     }
 
     private fun showImportDialog() {
@@ -473,7 +477,7 @@ class MainActivity : Activity() {
             setHintTextColor(MUTED)
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Добавить серверы")
             .setMessage("Можно вставить ссылку на сервер или HTTPS-ссылку подписки. Импортированные профили хранятся зашифрованно на устройстве.")
             .setView(input)
@@ -524,7 +528,7 @@ class MainActivity : Activity() {
                                     } else {
                                         "Не удалось прочитать ссылку или получить серверы. Проверь адрес и подключение к интернету."
                                     }
-                                    AlertDialog.Builder(this)
+                                    MaterialAlertDialogBuilder(this)
                                         .setTitle("Не удалось импортировать")
                                         .setMessage(message)
                                         .setPositiveButton("ОК", null).show()
@@ -597,7 +601,7 @@ class MainActivity : Activity() {
                     append("\n\nПри ошибке предыдущие серверы этой подписки сохранены.")
                 }
                 if (showResult) {
-                    AlertDialog.Builder(this@MainActivity)
+                    MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("Обновление подписок")
                         .setMessage(summary)
                         .setPositiveButton("ОК", null)
@@ -614,7 +618,7 @@ class MainActivity : Activity() {
         status.setTextColor(RED)
         if (!storageErrorShown && !isFinishing && !isDestroyed) {
             storageErrorShown = true
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("Проблема защищённого хранилища")
                 .setMessage(error.message ?: "Не удалось прочитать сохранённые серверы.")
                 .setPositiveButton("Понятно", null)
@@ -683,7 +687,7 @@ class MainActivity : Activity() {
             else java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(seconds * 1000L))
         } ?: "Не указан провайдером"
         val details = "Источник: $host\nСерверов: ${item.serverCount}\n\n$trafficDetails\n\nСрок действия: $expiry\n\nНажми «Обновить», чтобы получить актуальные данные от провайдера."
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(item.title)
             .setMessage(details)
             .setPositiveButton("Обновить") { _, _ -> refreshSingleSubscription(item.sourceUrl) }
@@ -699,14 +703,14 @@ class MainActivity : Activity() {
             hint = "Название подписки"
             setSingleLine(true)
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Переименовать подписку")
             .setView(input)
             .setPositiveButton("Сохранить") { _, _ ->
                 runCatching { profileStore.renameSubscription(item.sourceUrl, input.text.toString()) }
                     .onSuccess { renderProfiles(); Toast.makeText(this, "Название сохранено", Toast.LENGTH_SHORT).show() }
                     .onFailure {
-                        AlertDialog.Builder(this)
+                        MaterialAlertDialogBuilder(this)
                             .setMessage("Не удалось сохранить название подписки.")
                             .setPositiveButton("ОК", null)
                             .show()
@@ -717,7 +721,7 @@ class MainActivity : Activity() {
     }
 
     private fun confirmRemoveSubscription(item: SubscriptionSummary) {
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Удалить подписку?")
             .setMessage("Будут удалены сама подписка и все ${item.serverCount} серверов, полученных из неё. Это действие нельзя отменить.")
             .setPositiveButton("Удалить") { _, _ ->
@@ -731,7 +735,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
                     }
                     .onFailure {
-                        AlertDialog.Builder(this)
+                        MaterialAlertDialogBuilder(this)
                             .setMessage("Не удалось удалить подписку. Проверь доступность защищённого хранилища.")
                             .setPositiveButton("ОК", null)
                             .show()
@@ -774,7 +778,7 @@ class MainActivity : Activity() {
                     } else {
                         "Не удалось получить серверы подписки. Проверь подключение к интернету."
                     }
-                    AlertDialog.Builder(this).setTitle("Не удалось обновить подписку")
+                    MaterialAlertDialogBuilder(this).setTitle("Не удалось обновить подписку")
                         .setMessage(message)
                         .setPositiveButton("ОК", null).show()
                 }
@@ -957,7 +961,7 @@ class MainActivity : Activity() {
                     if (connected || connecting) {
                         Toast.makeText(this@MainActivity, "Сначала отключи VPN", Toast.LENGTH_SHORT).show()
                     } else {
-                        AlertDialog.Builder(this@MainActivity)
+                        MaterialAlertDialogBuilder(this@MainActivity)
                             .setTitle("Удалить сервер?")
                             .setMessage("Профиль «$name» будет удалён с этого устройства.")
                             .setNegativeButton("Отмена", null)
@@ -1183,7 +1187,7 @@ class MainActivity : Activity() {
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
-            AlertDialog.Builder(this).setTitle("Ошибка конфигурации")
+            MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
                 .setMessage("Не удалось подготовить конфигурацию сервера. Проверь ссылку и параметры подключения.")
                 .setPositiveButton("ОК", null).show()
             return
@@ -1197,7 +1201,7 @@ class MainActivity : Activity() {
         val activeCapabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         val anotherVpnIsActive = activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
         if (anotherVpnIsActive && !connected) {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("Заменить текущее VPN?")
                 .setMessage("Android может отключить сейчас работающий VPN при запуске Astra. Продолжить подключение?")
                 .setNegativeButton("Отмена") { _, _ -> pendingConfig = null }
@@ -1527,7 +1531,7 @@ class MainActivity : Activity() {
             (monitorCard.parent as? ViewGroup)?.removeView(monitorCard)
             addView(monitorCard)
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Мониторинг сети")
             .setView(content)
             .setPositiveButton("Закрыть", null)
@@ -1597,7 +1601,7 @@ class MainActivity : Activity() {
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
             appendLine("Время отчёта: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Диагностика соединения")
             .setMessage(report)
             .setPositiveButton("Поделиться") { _, _ ->
@@ -1640,7 +1644,7 @@ class MainActivity : Activity() {
             addView(historyText)
             isFillViewport = true
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("История подключений · ${entries.size}")
             .setView(scroll)
             .setPositiveButton("Поделиться") { _, _ ->
@@ -1663,7 +1667,7 @@ class MainActivity : Activity() {
                 startActivity(Intent.createChooser(share, "Поделиться историей"))
             }
             .setNeutralButton("Очистить") { _, _ ->
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle("Очистить историю?")
                     .setMessage("Все сохранённые записи подключений будут удалены.")
                     .setNegativeButton("Отмена", null)
@@ -1779,7 +1783,7 @@ class MainActivity : Activity() {
                 val values = arrayOf("1 час", "2 часа", "6 часов", "12 часов", "24 часа")
                 val hours = intArrayOf(1, 2, 6, 12, 24)
                 val selected = hours.indexOf(settingsPrefs.getInt("update_interval_hours", 2)).coerceAtLeast(0)
-                AlertDialog.Builder(this@MainActivity)
+                MaterialAlertDialogBuilder(this@MainActivity)
                     .setTitle("Интервал автообновления")
                     .setSingleChoiceItems(values, selected) { dialog, which ->
                         settingsPrefs.edit().putInt("update_interval_hours", hours[which]).apply()
@@ -1813,7 +1817,7 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, 0, 0, dp(8))
         })
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Настройки Astra")
             .setView(panel)
             .setNegativeButton("Отмена", null)
@@ -1939,7 +1943,7 @@ class MainActivity : Activity() {
             })
             addView(listScroll)
         }
-        val dialog = AlertDialog.Builder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Маршрутизация приложений")
             .setView(content)
             .setNegativeButton("Отмена", null)
