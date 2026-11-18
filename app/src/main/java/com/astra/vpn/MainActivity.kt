@@ -919,7 +919,23 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(14), dp(14), dp(10), dp(14))
                 background = serverRowBackground(isSelected)
+                // A restrained Material-style ripple gives immediate touch feedback
+                // without changing the selected/unselected server card colors.
+                foreground = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x26A9B8FF),
+                    null,
+                    null
+                )
+                minimumHeight = dp(72)
                 elevation = dp(if (isSelected) 3 else 0).toFloat()
+                contentDescription = buildString {
+                    append(name)
+                    append(", ")
+                    append(protocolName(link))
+                    append(", ")
+                    append(pingInfo[link] ?: "задержка не проверена")
+                    if (isSelected) append(", выбран")
+                }
                 setOnClickListener {
                     if (connecting) {
                         Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
