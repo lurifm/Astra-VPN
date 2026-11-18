@@ -199,8 +199,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val TEST_TIMEOUT_MS = 90_000L
-        private const val RESULT_SETTLE_MS = 10_000L
+        private const val TEST_TIMEOUT_MS = 20_000L
+        private const val RESULT_SETTLE_MS = 2_000L
 
         fun start(context: Context, config: String, tags: Set<String>) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
