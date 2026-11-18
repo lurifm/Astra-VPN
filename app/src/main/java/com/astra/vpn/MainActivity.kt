@@ -2899,7 +2899,16 @@ class MainActivity : Activity() {
         val sheetContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(18))
-            background = rounded(BG, 24)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF121D30.toInt(), 0xFF090F1B.toInt())
+            ).apply {
+                cornerRadii = floatArrayOf(
+                    dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
+                setStroke(dp(1), 0xFF293A59.toInt())
+            }
         }
         val sheetHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2963,6 +2972,8 @@ class MainActivity : Activity() {
                 val behavior = com.google.android.material.bottomsheet.BottomSheetBehavior.from(it)
                 behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
                 behavior.skipCollapsed = true
+                behavior.isDraggable = true
+                behavior.isFitToContents = true
             }
         }
         sheet.show()
