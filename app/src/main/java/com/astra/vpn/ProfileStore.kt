@@ -36,12 +36,19 @@ data class SubscriptionSummary(
 class ProfileStore(context: Context) {
     private val prefs = context.getSharedPreferences("astra_profiles", Context.MODE_PRIVATE)
 
+    // Profile links are decrypted with Android Keystore. Cache the immutable
+    // snapshot so UI refreshes (search, ping updates, favorites) do not repeat
+    // expensive cryptographic work on the main thread.
+    @Volatile private var profilesCache: List<String>? = null
+    @Volatile private var summariesCache: List<SubscriptionSummary>? = null
+
     fun all(): List<String> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        prefs.all.entries
+        profilesCache ?: prefs.all.entries
             .filter { it.key.startsWith(PROFILE_PREFIX) || it.key.startsWith(SUBSCRIPTION_PROFILE_PREFIX) }
             .sortedBy { it.key }
             .map { (_, value) -> decryptStored(value as String) }
             .distinct()
+            .also { profilesCache = it }
     }
 
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
@@ -49,6 +56,7 @@ class ProfileStore(context: Context) {
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
             "Не удалось сохранить сервер"
         }
+        profilesCache = null
     }
 
     fun addAll(links: List<String>) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
@@ -58,6 +66,7 @@ class ProfileStore(context: Context) {
             editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
         }
         check(editor.commit()) { "Не удалось сохранить список серверов" }
+        profilesCache = null
     }
 
     /** Replace only the profiles owned by this HTTPS subscription. */
@@ -82,6 +91,8 @@ class ProfileStore(context: Context) {
         // Missing title headers must not erase a name the user chose themselves.
         metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, it.take(120)) }
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
+        profilesCache = null
+        summariesCache = null
     }
 
     fun renameSubscription(sourceUrl: String, title: String) =
@@ -94,6 +105,7 @@ class ProfileStore(context: Context) {
         check(prefs.edit().putString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, cleanTitle).commit()) {
             "Не удалось сохранить название подписки"
         }
+        summariesCache = null
     }
 
     /** Remove a subscription and all profiles owned by it; return removed links. */
@@ -112,6 +124,8 @@ class ProfileStore(context: Context) {
             .remove(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id)
             .remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id)
         check(editor.commit()) { "Не удалось удалить подписку" }
+        profilesCache = null
+        summariesCache = null
         return removed
     }
 
@@ -124,7 +138,7 @@ class ProfileStore(context: Context) {
 
     /** Safe local summary; usage and expiry are displayed only when provider metadata exists. */
     fun subscriptionSummaries(): List<SubscriptionSummary> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        prefs.all.entries
+        summariesCache ?: prefs.all.entries
         .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
         .map { (key, value) ->
             val source = decryptStored(value as String)
@@ -141,6 +155,7 @@ class ProfileStore(context: Context) {
             SubscriptionSummary(source, title, count, usage.uploadBytes, usage.downloadBytes, usage.totalBytes, usage.expiresAtEpochSeconds)
         }
         .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
+        .also { summariesCache = it }
     }
 
     fun remove(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
@@ -151,6 +166,8 @@ class ProfileStore(context: Context) {
                 decryptStored(value as String) == link
         } ?: return@synchronized
         check(prefs.edit().remove(entry.key).commit()) { "Не удалось удалить сервер" }
+        profilesCache = null
+        summariesCache = null
     }
 
     private fun sourceId(source: String): String =
