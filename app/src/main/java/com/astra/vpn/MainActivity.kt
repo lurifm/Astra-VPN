@@ -819,11 +819,17 @@ class MainActivity : Activity() {
 
         val favorites = settingsPrefs.getStringSet("favorite_servers", emptySet()) ?: emptySet()
         val sortedProfiles = when (sortMode) {
-            "ping" -> filteredProfiles.sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE })
+            "ping" -> filteredProfiles.sortedWith(
+                compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }
+                    .thenByDescending { it in favorites }
+            )
             "alphabet" -> filteredProfiles.sortedBy { profileName(it).lowercase(java.util.Locale.getDefault()) }
             else -> filteredProfiles
         }
-        val displayProfiles = sortedProfiles.sortedByDescending { it in favorites }
+        // In ping mode, successful servers always stay above unavailable / untested
+        // ones. Favorites only affect order inside the same latency bucket.
+        val displayProfiles = if (sortMode == "ping") sortedProfiles
+            else sortedProfiles.sortedByDescending { it in favorites }
 
         displayProfiles.forEach { link ->
             val isSelected = link == selected
@@ -882,10 +888,10 @@ class MainActivity : Activity() {
                 maxLines = 1
             }
             val meta = TextView(this).apply {
-                val latency = pingInfo[link] ?: "Задержка не проверена"
+                val latency = pingInfo[link] ?: "н/д"
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
-                setTextColor(if (latency.contains("мс")) GREEN else MUTED)
+                setTextColor(if (latencyMs[link] != null) GREEN else MUTED)
                 setPadding(0, dp(4), 0, 0)
             }
             details.addView(title)
@@ -949,7 +955,7 @@ class MainActivity : Activity() {
             if (scheme != "vless") {
                 latencyMs.remove(link)
                 pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic") {
-                    "UDP • TCP-тест не применяется"
+                    "н/д"
                 } else {
                     "—"
                 }
@@ -975,10 +981,10 @@ class MainActivity : Activity() {
                 val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
                 result.onSuccess {
                     latencyMs[link] = it.tcpMedianMs
-                    pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (${it.successfulSamples}/3)"
+                    pingInfo[link] = "TCP ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
                 }.onFailure {
                     latencyMs.remove(link)
-                    pingInfo[link] = "TCP недоступен"
+                    pingInfo[link] = "н/д"
                 }
 
                 if (remaining.decrementAndGet() == 0) {
@@ -1025,7 +1031,7 @@ class MainActivity : Activity() {
                 synchronized(latencyMs) {
                     result.onSuccess {
                         latencyMs[link] = it.tcpMedianMs
-                        pingInfo[link] = "DNS ${it.dnsMs} мс · TCP ${it.tcpMedianMs} мс (3 замера)"
+                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
                     }.onFailure {
                         latencyMs.remove(link)
                         pingInfo[link] = "TCP недоступен"
