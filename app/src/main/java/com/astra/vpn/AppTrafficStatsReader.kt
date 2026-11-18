@@ -2,7 +2,6 @@ package com.astra.vpn
 
 import android.app.AppOpsManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.app.usage.NetworkStats
