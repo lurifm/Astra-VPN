@@ -167,8 +167,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         // Only the terminal snapshot is persisted for Activity recreation.
         // Partial snapshots are live UI updates and must not replace the final result.
         if (finished) {
+            // Keep the latest completed measurements between app launches.
+            // The pending copy is one-shot recovery for Activity recreation;
+            // the last-results copy is a reusable display cache.
             getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_PENDING_RESULTS, payload)
+                .putString(KEY_LAST_RESULTS, payload)
                 .apply()
         }
         sendBroadcast(
@@ -225,6 +229,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
+        private const val KEY_LAST_RESULTS = "last_results"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         private const val TEST_TIMEOUT_MS = 20_000L
