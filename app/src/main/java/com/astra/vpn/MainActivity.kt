@@ -84,6 +84,10 @@ class MainActivity : Activity() {
     private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
     private var lastTxBytes = TrafficStats.UNSUPPORTED.toLong()
     private var lastTrafficAt = 0L
+    private val healthCheckExecutor = Executors.newSingleThreadExecutor()
+    private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastHealthCheckAt = 0L
+    @Volatile private var tunnelInternetOk: Boolean? = null
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
@@ -91,6 +95,7 @@ class MainActivity : Activity() {
         override fun run() {
             updateTrafficMonitor()
             updateNetworkLabel()
+            scheduleTunnelHealthCheck()
             monitorHandler.postDelayed(this, 1000L)
         }
     }
@@ -108,18 +113,22 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_CONNECTED -> {
                     connected = true
                     connecting = false
+                    tunnelInternetOk = null
+                    lastHealthCheckAt = 0L
                     status.text = "Подключено"
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
                     connected = false
                     connecting = false
+                    tunnelInternetOk = null
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
                     connecting = false
+                    tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
                     AlertDialog.Builder(this@MainActivity)
@@ -1374,9 +1383,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Checks real HTTPS reachability through Android's active VPN route.
+     * A created VpnService/TUN alone does not prove that the selected proxy can
+     * carry traffic. The check runs off the UI thread and is rate-limited.
+     */
+    private fun scheduleTunnelHealthCheck() {
+        if (!connected || isFinishing || isDestroyed) return
+        val now = System.currentTimeMillis()
+        if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
+        lastHealthCheckAt = now
+        healthCheckExecutor.execute {
+            val ok = TunnelHealthChecker.check()
+            tunnelInternetOk = ok
+            healthCheckInFlight.set(false)
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && connected) updateProtectionLabels()
+            }
+        }
+    }
+
     private fun updateProtectionLabels() {
-        monitorProtection.text = if (connected) "🛡 Трафик защищён · VPN активен" else if (connecting) "◌ Подключение VPN…" else "○ Защита выключена"
-        monitorProtection.setTextColor(if (connected) GREEN else if (connecting) AMBER else MUTED)
+        val label = when {
+            connecting -> "◌ Проверяем VPN-подключение…" to AMBER
+            !connected -> "○ Защита выключена" to MUTED
+            tunnelInternetOk == true -> "🛡 Защита активна · интернет через VPN работает" to GREEN
+            tunnelInternetOk == false -> "⚠ VPN включён, но интернет через него не работает. Защита не подтверждена" to RED
+            else -> "◌ VPN-туннель создан · проверяем доступ в интернет…" to AMBER
+        }
+        monitorProtection.text = label.first
+        monitorProtection.setTextColor(label.second)
         if (!connected) monitorVpnCountry.text = "Страна выхода VPN: —"
         else monitorVpnCountry.text = "Страна выхода VPN: $vpnCountry"
     }
