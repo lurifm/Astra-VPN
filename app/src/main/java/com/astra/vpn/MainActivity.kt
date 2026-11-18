@@ -1136,7 +1136,7 @@ class MainActivity : Activity() {
         displayProfiles.forEach { link ->
             val isSelected = link == selected
             val name = profileNames[link] ?: profileName(link)
-            val protocol = profileProtocols[link] ?: protocolName(link)
+            val protocolLabel = profileProtocols[link] ?: protocolName(link)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1154,7 +1154,7 @@ class MainActivity : Activity() {
                 contentDescription = buildString {
                     append(name)
                     append(", ")
-                    append(protocol)
+                    append(protocolLabel)
                     append(", ")
                     append(pingInfo[link] ?: "задержка не проверена")
                     if (isSelected) append(", выбран")
@@ -1223,10 +1223,10 @@ class MainActivity : Activity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
-            val protocol = TextView(this).apply {
+            val protocolText = TextView(this).apply {
                 val countryName = CountryFlagResolver.countryNameForFlag(countryFlag)
                 text = if (countryFlag.isNotBlank() && countryFlag != "🌐") {
-                    "${countryName.uppercase(java.util.Locale.getDefault())}  ·  ${protocolName(link)}"
+                    "${countryName.uppercase(java.util.Locale.getDefault())}  ·  ${protocolLabel}"
                 } else protocolName(link)
                 textSize = 9.5f
                 letterSpacing = .07f
@@ -1269,7 +1269,7 @@ class MainActivity : Activity() {
                     contentDescription = "Этот сервер сейчас используется для VPN-соединения"
                 })
             }
-            details.addView(protocol)
+            details.addView(protocolText)
             details.addView(meta)
             val favoriteButton = TextView(this).apply {
                 text = if (link in favorites) "★" else "☆"
