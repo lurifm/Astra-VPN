@@ -3066,6 +3066,34 @@ class MainActivity : Activity() {
                             setTextColor(MUTED)
                             setPadding(0, 0, 0, dp(5))
                         })
+                        val bars = "▁▂▃▄▅▆▇█"
+                        val dailyTotals = AppTrafficTrend.dailyTotals(weekly)
+                        val maxDaily = dailyTotals.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+                        val totalSparkline = dailyTotals.joinToString("") { value ->
+                            val slot = if (value <= 0L) 0 else
+                                ((value.toDouble() / maxDaily.toDouble()) * bars.lastIndex).toInt().coerceIn(1, bars.lastIndex)
+                            bars[slot].toString()
+                        }
+                        target.addView(TextView(this).apply {
+                            text = "Весь трафик по дням"
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(Color.WHITE)
+                            setPadding(0, dp(5), 0, dp(3))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = totalSparkline + "    " + AppTrafficStatsReader.formatBytes(dailyTotals.sum())
+                            textSize = 12f
+                            setTextColor(0xFFB9C8FF.toInt())
+                        })
+                        target.addView(TextView(this).apply {
+                            text = weekly.joinToString(" · ") { it.dayLabel }
+                            textSize = 9f
+                            setTextColor(MUTED)
+                            setPadding(0, 0, 0, dp(7))
+                        })
+                        val yesterdayApps = weekly.getOrNull(weekly.size - 2)?.apps.orEmpty().associateBy { it.uid }
+                        val dayBeforeApps = weekly.getOrNull(weekly.size - 3)?.apps.orEmpty().associateBy { it.uid }
                         val weeklyApps = weekly.flatMap { it.apps }
                             .groupBy { it.uid }
                             .mapValues { (_, entries) -> entries.sumOf { it.totalBytes }.coerceAtLeast(0L) }
@@ -3077,7 +3105,6 @@ class MainActivity : Activity() {
                                 setTextColor(0xFFD8E0F2.toInt())
                             })
                         }
-                        val bars = "▁▂▃▄▅▆▇█"
                         weeklyApps.forEachIndexed { index, entry ->
                             val label = weekly.asSequence().flatMap { it.apps.asSequence() }
                                 .firstOrNull { it.uid == entry.key }?.label ?: "UID ${entry.key}"
@@ -3107,6 +3134,18 @@ class MainActivity : Activity() {
                                 setTextColor(0xFFB9C8FF.toInt())
                                 setPadding(0, dp(3), 0, 0)
                             })
+                            val yesterdayBytes = yesterdayApps[entry.key]?.totalBytes ?: 0L
+                            val previousBytes = dayBeforeApps[entry.key]?.totalBytes ?: 0L
+                            val trend = AppTrafficTrend.describe(yesterdayBytes, previousBytes)
+                            if (trend != null) {
+                                card.addView(TextView(this).apply {
+                                    text = trend
+                                    textSize = 10f
+                                    typeface = Typeface.DEFAULT_BOLD
+                                    setTextColor(if (trend.startsWith("↑")) AMBER else 0xFF8FD6B5.toInt())
+                                    setPadding(0, dp(3), 0, 0)
+                                })
+                            }
                             target.addView(card, matchWidth().apply { topMargin = dp(5) })
                         }
                     },
