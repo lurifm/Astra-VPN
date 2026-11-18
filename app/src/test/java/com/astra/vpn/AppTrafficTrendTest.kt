@@ -33,4 +33,10 @@ class AppTrafficTrendTest {
         )
         assertEquals(listOf(180L, 240L), AppTrafficTrend.dailyTotals(days))
     }
+    @Test fun safeSumSaturatesInsteadOfOverflowing() {
+        assertEquals(Long.MAX_VALUE, AppTrafficTrend.safeSum(listOf(Long.MAX_VALUE, 1L)))
+        assertEquals(15L, AppTrafficTrend.safeSum(listOf(10L, 5L)))
+        assertEquals(10L, AppTrafficTrend.safeSum(listOf(-5L, 10L)))
+    }
+
 }
