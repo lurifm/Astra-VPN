@@ -6,7 +6,7 @@ import java.net.Socket
 
 /**
  * Measures DNS resolution separately from TCP connection establishment.
- * TCP value is the median of successful short connection probes; it is not
+ * TCP value is the median of five real TCP connection attempts (successful attempts only); it is not
  * an ICMP ping or a measurement through the VPN tunnel.
  */
 object TcpLatencyProbe {
@@ -16,8 +16,8 @@ object TcpLatencyProbe {
         val successfulSamples: Int
     )
 
-    const val SAMPLE_COUNT = 3
-    private const val CONNECT_TIMEOUT_MS = 1500
+    const val SAMPLE_COUNT = 5
+    private const val CONNECT_TIMEOUT_MS = 2000
 
     fun measure(host: String, port: Int): Result {
         require(host.isNotBlank()) { "Host is empty" }
