@@ -28,8 +28,10 @@ class DailyTrafficHistoryTest {
         assertEquals(DailyTrafficHistory.Totals(3072L, 768L), restored.total())
     }
 
-    @Test fun ignoresMalformedAndNegativeStoredRows() {
-        val restored = DailyTrafficHistory.decode("20261118,10,20;bad;20261117,-1,3;20261116,4,no")
+    @Test fun ignoresMalformedNegativeAndImpossibleCalendarDates() {
+        val restored = DailyTrafficHistory.decode(
+            "20261118,10,20;bad;20261117,-1,3;20261116,4,no;20260230,8,9;20261301,3,4"
+        )
         assertEquals(listOf(20261118), restored.entries().map { it.dayKey })
     }
 }
