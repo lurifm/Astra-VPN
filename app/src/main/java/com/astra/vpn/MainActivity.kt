@@ -49,6 +49,8 @@ class MainActivity : Activity() {
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
+    private var latencyTestInFlight = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
@@ -103,7 +105,38 @@ class MainActivity : Activity() {
 
     private val vpnStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != AstraVpnService.ACTION_STATE) return
+            when (intent?.action) {
+                AstraLatencyTestService.ACTION_RESULTS -> {
+                    latencyTestInFlight = false
+                    val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
+                    val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+                    urlTestProfileMap.forEach { (tag, profile) ->
+                        val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
+                        if (ms > 0L) {
+                            latencyMs[profile] = ms
+                            pingInfo[profile] = "URL-test " + ms + " мс · " + latencyQuality(ms)
+                        } else {
+                            latencyMs.remove(profile)
+                            pingInfo[profile] = "н/д"
+                        }
+                    }
+                    runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
+                    return
+                }
+                AstraLatencyTestService.ACTION_ERROR -> {
+                    latencyTestInFlight = false
+                    val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR) ?: "Не удалось проверить серверы"
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                            renderProfiles()
+                        }
+                    }
+                    return
+                }
+                AstraVpnService.ACTION_STATE -> Unit
+                else -> return
+            }
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
@@ -1021,10 +1054,12 @@ class MainActivity : Activity() {
 
     private fun checkAllLatencies() {
         val profiles = safeProfiles() ?: return
-        val generation = latencyCheckGeneration.incrementAndGet()
+        if (latencyTestInFlight) {
+            Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
+        latencyCheckGeneration.incrementAndGet()
         val currentProfiles = profiles.toHashSet()
-        // Drop cached results for removed profiles so ping sorting never
-        // keeps ghost entries or stale measurements after subscription edits.
         latencyMs.keys.toList().filterNot { it in currentProfiles }.forEach { latencyMs.remove(it) }
         pingInfo.keys.toList().filterNot { it in currentProfiles }.forEach { pingInfo.remove(it) }
         if (profiles.isEmpty()) {
@@ -1032,63 +1067,39 @@ class MainActivity : Activity() {
             return
         }
 
-        Toast.makeText(this, "Проверяем доступность серверов…", Toast.LENGTH_SHORT).show()
-
-        // Update non-VLESS labels in memory without rebuilding the entire list
-        // once per profile. Re-rendering 45 rows 45 times can freeze the UI.
-        val vlessProfiles = profiles.filter { link ->
-            val uri = Uri.parse(link)
-            val scheme = uri.scheme.orEmpty().lowercase()
-            if (scheme != "vless" || uri.host.isNullOrBlank() || uri.port !in 1..65535) {
-                latencyMs.remove(link)
-                // Do not invent a latency for unsupported protocols or malformed links.
-                // A TCP socket check cannot validate UDP-only servers.
-                pingInfo[link] = "н/д"
-                false
-            } else {
-                true
-            }
-        }
-
-        if (vlessProfiles.isEmpty()) {
-            renderProfiles()
-            return
-        }
-
-        // Probe on the bounded background pool, then redraw once after the
-        // whole batch finishes instead of posting dozens of full list rebuilds.
-        val remaining = java.util.concurrent.atomic.AtomicInteger(vlessProfiles.size)
-        val probeNetwork = networkForLatencyProbe()
-        vlessProfiles.forEach { link ->
-            val uri = Uri.parse(link)
-            latencyMs.remove(link)
-            pingInfo[link] = "Проверяем…"
-            pingExecutor.execute {
-                // A newer refresh supersedes queued work. Do not spend time on
-                // obsolete probes or let their results overwrite fresh values.
-                if (generation != latencyCheckGeneration.get()) {
-                    remaining.decrementAndGet()
-                    return@execute
-                }
-                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port, probeNetwork) }
-                if (generation == latencyCheckGeneration.get()) {
-                    result.onSuccess {
-                        latencyMs[link] = it.tcpMedianMs
-                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
-                    }.onFailure {
-                        latencyMs.remove(link)
-                        pingInfo[link] = "н/д"
-                    }
-                }
-
-                if (remaining.decrementAndGet() == 0) {
-                    runOnUiThread {
-                        if (generation == latencyCheckGeneration.get() && !isFinishing && !isDestroyed) renderProfiles()
-                    }
-                }
-            }
+        profiles.forEach { profile ->
+            latencyMs.remove(profile)
+            pingInfo[profile] = "Проверяем…"
         }
         renderProfiles()
+        Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
+
+        // sing-box URLTest checks each proxy by sending an HTTP request through it.
+        // This measures VLESS, Hysteria2 and TUIC using their actual transports.
+        runCatching { SingBoxUrlTestConfig.build(profiles) }
+            .onSuccess { testConfig ->
+                urlTestProfileMap = testConfig.profileByOutboundTag
+                latencyTestInFlight = true
+                runCatching {
+                    AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
+                }.onFailure {
+                    latencyTestInFlight = false
+                    profiles.forEach { profile ->
+                        latencyMs.remove(profile)
+                        pingInfo[profile] = "н/д"
+                    }
+                    Toast.makeText(this, "Не удалось запустить проверку серверов", Toast.LENGTH_SHORT).show()
+                    renderProfiles()
+                }
+            }
+            .onFailure {
+                profiles.forEach { profile ->
+                    latencyMs.remove(profile)
+                    pingInfo[profile] = "н/д"
+                }
+                Toast.makeText(this, "Не удалось подготовить проверку серверов", Toast.LENGTH_SHORT).show()
+                renderProfiles()
+            }
     }
 
     /**
@@ -1223,7 +1234,11 @@ class MainActivity : Activity() {
         monitorHandler.removeCallbacks(monitorTick)
         monitorHandler.post(monitorTick)
         if (!receiverRegistered) {
-            val filter = IntentFilter(AstraVpnService.ACTION_STATE)
+            val filter = IntentFilter().apply {
+                addAction(AstraVpnService.ACTION_STATE)
+                addAction(AstraLatencyTestService.ACTION_RESULTS)
+                addAction(AstraLatencyTestService.ACTION_ERROR)
+            }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
             receiverRegistered = true
