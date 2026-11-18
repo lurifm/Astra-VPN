@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
+    private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
@@ -120,11 +121,29 @@ class MainActivity : Activity() {
                             pingInfo[profile] = "н/д"
                         }
                     }
+                    if (pendingFastestSelection) {
+                        pendingFastestSelection = false
+                        selectingFastest = false
+                        val fastest = urlTestProfileMap.values.mapNotNull { link ->
+                            latencyMs[link]?.let { link to it }
+                        }.minByOrNull { it.second }?.first
+                        if (fastest != null) {
+                            selectedProfile = fastest
+                            status.text = "Выбран быстрый сервер"
+                            status.setTextColor(GREEN)
+                            selectedInfo.text = profileSummary(fastest)
+                            Toast.makeText(this@MainActivity, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
+                        }
+                    }
                     runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
                     latencyTestInFlight = false
+                    pendingFastestSelection = false
+                    selectingFastest = false
                     val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR) ?: "Не удалось проверить серверы"
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
@@ -1084,6 +1103,8 @@ class MainActivity : Activity() {
                     AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
                 }.onFailure {
                     latencyTestInFlight = false
+                    pendingFastestSelection = false
+                    selectingFastest = false
                     profiles.forEach { profile ->
                         latencyMs.remove(profile)
                         pingInfo[profile] = "н/д"
@@ -1093,6 +1114,8 @@ class MainActivity : Activity() {
                 }
             }
             .onFailure {
+                pendingFastestSelection = false
+                selectingFastest = false
                 profiles.forEach { profile ->
                     latencyMs.remove(profile)
                     pingInfo[profile] = "н/д"
@@ -1108,74 +1131,18 @@ class MainActivity : Activity() {
      * Hysteria2/TUIC availability or actual VPN tunnel latency.
      */
     private fun selectFastestServer() {
-        if (selectingFastest) {
+        if (selectingFastest || latencyTestInFlight) {
             Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
         if (connected || connecting) {
-            Toast.makeText(this, "Дождись завершения подключения или отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val candidates = (safeProfiles() ?: return).filter {
-            Uri.parse(it).scheme.equals("vless", ignoreCase = true) &&
-                !Uri.parse(it).host.isNullOrBlank() && Uri.parse(it).port > 0
-        }
-        if (candidates.isEmpty()) {
-            Toast.makeText(this, "Для автовыбора пока нужны VLESS-серверы. UDP-серверы не оцениваем TCP-тестом.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Отключи VPN перед сменой сервера", Toast.LENGTH_SHORT).show()
             return
         }
         selectingFastest = true
-        Toast.makeText(this, "Ищем самый быстрый VLESS-сервер…", Toast.LENGTH_SHORT).show()
-        candidates.forEach { latencyMs.remove(it); pingInfo[it] = "Проверяем…" }
-        renderProfiles()
-        val latch = java.util.concurrent.CountDownLatch(candidates.size)
-        val probeNetwork = networkForLatencyProbe()
-        candidates.forEach { link ->
-            autoSelectExecutor.execute {
-                val uri = Uri.parse(link)
-                val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
-                synchronized(latencyMs) {
-                    result.onSuccess {
-                        latencyMs[link] = it.tcpMedianMs
-                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
-                    }.onFailure {
-                        latencyMs.remove(link)
-                        pingInfo[link] = "н/д"
-                    }
-                }
-                // Keep the list stable while probes finish; the coordinator
-                // performs one final render after the whole batch completes.
-                latch.countDown()
-            }
-        }
-        importExecutor.execute {
-            // Three probes run concurrently; allow one full 3-second timeout
-            // per batch so large subscriptions are not ranked from only the
-            // first few servers.
-            val batches = (candidates.size + 2) / 3
-            val waitSeconds = batches * 6L + 2L
-            val completed = runCatching {
-                latch.await(waitSeconds, java.util.concurrent.TimeUnit.SECONDS)
-            }.getOrDefault(false)
-            val fastest = synchronized(latencyMs) {
-                candidates.mapNotNull { link -> latencyMs[link]?.let { link to it } }
-                    .minByOrNull { it.second }?.first
-            }
-            runOnUiThread {
-                selectingFastest = false
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (fastest != null) {
-                    selectedProfile = fastest
-                    status.text = if (completed) "Выбран быстрый сервер" else "Выбран лучший из проверенных"
-                    status.setTextColor(GREEN)
-                    selectedInfo.text = profileSummary(fastest)
-                    Toast.makeText(this, "Выбран сервер: ${profileName(fastest)}", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Не удалось проверить доступность VLESS-серверов", Toast.LENGTH_LONG).show()
-                }
-                renderProfiles()
-            }
-        }
+        pendingFastestSelection = true
+        Toast.makeText(this, "Ищем самый быстрый сервер…", Toast.LENGTH_SHORT).show()
+        checkAllLatencies()
     }
 
     private fun connectSelectedProfile() {
