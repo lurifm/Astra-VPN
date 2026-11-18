@@ -77,17 +77,29 @@ class AstraPlatform(
         if (protectSockets) {
             check(vpnService.protect(fd)) { "Не удалось исключить сокет sing-box из VPN-туннеля" }
         } else {
-            val physicalNetwork = preferredPhysicalNetwork
-                ?.takeIf { network ->
-                    val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
-                    capabilities != null &&
-                        !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            // A network can disappear between Activity's selection and libbox
+            // opening its next probe socket. Try every currently usable physical
+            // network rather than failing the entire URL-test on a stale handle.
+            val candidates = probeNetworkCandidates()
+            var bound = false
+            var lastFailure: Exception? = null
+            for (physicalNetwork in candidates) {
+                try {
+                    ParcelFileDescriptor.fromFd(fd).use { socket ->
+                        physicalNetwork.bindSocket(socket.fileDescriptor)
+                    }
+                    bound = true
+                    break
+                } catch (failure: Exception) {
+                    lastFailure = failure
+                    Log.w(TAG, "Не удалось привязать проверочный сокет к выбранной сети")
                 }
-                ?: resolveUnderlyingNetwork(connectivity.activeNetwork)
-                ?: error("Не найдена физическая сеть для проверки серверов")
-            ParcelFileDescriptor.fromFd(fd).use { socket ->
-                physicalNetwork.bindSocket(socket.fileDescriptor)
+            }
+            if (!bound) {
+                throw IllegalStateException(
+                    "Не удалось привязать проверочный сокет к физической сети",
+                    lastFailure
+                )
             }
         }
     }
@@ -322,6 +334,58 @@ class AstraPlatform(
                 .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
         }
     }
+
+    /**
+     * Returns live physical networks suitable for an outbound latency socket.
+     * A preferred underlay is only a preference: Android may invalidate it
+     * while the URL-test service is starting or while a mobile/Wi-Fi handover
+     * is in progress. Validated, unsuspended networks are tried first.
+     */
+    private fun probeNetworkCandidates(): List<Network> {
+        val active = runCatching { connectivity.activeNetwork }.getOrNull()
+        return (listOfNotNull(preferredPhysicalNetwork, active) + connectivity.allNetworks)
+            .distinct()
+            .mapNotNull { network ->
+                val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                ) return@mapNotNull null
+
+                val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                } else {
+                    true
+                }
+                val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val preferred = network == preferredPhysicalNetwork
+                val isActive = network == active
+                val transportPriority = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0
+                    else -> -1
+                }
+                ProbeNetworkCandidate(network, validated, notSuspended, preferred, isActive, transportPriority)
+            }
+            .filter { it.notSuspended }
+            .sortedWith(
+                compareByDescending<ProbeNetworkCandidate> { it.validated }
+                    .thenByDescending { it.preferred }
+                    .thenByDescending { it.active }
+                    .thenByDescending { it.transportPriority }
+            )
+            .map { it.network }
+    }
+
+    private data class ProbeNetworkCandidate(
+        val network: Network,
+        val validated: Boolean,
+        val notSuspended: Boolean,
+        val preferred: Boolean,
+        val active: Boolean,
+        val transportPriority: Int
+    )
 
     /**
      * When Android reports the VPN itself as the active network, select a
