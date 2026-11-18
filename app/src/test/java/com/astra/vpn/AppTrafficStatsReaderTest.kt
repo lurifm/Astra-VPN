@@ -22,4 +22,12 @@ class AppTrafficStatsReaderTest {
             Locale.setDefault(previous)
         }
     }
+    @Test
+    fun saturatesCounterAdditionInsteadOfWrapping() {
+        assertEquals(Long.MAX_VALUE, AppTrafficStatsReader.addCounters(Long.MAX_VALUE, 1L))
+        assertEquals(Long.MAX_VALUE, AppTrafficStatsReader.addCounters(Long.MAX_VALUE - 2L, 5L))
+        assertEquals(15L, AppTrafficStatsReader.addCounters(10L, 5L))
+        assertEquals(10L, AppTrafficStatsReader.addCounters(-5L, 10L))
+    }
+
 }
