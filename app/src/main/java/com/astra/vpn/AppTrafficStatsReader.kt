@@ -1,0 +1,112 @@
+package com.astra.vpn
+
+import android.app.AppOpsManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.app.usage.NetworkStats
+import android.app.usage.NetworkStatsManager
+import android.os.Process
+import java.util.concurrent.TimeUnit
+
+/**
+ * Reads Android's device-level per-UID network counters.
+ *
+ * These counters are supplied by Android and are not VPN-tunnel-only. The mobile
+ * query can be unavailable on newer Android releases because subscriber IDs are
+ * restricted; in that case Wi-Fi results are still returned and the limitation
+ * is surfaced to the caller.
+ */
+internal object AppTrafficStatsReader {
+    data class AppTraffic(
+        val uid: Int,
+        val label: String,
+        val downloadedBytes: Long,
+        val uploadedBytes: Long
+    ) {
+        val totalBytes: Long get() = downloadedBytes + uploadedBytes
+    }
+
+    data class Result(
+        val apps: List<AppTraffic>,
+        val mobileAvailable: Boolean,
+        val wifiAvailable: Boolean,
+        val startTime: Long,
+        val endTime: Long
+    )
+
+    fun hasAccess(context: Context): Boolean {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        @Suppress("DEPRECATION")
+        val mode = appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            context.packageName
+        )
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    fun readLastDay(context: Context, now: Long = System.currentTimeMillis()): Result {
+        check(hasAccess(context)) { "Для статистики приложений нужен доступ Usage Access" }
+        val start = now - TimeUnit.DAYS.toMillis(1)
+        val totals = HashMap<Int, LongArray>()
+        var wifiAvailable = false
+        var mobileAvailable = false
+        val manager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager
+
+        fun collect(networkType: Int, mobile: Boolean) {
+            var stats: NetworkStats? = null
+            try {
+                // A null subscriber ID requests the aggregate mobile template. Some
+                // Android/OEM builds deny this query; never turn that into zero traffic.
+                stats = manager.querySummary(networkType, null, start, now)
+                val bucket = NetworkStats.Bucket()
+                while (stats.hasNextBucket()) {
+                    if (!stats.getNextBucket(bucket)) break
+                    val uid = bucket.uid
+                    if (uid < 0) continue
+                    val values = totals.getOrPut(uid) { longArrayOf(0L, 0L) }
+                    values[0] = (values[0] + bucket.rxBytes).coerceAtLeast(0L)
+                    values[1] = (values[1] + bucket.txBytes).coerceAtLeast(0L)
+                }
+                if (mobile) mobileAvailable = true else wifiAvailable = true
+            } finally {
+                stats?.close()
+            }
+        }
+
+        try { collect(ConnectivityManager.TYPE_WIFI, false) } catch (_: Exception) { }
+        try { collect(ConnectivityManager.TYPE_MOBILE, true) } catch (_: Exception) { }
+
+        val labels = HashMap<Int, String>()
+        val pm = context.packageManager
+        val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        for (app in installed) {
+            val uid = app.uid
+            val label = runCatching { pm.getApplicationLabel(app).toString() }
+                .getOrDefault(app.packageName)
+            val previous = labels[uid]
+            labels[uid] = if (previous == null || label.length < previous.length) label else previous
+        }
+
+        val apps = totals.mapNotNull { (uid, bytes) ->
+            val total = bytes[0] + bytes[1]
+            if (total <= 0L) null
+            else AppTraffic(uid, labels[uid] ?: "Системное приложение ($uid)", bytes[0], bytes[1])
+        }.sortedByDescending { it.totalBytes }
+
+        return Result(apps, mobileAvailable, wifiAvailable, start, now)
+    }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes < 1024L) return "$bytes Б"
+        val units = arrayOf("КБ", "МБ", "ГБ", "ТБ")
+        var value = bytes.toDouble()
+        var unit = -1
+        do {
+            value /= 1024.0
+            unit++
+        } while (value >= 1024.0 && unit < units.lastIndex)
+        return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+    }
+}
