@@ -1456,10 +1456,29 @@ class MainActivity : Activity() {
     }
 
     private fun requestVpnPermissionAndStart(config: String) {
-        val permissionIntent = VpnService.prepare(this)
-        if (permissionIntent != null) {
-            startActivityForResult(permissionIntent, REQUEST_VPN_PERMISSION)
-        } else startTunnel(config)
+        try {
+            val permissionIntent = VpnService.prepare(this)
+            if (permissionIntent != null) {
+                startActivityForResult(permissionIntent, REQUEST_VPN_PERMISSION)
+            } else {
+                startTunnel(config)
+            }
+        } catch (error: Exception) {
+            // If Android cannot launch its consent screen, restore the UI instead
+            // of leaving the connect button in a permanent starting state.
+            pendingConfig = null
+            connecting = false
+            connected = false
+            status.text = "Не удалось запросить разрешение VPN"
+            status.setTextColor(RED)
+            updateProtectionLabels()
+            renderProfiles()
+            Toast.makeText(
+                this,
+                "Не удалось открыть системное разрешение VPN. Перезапусти приложение и попробуй снова.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     @Deprecated("Deprecated in Android API, retained for compatibility")
@@ -1620,20 +1639,31 @@ class MainActivity : Activity() {
             pendingConfig = null
             connecting = false
             connected = false
+            tunnelInternetOk = false
             status.text = "Не удалось запустить VPN"
             status.setTextColor(RED)
+            updateProtectionLabels()
             Toast.makeText(this, "Не удалось запустить VPN. Проверь выбранный сервер и разрешение на VPN.", Toast.LENGTH_LONG).show()
         }
+        updateProtectionLabels()
         renderProfiles()
     }
 
     private fun stopTunnel() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
-        runCatching { startService(intent) }
-        connected = false
-        connecting = false
-        status.text = "Отключаемся…"
-        status.setTextColor(MUTED)
+        try {
+            startService(intent)
+            connected = false
+            connecting = false
+            status.text = "Отключаемся…"
+            status.setTextColor(MUTED)
+        } catch (error: Exception) {
+            // Keep the UI honest if Android refuses the stop command.
+            status.text = "Не удалось отключить VPN"
+            status.setTextColor(RED)
+            Toast.makeText(this, "Android не позволил остановить VPN. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+        }
+        updateProtectionLabels()
         renderProfiles()
     }
 
