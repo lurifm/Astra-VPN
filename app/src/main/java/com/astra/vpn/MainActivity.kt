@@ -432,6 +432,9 @@ class MainActivity : Activity() {
             monitorDetails.visibility = if (expanded) View.VISIBLE else View.GONE
             monitorExpand.text = if (expanded) "Свернуть  ⌃" else "Подробнее  ⌄"
             monitorExpand.contentDescription = if (expanded) "Свернуть мониторинг сети" else "Развернуть мониторинг сети"
+            // Phone-state permission is only needed for optional carrier details.
+            // Ask when the user opens the network monitor, not during cold startup.
+            if (expanded) requestPhoneStatePermissionIfNeeded()
         }
         monitorNetwork = TextView(this).apply {
             text = "Сеть: определяем…"
@@ -497,7 +500,8 @@ class MainActivity : Activity() {
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
-        requestPhoneStatePermissionIfNeeded()
+        // Phone-state permission is requested lazily when the optional network
+        // monitor is expanded, keeping first launch focused on connecting.
         // onStart() restores tunnel state and renders the profile list once.
         // Avoid building every server row twice during a cold launch.
         updateNetworkLabel()
