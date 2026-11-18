@@ -2947,21 +2947,21 @@ class MainActivity : Activity() {
         }
         panel.addView(appRoutingEntry)
         addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
-        val autoUpdate = CheckBox(this).apply {
+        val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("auto_update", false)
         }
         panel.addView(autoUpdate)
-        val updateOnOpen = CheckBox(this).apply {
+        val updateOnOpen = android.widget.Switch(this).apply {
             text = "Обновлять при открытии приложения"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("update_on_open", false)
         }
         panel.addView(updateOnOpen)
-        val subscriptionNotifications = CheckBox(this).apply {
+        val subscriptionNotifications = android.widget.Switch(this).apply {
             text = "Уведомлять об обновлении подписок"
             textSize = 14f
             setTextColor(Color.WHITE)
@@ -3150,7 +3150,7 @@ class MainActivity : Activity() {
         val checks = mutableMapOf<String, CheckBox>()
         val appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         apps.forEach { app ->
-            val check = CheckBox(this).apply {
+            val check = android.widget.Switch(this).apply {
                 text = app.label
                 tag = app.packageName
                 isChecked = app.packageName in selected
