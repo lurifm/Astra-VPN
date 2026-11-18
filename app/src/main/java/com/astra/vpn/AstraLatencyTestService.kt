@@ -168,6 +168,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun publishFailure(message: String) {
+        // Persist a terminal unavailable result so a recreated Activity cannot
+        // leave server rows stuck on the loading indicator after a service error.
+        if (expectedTags.isNotEmpty()) {
+            publishResults(expectedTags.associateWith<String, Long?> { null })
+        }
         sendBroadcast(Intent(ACTION_ERROR).setPackage(packageName).putExtra(EXTRA_ERROR, message))
     }
 
