@@ -387,6 +387,23 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(5), 0, dp(8))
         }
+        val clearSearch = TextView(this).apply {
+            text = "×"
+            textSize = 23f
+            setTextColor(MUTED)
+            gravity = Gravity.CENTER
+            contentDescription = "Очистить поиск"
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            background = rounded(0x1A9AA6BF, 12)
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                null,
+                null
+            )
+            setOnClickListener { serverSearch.text?.clear() }
+        }
         serverSearch = EditText(this).apply {
             hint = "Поиск сервера…"
             setSingleLine(true)
@@ -398,6 +415,7 @@ class MainActivity : Activity() {
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    clearSearch.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
                     // Debounce fast typing: rebuilding hundreds of server rows on every
                     // keystroke causes avoidable UI-thread work on mid-range phones.
                     searchRenderHandler.removeCallbacks(searchRenderTask)
@@ -414,7 +432,8 @@ class MainActivity : Activity() {
             }
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
-        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(8) })
+        filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4) })
+        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(4) })
         serverCountLabel = TextView(this).apply {
             text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
             textSize = 10f
