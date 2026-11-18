@@ -541,13 +541,14 @@ class MainActivity : Activity() {
         setContentView(root)
         requestNotificationPermissionIfNeeded()
         requestPhoneStatePermissionIfNeeded()
-        // onStart() restores tunnel state and renders the profile list once.
-        // Avoid building every server row twice during a cold launch.
-        updateNetworkLabel()
-        // Check the open-app option immediately and keep a lightweight scheduler alive
-        // while this screen is active; the worker checks settings every minute.
-        SubscriptionRefreshScheduler.sync(this)
-        maybeAutoUpdateSubscriptions(true)
+        // onStart() restores tunnel state and the first monitor tick refreshes
+        // network metadata. Avoid doing either operation twice during cold launch.
+        // WorkManager scheduling is deferred until after the first frame so the
+        // server list and connect controls become interactive as early as possible.
+        autoUpdateHandler.postDelayed({
+            if (!isFinishing && !isDestroyed) SubscriptionRefreshScheduler.sync(this)
+        }, 500L)
+        // onStart() performs the one-time subscription freshness check.
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Let the first frame become interactive before starting the isolated
