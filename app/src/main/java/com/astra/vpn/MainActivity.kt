@@ -2656,7 +2656,7 @@ class MainActivity : Activity() {
         monitorWeeklyTraffic.text = "За 7 дней*  ↓ " +
             DailyTrafficAccumulator.formatBytes(weekly.downloadedBytes) +
             "  /  ↑ " + DailyTrafficAccumulator.formatBytes(weekly.uploadedBytes) +
-            "\\n" + dailyTrafficHistory.entries().joinToString("  ·  ") { entry ->
+            "\n" + dailyTrafficHistory.entries().joinToString("  ·  ") { entry ->
                 val date = String.format(java.util.Locale.US, "%02d.%02d", entry.dayKey % 100, (entry.dayKey / 100) % 100)
                 "$date ↓ ${DailyTrafficAccumulator.formatBytes(entry.totals.downloadedBytes)} ↑ ${DailyTrafficAccumulator.formatBytes(entry.totals.uploadedBytes)}"
             }
