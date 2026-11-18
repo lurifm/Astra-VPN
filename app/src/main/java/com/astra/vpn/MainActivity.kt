@@ -1172,21 +1172,10 @@ class MainActivity : Activity() {
         }
         pendingConfig = config
 
-        // Android permits only one active VpnService at a time. Make this
-        // explicit so users understand why their previous VPN will disconnect.
-        val connectivity = getSystemService(ConnectivityManager::class.java)
-        val activeNetwork = connectivity.activeNetwork
-        val activeCapabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
-        val anotherVpnIsActive = activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-        if (anotherVpnIsActive && !connected) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Заменить текущее VPN?")
-                .setMessage("Android может отключить сейчас работающий VPN при запуске Astra. Продолжить подключение?")
-                .setNegativeButton("Отмена") { _, _ -> pendingConfig = null }
-                .setPositiveButton("Продолжить") { _, _ -> requestVpnPermissionAndStart(config) }
-                .show()
-            return
-        }
+        // Do not show an extra in-app confirmation when switching profiles.
+        // If Astra already owns the VPN, the service reloads sing-box in place
+        // and reuses the existing TUN. Android's own VPN permission prompt is
+        // still required when permission has not yet been granted.
         requestVpnPermissionAndStart(config)
     }
 
@@ -1249,6 +1238,9 @@ class MainActivity : Activity() {
     }
 
     private fun applyLatencyResults(payload: String) {
+        getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+            .remove(KEY_LATENCY_PENDING_RESULTS)
+            .apply()
         latencyTestInFlight = false
         val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
         urlTestProfileMap.forEach { (tag, profile) ->
