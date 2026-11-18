@@ -1,45 +1,31 @@
 # Astra VPN
 
-Android VPN client powered by sing-box, built with Kotlin.
+Android VPN client на Kotlin, использующий sing-box / libbox.
 
-## Current project status
+## Уже реализовано
 
-This repository contains an early Android application scaffold:
-- Kotlin Android app and VPN service integration
-- sing-box libbox platform adapter
-- encrypted local storage for imported server profiles
-- GitHub Actions workflow that attempts a debug APK build
+- Импорт VLESS, Hysteria2 и TUIC share-ссылок.
+- VPN-туннель на базе Android VpnService и sing-box.
+- Измерение DNS-времени и TCP connect latency для VLESS endpoint.
+- Пять TCP-измерений; итоговая задержка — медиана успешных попыток.
+- Сортировка по задержке: серверы без успешного измерения (н/д) остаются внизу.
+- Проверка HTTPS-доступности через активную Android VPN Network.
+- Отдельное предупреждение, если VPN-интерфейс создан, но интернет через VPN не подтверждён.
+- Настройки маршрутизации приложений, избранное, фильтр и поиск серверов.
+- CI: unit tests, debug APK build и публикация APK как GitHub Actions artifact.
 
-**This is an in-development project, not a verified release.** The first successful CI build and real-device VPN tests are still required before the APK can be considered usable.
+## Важно о показателе задержки
 
-## Build
+Показатель TCP ... мс — это время установления TCP-соединения с адресом и портом VLESS-сервера. DNS измеряется отдельно. Это не ICMP ping и пока не полноценный URL-test через каждый прокси-outbound. Для UDP-протоколов Hysteria2/TUIC TCP-показатель намеренно не подставляется: до реализации protocol-aware URL-test отображается н/д.
 
-The project uses:
-- JDK 17
-- Gradle 8.9
-- Android Gradle Plugin 8.7.3
-- Android SDK 35
+Проверка защиты — отдельная операция: HTTPS-запросы выполняются через Android Network, представляющую VPN. Принимается только HTTP 204 от контрольных endpoints, чтобы captive portal с HTML-страницей не считался рабочим интернетом.
 
-To build locally with Gradle installed:
+## Сборка
 
-```bash
-gradle assembleDebug
-```
+GitHub Actions workflow: .github/workflows/android.yml
 
-The debug APK, if the build succeeds, is generated at:
+После успешной сборки APK доступен в разделе Actions → Android CI → Artifacts → AstraVPN-debug.
 
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
+## Текущий статус
 
-## Security
-
-Do not commit personal VPN subscription URLs, access tokens, private keys, or server credentials. Imported profiles are intended to be stored locally on the Android device.
-
-## Next milestones
-
-1. Obtain a clean CI build.
-2. Resolve any Android/libbox API compatibility issues reported by CI.
-3. Test VLESS Reality and other supported protocols with test profiles on a real Android device.
-4. Add robust subscription refresh, server selection, and reconnect handling.
-5. Produce a signed release APK only after testing.
+Проект активно разрабатывается. Debug APK предназначен для тестирования; для распространения потребуется отдельная release-сборка, подпись и проверка на реальном устройстве.
