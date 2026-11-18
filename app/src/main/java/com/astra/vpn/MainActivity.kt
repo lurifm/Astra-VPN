@@ -2893,24 +2893,26 @@ class MainActivity : Activity() {
                 }
             }
         })
-        val appTrafficText = TextView(this).apply {
-            text = "Топ приложений по трафику появится здесь."
-            textSize = 12f
-            setTextColor(0xFFD8E0F2.toInt())
-            setLineSpacing(dp(3).toFloat(), 1f)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(0xFF111B2D.toInt(), 14)
+        val appTrafficContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(0xFF111B2D.toInt(), 16)
         }
-        content.addView(appTrafficText, matchWidth().apply { topMargin = dp(8) })
+        content.addView(appTrafficContainer, matchWidth().apply { topMargin = dp(8) })
         content.addView(TextView(this).apply {
             text = "Обновить статистику"
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFB9C8FF.toInt())
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            setOnClickListener { loadAppTrafficStats(appTrafficText) }
+            setOnClickListener { loadAppTrafficStats(appTrafficContainer) }
         })
-        if (hasAppUsageAccess()) loadAppTrafficStats(appTrafficText)
+        if (hasAppUsageAccess()) loadAppTrafficStats(appTrafficContainer)
+        else appTrafficContainer.addView(TextView(this).apply {
+            text = "Топ приложений по трафику появится здесь после предоставления доступа."
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+        })
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
@@ -2924,39 +2926,104 @@ class MainActivity : Activity() {
 
     private fun hasAppUsageAccess(): Boolean = AppTrafficStatsReader.hasAccess(this)
 
-    private fun loadAppTrafficStats(target: TextView) {
+    private fun loadAppTrafficStats(target: LinearLayout) {
+        target.removeAllViews()
         if (!hasAppUsageAccess()) {
-            target.text = "Разреши доступ выше, затем нажми «Обновить статистику»."
+            target.addView(TextView(this).apply {
+                text = "Разреши доступ Usage Access в настройках Android."
+                textSize = 12f
+                setTextColor(AMBER)
+            })
             return
         }
-        target.text = "Загружаю статистику Android…"
+        target.addView(TextView(this).apply {
+            text = "Загружаю статистику Android…"
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+        })
         diagnosticsExecutor.execute {
             val result = runCatching { AppTrafficStatsReader.readLastDay(this) }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                target.text = result.fold(
+                target.removeAllViews()
+                result.fold(
                     onSuccess = { stats ->
+                        val total = stats.apps.sumOf { it.totalBytes }.coerceAtLeast(0L)
+                        val downloaded = stats.apps.sumOf { it.downloadedBytes }.coerceAtLeast(0L)
+                        val uploaded = stats.apps.sumOf { it.uploadedBytes }.coerceAtLeast(0L)
                         val availability = buildList {
-                            add(if (stats.wifiAvailable) "Wi-Fi ✓" else "Wi-Fi недоступен")
-                            add(if (stats.mobileAvailable) "Мобильная сеть ✓" else "мобильная статистика недоступна")
+                            add(if (stats.wifiAvailable) "Wi-Fi" else "Wi-Fi —")
+                            add(if (stats.mobileAvailable) "Мобильная сеть" else "Мобильная сеть —")
                         }.joinToString(" · ")
+                        target.addView(TextView(this).apply {
+                            text = "ЗА 24 ЧАСА"
+                            textSize = 9f
+                            letterSpacing = 0.12f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(MUTED)
+                        })
+                        target.addView(TextView(this).apply {
+                            text = AppTrafficStatsReader.formatBytes(total)
+                            textSize = 22f
+                            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                            setTextColor(Color.WHITE)
+                            setPadding(0, dp(3), 0, dp(2))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "↓ ${AppTrafficStatsReader.formatBytes(downloaded)}    ↑ ${AppTrafficStatsReader.formatBytes(uploaded)}"
+                            textSize = 11f
+                            setTextColor(0xFFB9C8FF.toInt())
+                        })
+                        target.addView(TextView(this).apply {
+                            text = availability + "\nОбщесистемные данные Android, не только VPN."
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, dp(5), 0, dp(10))
+                        })
                         val top = stats.apps.take(8)
-                        buildString {
-                            appendLine("За последние 24 часа · $availability")
-                            appendLine("Системная статистика Android, не только трафик VPN.")
-                            if (top.isEmpty()) {
-                                append("Нет данных за выбранный период.")
-                            } else {
-                                top.forEachIndexed { index, app ->
-                                    appendLine()
-                                    appendLine("${index + 1}. ${app.label}")
-                                    append("↓ ${AppTrafficStatsReader.formatBytes(app.downloadedBytes)}  ↑ ${AppTrafficStatsReader.formatBytes(app.uploadedBytes)}")
-                                }
+                        if (top.isEmpty()) {
+                            target.addView(TextView(this).apply {
+                                text = "Нет данных за выбранный период."
+                                textSize = 12f
+                                setTextColor(0xFFD8E0F2.toInt())
+                            })
+                        }
+                        top.forEachIndexed { index, app ->
+                            val share = if (total > 0L) (app.totalBytes.toDouble() * 100.0 / total).coerceIn(0.0, 100.0) else 0.0
+                            val card = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(9), dp(8), dp(9), dp(8))
+                                background = rounded(0xFF19253A.toInt(), 12)
                             }
+                            card.addView(TextView(this).apply {
+                                text = "${index + 1}. ${app.label}  ·  ${String.format(java.util.Locale.getDefault(), "%.1f%%", share)}"
+                                textSize = 12f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(Color.WHITE)
+                            })
+                            card.addView(TextView(this).apply {
+                                text = "↓ ${AppTrafficStatsReader.formatBytes(app.downloadedBytes)}   ↑ ${AppTrafficStatsReader.formatBytes(app.uploadedBytes)}"
+                                textSize = 10f
+                                setTextColor(0xFFB9C8FF.toInt())
+                                setPadding(0, dp(3), 0, dp(6))
+                            })
+                            val track = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                background = rounded(0xFF29364D.toInt(), 5)
+                            }
+                            val fill = View(this).apply { background = rounded(0xFF7D91FF.toInt(), 5) }
+                            track.addView(fill, LinearLayout.LayoutParams(0, dp(5), share.toFloat().coerceIn(0.5f, 100f)))
+                            if (share < 100.0) track.addView(View(this), LinearLayout.LayoutParams(0, dp(5), (100.0 - share).toFloat().coerceAtLeast(0.5f)))
+                            card.addView(track)
+                            target.addView(card, matchWidth().apply { topMargin = dp(6) })
                         }
                     },
                     onFailure = { error ->
-                        "Не удалось прочитать статистику: ${error.message ?: "ошибка Android"}. Проверь доступ Usage Access."
+                        target.addView(TextView(this).apply {
+                            text = "Не удалось прочитать статистику: ${error.message ?: "ошибка Android"}. Проверь доступ Usage Access."
+                            textSize = 12f
+                            setTextColor(AMBER)
+                        })
                     }
                 )
             }
