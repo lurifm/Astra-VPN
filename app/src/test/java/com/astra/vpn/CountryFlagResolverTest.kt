@@ -45,7 +45,14 @@ class TcpLatencyProbeTest {
     }
 
     @Test fun medianAveragesMiddlePairForEvenSampleCount() {
-        assertEquals(30L, TcpLatencyProbe.median(listOf(10L, 50L)))
+        assertEquals(50L, TcpLatencyProbe.median(listOf(80L, 30L, 60L, 40L)))
+    }
+
+    @Test fun medianDoesNotDependOnInputOrder() {
+        assertEquals(
+            TcpLatencyProbe.median(listOf(11L, 90L, 40L, 22L, 70L)),
+            TcpLatencyProbe.median(listOf(70L, 22L, 90L, 11L, 40L))
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)
