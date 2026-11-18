@@ -849,19 +849,59 @@ class MainActivity : Activity() {
         val trafficDetails = when {
             item.totalBytes != null && item.totalBytes >= 0L -> {
                 val remaining = SubscriptionUsageCalculator.remainingBytes(usedBytes, item.totalBytes) ?: 0L
-                "Использовано: ${formatTraffic(usedBytes)}\nОсталось: ${formatTraffic(remaining)}\nВсего: ${formatTraffic(item.totalBytes)}"
+                "Использовано: ${formatTraffic(usedBytes)} из ${formatTraffic(item.totalBytes)}\\nОсталось: ${formatTraffic(remaining)}"
             }
-            item.uploadBytes != null || item.downloadBytes != null -> "Использовано: ${formatTraffic(usedBytes)}\nОбщий лимит не указан"
+            item.uploadBytes != null || item.downloadBytes != null ->
+                "Использовано: ${formatTraffic(usedBytes)}\\nОбщий лимит не указан"
             else -> "Провайдер не передал данные о трафике"
         }
         val expiry = item.expiresAtEpochSeconds?.let { seconds ->
             if (seconds <= 0L) "Без ограничения срока"
             else java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(seconds * 1000L))
         } ?: "Не указан провайдером"
-        val details = "Источник: $host\nСерверов: ${item.serverCount}\n\n$trafficDetails\n\nСрок действия: $expiry\n\nНажми «Обновить», чтобы получить актуальные данные от провайдера."
+        val history = SubscriptionRefreshHistory.get(settingsPrefs, item.sourceUrl)
+        val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
+        val historyText = when (history?.state) {
+            "updating" -> "Синхронизация выполняется"
+            "success" -> "Успешно · ${dateFormat.format(java.util.Date(history.timestamp))}"
+            "failure" -> "Последняя попытка завершилась ошибкой · ${dateFormat.format(java.util.Date(history.timestamp))}"
+            else -> "История обновлений пока отсутствует"
+        }
+        val historyColor = when (history?.state) {
+            "updating" -> AMBER
+            "success" -> GREEN
+            "failure" -> RED
+            else -> MUTED
+        }
+        val detailsPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(CARD, 16).apply { setStroke(dp(1), 0xFF2B3A55.toInt()) }
+        }
+        fun addDetail(label: String, value: String, valueColor: Int = Color.WHITE) {
+            detailsPanel.addView(TextView(this).apply {
+                text = label.uppercase(java.util.Locale.getDefault())
+                textSize = 9f
+                letterSpacing = .08f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(MUTED)
+                setPadding(0, dp(8), 0, dp(3))
+            })
+            detailsPanel.addView(TextView(this).apply {
+                text = value
+                textSize = 13f
+                setTextColor(valueColor)
+                setPadding(0, 0, 0, dp(2))
+            })
+        }
+        addDetail("СОСТОЯНИЕ СИНХРОНИЗАЦИИ", historyText, historyColor)
+        addDetail("ИСТОЧНИК", host)
+        addDetail("СЕРВЕРЫ", item.serverCount.toString())
+        addDetail("ТРАФИК", trafficDetails)
+        addDetail("СРОК ДЕЙСТВИЯ", expiry)
         MaterialAlertDialogBuilder(this)
             .setTitle(item.title)
-            .setMessage(details)
+            .setView(detailsPanel)
             .setPositiveButton("Обновить") { _, _ -> refreshSingleSubscription(item.sourceUrl) }
             .setNeutralButton("Переименовать") { _, _ -> renameSubscription(item) }
             .setNegativeButton("Удалить") { _, _ -> confirmRemoveSubscription(item) }
