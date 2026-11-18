@@ -1571,7 +1571,13 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
             }
         }
-        if (!isFinishing && !isDestroyed) renderProfiles()
+        // Coalesce bursts of partial latency results into one list rebuild.
+        // This keeps ping badges responsive without repeatedly recreating every
+        // server card while several probes finish close together.
+        if (!isFinishing && !isDestroyed) {
+            searchRenderHandler.removeCallbacks(searchRenderTask)
+            searchRenderHandler.postDelayed(searchRenderTask, 90L)
+        }
     }
 
     private fun restoreVpnState() {
