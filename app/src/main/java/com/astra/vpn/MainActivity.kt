@@ -182,11 +182,12 @@ class MainActivity : Activity() {
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("Не удалось подключиться")
-                        .setMessage("VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету.")
-                        .setPositiveButton("Понятно", null)
-                        .show()
+                    val errorMessage = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "Проверь выбранный сервер и подключение к интернету."
+                    // A non-blocking message is safer if the Activity is backgrounded
+                    // while its receiver remains registered for asynchronous results.
+                    Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
                 }
             }
             updateGeoLocationForState()
