@@ -1044,8 +1044,9 @@ class MainActivity : Activity() {
                         pingInfo[link] = "TCP недоступен"
                     }
                 }
+                // Keep the list stable while probes finish; the coordinator
+                // performs one final render after the whole batch completes.
                 latch.countDown()
-                runOnUiThread { if (!isFinishing && !isDestroyed) renderProfiles() }
             }
         }
         importExecutor.execute {
