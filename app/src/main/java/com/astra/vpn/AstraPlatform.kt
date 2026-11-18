@@ -70,7 +70,9 @@ class AstraPlatform(
         } else {
             val physicalNetwork = resolveUnderlyingNetwork(connectivity.activeNetwork)
                 ?: error("Не найдена физическая сеть для проверки серверов")
-            physicalNetwork.bindSocket(fd)
+            ParcelFileDescriptor.fromFd(fd).use { socket ->
+                physicalNetwork.bindSocket(socket.fileDescriptor)
+            }
         }
     }
 
