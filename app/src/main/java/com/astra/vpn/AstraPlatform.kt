@@ -324,6 +324,10 @@ class AstraPlatform(
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
 
+        // URL-test receives the exact physical network selected by the main
+        // process. Keep interface metadata and socket binding on that same route.
+        if (isUsablePhysicalNetwork(preferredPhysicalNetwork)) return preferredPhysicalNetwork
+
         // If Android exposes a physical default network, it is authoritative.
         // Do not choose another simultaneously-connected transport just because
         // it happens to be Wi-Fi (for example, when mobile data is the default).
