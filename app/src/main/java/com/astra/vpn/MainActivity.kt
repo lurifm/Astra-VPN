@@ -237,15 +237,15 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF263B63.toInt(), 0xFF19263F.toInt(), 0xFF121C30.toInt())
+                intArrayOf(0xFF30295F.toInt(), 0xFF1C2948.toInt(), 0xFF101A30.toInt())
             ).apply {
                 cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), 0xFF536B9B.toInt())
+                setStroke(dp(1), 0xFF7569B8.toInt())
             }
             elevation = dp(3).toFloat()
         }
         val connectionCaption = TextView(this).apply {
-            text = "СТАТУС СОЕДИНЕНИЯ"
+            text = "✦  СТАТУС СОЕДИНЕНИЯ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
@@ -308,7 +308,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "Выбор сервера"
+            text = "ТВОЯ ОРБИТА"
             textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
