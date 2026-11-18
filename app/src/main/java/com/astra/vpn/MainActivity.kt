@@ -204,7 +204,7 @@ class MainActivity : Activity() {
             setOnClickListener { showAppSettingsDialog() }
         }
         val brand = TextView(this).apply {
-            text = "ASTRA"
+            text = "✦  ASTRA"
             textSize = 27f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -223,7 +223,7 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            text = "СВОЯ ОРБИТА. СВОЯ СКОРОСТЬ. СВОЯ ЗАЩИТА."
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
@@ -1409,7 +1409,7 @@ class MainActivity : Activity() {
         }
         val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null) ?: return
         prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
-        applyLatencyResults(pending)
+        applyLatencyResults(pending, finished = true)
     }
 
     private fun applyLatencyResults(payload: String, finished: Boolean) {
