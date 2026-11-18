@@ -2759,22 +2759,33 @@ class MainActivity : Activity() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
-        healthCheckExecutor.execute {
-            val ok = TunnelHealthChecker.check(vpnNetwork)
-            healthCheckInFlight.set(false)
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed && connected) {
-                    tunnelInternetOk = ok
-                    if (ok) {
-                        consecutiveHealthFailures = 0
-                    } else {
-                        consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
-                        maybeAutoFailover()
+        try {
+            healthCheckExecutor.execute {
+                val ok = try {
+                    TunnelHealthChecker.check(vpnNetwork)
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    // Always release the gate, even if a platform/network call fails unexpectedly.
+                    healthCheckInFlight.set(false)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed && connected) {
+                        tunnelInternetOk = ok
+                        if (ok) {
+                            consecutiveHealthFailures = 0
+                        } else {
+                            consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
+                            maybeAutoFailover()
+                        }
+                        updateProtectionLabels()
+                        renderProfiles()
                     }
-                    updateProtectionLabels()
-                    renderProfiles()
                 }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Activity teardown can race with a scheduled probe after executor shutdown.
+            healthCheckInFlight.set(false)
         }
     }
 
