@@ -1162,6 +1162,18 @@ class MainActivity : Activity() {
                     true
                 }
             }
+            // Slim luminous rail makes the selected route recognizable at a glance.
+            val selectionRail = View(this).apply {
+                background = if (isSelected) {
+                    GradientDrawable(
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        intArrayOf(0xFF75D8FF.toInt(), 0xFF7776E8.toInt())
+                    ).apply { cornerRadius = dp(3).toFloat() }
+                } else {
+                    rounded(0x00000000, 3)
+                }
+                contentDescription = if (isSelected) "Выбранный сервер" else null
+            }
             val flag = TextView(this).apply {
                 text = CountryFlagResolver.flagFor(name)
                 textSize = 25f
@@ -1209,6 +1221,16 @@ class MainActivity : Activity() {
                 setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             details.addView(title)
+            if (isSelected && !(connected && link == activeProfile)) {
+                details.addView(TextView(this).apply {
+                    text = "✦  ВЫБРАННЫЙ МАРШРУТ"
+                    textSize = 9f
+                    letterSpacing = .06f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(LIGHT_ACCENT)
+                    setPadding(0, dp(2), 0, dp(3))
+                })
+            }
             if (connected && link == activeProfile) {
                 details.addView(TextView(this).apply {
                     text = "●  АКТИВНОЕ СОЕДИНЕНИЕ"
@@ -1236,6 +1258,9 @@ class MainActivity : Activity() {
                 setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
                 gravity = Gravity.CENTER
             }
+            row.addView(selectionRail, LinearLayout.LayoutParams(dp(3), dp(42)).apply {
+                rightMargin = dp(9)
+            })
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
