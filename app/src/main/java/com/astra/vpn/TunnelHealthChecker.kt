@@ -2,6 +2,7 @@ package com.astra.vpn
 
 import java.net.HttpURLConnection
 import java.net.URL
+import android.net.Network
 import javax.net.ssl.HttpsURLConnection
 
 /**
@@ -18,10 +19,10 @@ object TunnelHealthChecker {
         "https://www.google.com/generate_204"
     )
 
-    fun check(): Boolean {
+    fun check(vpnNetwork: Network): Boolean {
         for (endpoint in endpoints) {
             val reachable = runCatching {
-                val connection = (URL(endpoint).openConnection() as HttpsURLConnection).apply {
+                val connection = (vpnNetwork.openConnection(URL(endpoint)) as HttpsURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 3_500
                     readTimeout = 3_500
