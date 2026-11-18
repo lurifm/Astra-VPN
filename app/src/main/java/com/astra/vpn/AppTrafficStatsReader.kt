@@ -24,7 +24,7 @@ internal object AppTrafficStatsReader {
         val downloadedBytes: Long,
         val uploadedBytes: Long
     ) {
-        val totalBytes: Long get() = safeAdd(downloadedBytes, uploadedBytes)
+        val totalBytes: Long get() = addCounters(downloadedBytes, uploadedBytes)
     }
 
     data class DailySnapshot(
@@ -108,8 +108,8 @@ internal object AppTrafficStatsReader {
                     val uid = bucket.uid
                     if (uid < 0) continue
                     val values = totals.getOrPut(uid) { longArrayOf(0L, 0L) }
-                    values[0] = safeAdd(values[0], bucket.rxBytes)
-                    values[1] = safeAdd(values[1], bucket.txBytes)
+                    values[0] = addCounters(values[0], bucket.rxBytes)
+                    values[1] = addCounters(values[1], bucket.txBytes)
                 }
                 if (mobile) mobileAvailable = true else wifiAvailable = true
             } finally {
@@ -136,19 +136,19 @@ internal object AppTrafficStatsReader {
         if (ownInfo != null) labels[ownInfo.uid] = pm.getApplicationLabel(ownInfo).toString()
 
         val apps = totals.mapNotNull { (uid, bytes) ->
-            val total = bytes[0] + bytes[1]
+            val total = addCounters(bytes[0], bytes[1])
             if (total <= 0L) null
             else AppTraffic(uid, labels[uid] ?: "Системное приложение ($uid)", bytes[0], bytes[1])
         }.sortedByDescending { it.totalBytes }
 
         return Result(
             apps, mobileAvailable, wifiAvailable, start, now,
-            apps.sumOf { it.downloadedBytes }.coerceAtLeast(0L),
-            apps.sumOf { it.uploadedBytes }.coerceAtLeast(0L)
+            apps.fold(0L) { total, app -> addCounters(total, app.downloadedBytes) },
+            apps.fold(0L) { total, app -> addCounters(total, app.uploadedBytes) }
         )
     }
 
-    private fun safeAdd(first: Long, second: Long): Long {
+    internal fun addCounters(first: Long, second: Long): Long {
         val a = first.coerceAtLeast(0L)
         val b = second.coerceAtLeast(0L)
         return if (Long.MAX_VALUE - a < b) Long.MAX_VALUE else a + b
