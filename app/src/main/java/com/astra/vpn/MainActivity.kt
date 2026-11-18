@@ -433,7 +433,6 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(0, dp(2), 0, dp(6))
         }
-        monitorCard.addView(monitorProtection)
         monitorDetails.addView(monitorVpnCountry)
         monitorDetails.addView(monitorNetwork)
         monitorDetails.addView(monitorOperator)
