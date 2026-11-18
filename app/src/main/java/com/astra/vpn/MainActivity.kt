@@ -205,9 +205,15 @@ class MainActivity : Activity() {
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
+                    // AstraVpnService sends a user-safe explanation in EXTRA_ERROR.
+                    // Prefer it over a generic dialog so the user knows what to fix.
+                    val reportedError = intent.getStringExtra(AstraVpnService.EXTRA_ERROR)
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    val message = reportedError ?: "VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету."
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("Не удалось подключиться")
-                        .setMessage("VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету.")
+                        .setMessage(message)
                         .setPositiveButton("Понятно", null)
                         .show()
                 }
