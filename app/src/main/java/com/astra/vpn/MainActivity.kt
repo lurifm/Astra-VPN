@@ -2960,7 +2960,7 @@ class MainActivity : Activity() {
                         val stats = period.first
                         val previous = period.second
                         val weekly = period.third
-                        val total = stats.totalDownloadedBytes + stats.totalUploadedBytes
+                        val total = AppTrafficStatsReader.addCounters(stats.totalDownloadedBytes, stats.totalUploadedBytes)
                         val downloaded = stats.totalDownloadedBytes
                         val uploaded = stats.totalUploadedBytes
                         val currentTotals = TrafficUsageInsights.Totals(downloaded, uploaded)
