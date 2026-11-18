@@ -272,7 +272,7 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ  ·  БЕЗ ЛИШНИХ НАСТРОЕК"
+            text = "VPN-защита для повседневного использования"
             textSize = 9f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .14f
@@ -870,7 +870,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF6556D9.toInt())
+            elevation = dp(2).toFloat()
         }
         actions.addView(cancelButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
         actions.addView(importButton, LinearLayout.LayoutParams(0, dp(52), 1.35f))
@@ -2903,41 +2904,45 @@ class MainActivity : Activity() {
         panel.addView(sortGroup)
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
-            text = "Мониторинг сети  ›"
-            textSize = 15f
+            text = "📶  Мониторинг сети"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(16), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showNetworkMonitorDialog() }
         }
         panel.addView(monitorEntry)
 
         val diagnosticsEntry = TextView(this).apply {
-            text = "Диагностика соединения  ›"
-            textSize = 15f
+            text = "🩺  Диагностика соединения"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
 
         val historyEntry = TextView(this).apply {
-            text = "История подключений  ›"
-            textSize = 15f
+            text = "🕘  История подключений"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showConnectionHistoryDialog() }
         }
         panel.addView(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
-            text = "Приложения через VPN  ›"
-            textSize = 15f
+            text = "📱  Приложения через VPN"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showAppRoutingDialog() }
         }
         panel.addView(appRoutingEntry)
@@ -3004,7 +3009,7 @@ class MainActivity : Activity() {
             text = when {
                 lastAttempt <= 0L -> "Попыток обновления пока не было"
                 lastAttempt > lastUpdate -> "Последняя попытка: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastAttempt)) + " · результат мог быть с ошибкой"
-                else -> "Последняя попытка совпадает с успешным обновлением"
+                else -> "Последняя попытка успешна"
             }
             textSize = 11f
             setTextColor(MUTED)
