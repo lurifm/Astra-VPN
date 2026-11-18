@@ -52,12 +52,26 @@ internal object SubscriptionRefreshHistory {
     fun recordFailure(settings: android.content.SharedPreferences, source: String, at: Long = System.currentTimeMillis()) {
         settings.edit().putString("${prefix(source)}_state", "failure").putLong("${prefix(source)}_time", at).apply()
     }
-    fun get(settings: android.content.SharedPreferences, source: String): Entry? {
+    fun get(
+        settings: android.content.SharedPreferences,
+        source: String,
+        now: Long = System.currentTimeMillis()
+    ): Entry? {
         val key = prefix(source)
         val state = settings.getString("${key}_state", null) ?: return null
         val timestamp = settings.getLong("${key}_time", 0L)
-        return if (timestamp > 0L) Entry(state, timestamp) else null
+        if (timestamp <= 0L) return null
+
+        // A process may be killed while a refresh is running. Do not leave
+        // the UI showing an endless "updating" state after that happens.
+        if (state == "updating" && now >= timestamp && now - timestamp >= STALE_AFTER_MS) {
+            settings.edit().putString("${key}_state", "failure").apply()
+            return Entry("failure", timestamp)
+        }
+        return Entry(state, timestamp)
     }
+
+    private const val STALE_AFTER_MS = 15 * 60_000L
 }
 
 class MainActivity : Activity() {
