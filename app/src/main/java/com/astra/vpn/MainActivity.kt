@@ -55,6 +55,19 @@ class MainActivity : Activity() {
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
     private var pendingFastestSelection = false
+    // UI-side safety net if Android kills the measurement service or a broadcast is missed.
+    private val latencyUiTimeout = Runnable {
+        if (latencyTestInFlight) {
+            latencyTestInFlight = false
+            pendingFastestSelection = false
+            selectingFastest = false
+            urlTestProfileMap.values.forEach { profile ->
+                if (pingInfo[profile] == "Проверяем…") pingInfo[profile] = "н/д"
+            }
+            Toast.makeText(this, "Проверка заняла слишком много времени. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+            renderProfiles()
+        }
+    }
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
@@ -115,11 +128,13 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 AstraLatencyTestService.ACTION_RESULTS -> {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     applyLatencyResults(payload)
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -1259,8 +1274,8 @@ class MainActivity : Activity() {
         }
 
         profiles.forEach { profile ->
-            latencyMs.remove(profile)
-            pingInfo[profile] = "Проверяем…"
+            // Keep the last valid measurement visible while refreshing it.
+            pingInfo[profile] = latencyMs[profile]?.let { "Обновляем · $it мс" } ?: "Проверяем…"
         }
         renderProfiles()
         Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
@@ -1268,6 +1283,8 @@ class MainActivity : Activity() {
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         latencyTestInFlight = true
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
+        autoUpdateHandler.postDelayed(latencyUiTimeout, LATENCY_UI_TIMEOUT_MS)
         val generation = latencyCheckGeneration.get()
         pingExecutor.execute {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
@@ -1284,6 +1301,7 @@ class MainActivity : Activity() {
                     runCatching {
                         AstraLatencyTestService.start(this, testConfig.json, testConfig.profileByOutboundTag.keys)
                     }.onFailure {
+                        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                         latencyTestInFlight = false
                         pendingFastestSelection = false
                         selectingFastest = false
@@ -1295,6 +1313,7 @@ class MainActivity : Activity() {
                         renderProfiles()
                     }
                 }.onFailure {
+                    autoUpdateHandler.removeCallbacks(latencyUiTimeout)
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -1408,6 +1427,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyLatencyResults(payload: String) {
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_LATENCY_PENDING_RESULTS)
             .apply()
@@ -1417,7 +1437,7 @@ class MainActivity : Activity() {
             val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
-                pingInfo[profile] = "URL-test $ms мс · ${latencyQuality(ms)}"
+                pingInfo[profile] = "$ms мс · через сервер · ${latencyQuality(ms)}"
             } else {
                 latencyMs.remove(profile)
                 pingInfo[profile] = "н/д"
@@ -2247,6 +2267,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        autoUpdateHandler.removeCallbacks(latencyUiTimeout)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         if (receiverRegistered) {
@@ -2268,6 +2289,7 @@ class MainActivity : Activity() {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
+        private const val LATENCY_UI_TIMEOUT_MS = 25_000L
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
