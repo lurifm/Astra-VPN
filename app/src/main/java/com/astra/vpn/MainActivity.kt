@@ -891,9 +891,9 @@ class MainActivity : Activity() {
         status.setTextColor(AMBER)
         importExecutor.execute {
             val result = runCatching {
-                val parsed = SubscriptionParser.importDetailed(source)
-                profileStore.replaceSubscription(source, parsed.links, parsed.metadata)
-                parsed.links.size
+                // Use the same transaction lock as foreground bulk refresh and
+                // WorkManager so an older response cannot overwrite newer data.
+                SubscriptionRefreshCoordinator.refresh(profileStore, source)
             }
             runOnUiThread {
                 refreshingSubscriptions = false
