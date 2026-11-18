@@ -1948,7 +1948,10 @@ class MainActivity : Activity() {
                 pingInfo[profile] = "н/д"
             }
         }
-        if (pendingFastestSelection) {
+        // URL-test broadcasts partial snapshots as individual nodes finish.
+        // Do not pick the "fastest" server from an incomplete subset: a slower
+        // node may still return a valid result before the final snapshot.
+        if (pendingFastestSelection && finished) {
             pendingFastestSelection = false
             selectingFastest = false
             val fastest = urlTestProfileMap.values.mapNotNull { link ->
