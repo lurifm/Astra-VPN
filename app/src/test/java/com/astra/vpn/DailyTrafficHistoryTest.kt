@@ -34,4 +34,14 @@ class DailyTrafficHistoryTest {
         )
         assertEquals(listOf(20261118), restored.entries().map { it.dayKey })
     }
+    @Test fun ignoresInvalidDatesWhenRecording() {
+        val history = DailyTrafficHistory()
+        history.record(20261118, 100L, 50L)
+        history.record(20260230, 9_999L, 9_999L)
+        history.record(20261301, 8_888L, 8_888L)
+        history.record(18991231, 7_777L, 7_777L)
+        assertEquals(listOf(20261118), history.entries().map { it.dayKey })
+        assertEquals(DailyTrafficHistory.Totals(100L, 50L), history.total())
+    }
+
 }
