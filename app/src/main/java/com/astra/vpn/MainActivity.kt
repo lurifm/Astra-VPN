@@ -485,6 +485,16 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         }
         monitorCard.addView(monitorProtection)
+        // Keep the two most useful live metrics visible without expanding the card.
+        // Values come from Android's aggregate device counters, not a VPN-only counter.
+        monitorCard.addView(TextView(this).apply {
+            text = "ТРАФИК УСТРОЙСТВА"
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .12f
+            setTextColor(MUTED)
+            setPadding(0, dp(10), 0, dp(1))
+        })
         val monitorDetails = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -539,7 +549,7 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
         })
-        monitorDetails.addView(speedRow)
+        monitorCard.addView(speedRow, LinearLayout.LayoutParams(matchWidth().width, dp(30)))
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
