@@ -2522,16 +2522,24 @@ class MainActivity : Activity() {
     }
 
     private fun profileName(link: String): String {
-        val fragment = Uri.parse(link).fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-        if (fragment.isNotBlank()) return fragment
-        val host = Uri.parse(link).host.orEmpty()
-        return host.ifBlank { "Сервер" }
+        val uri = Uri.parse(link)
+        val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+        return fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
     }
 
     private fun profileSummary(link: String): String {
-        val flag = CountryFlagResolver.flagFor(profileName(link))
+        val uri = Uri.parse(link)
+        val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+        val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+        val protocol = when (uri.scheme?.lowercase()) {
+            "vless" -> "VLESS"
+            "hysteria2", "hy2" -> "Hysteria2"
+            "tuic" -> "TUIC"
+            else -> "VPN"
+        }
+        val flag = CountryFlagResolver.flagFor(name)
         val latency = pingInfo[link] ?: "Задержка не проверена"
-        return "$flag  ${profileName(link)}  ·  ${protocolName(link)}\n$latency"
+        return "$flag  $name  ·  $protocol\n$latency"
     }
 
     private fun protocolName(link: String): String = when (Uri.parse(link).scheme?.lowercase()) {
