@@ -11,6 +11,7 @@ import java.util.ArrayDeque
 class SpeedGraphView(context: Context) : View(context) {
     private val download = ArrayDeque<Float>()
     private val upload = ArrayDeque<Float>()
+    private val statistics = SpeedSampleWindow(60)
     private val downloadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF55D69A.toInt()
         strokeWidth = 3f
@@ -33,10 +34,13 @@ class SpeedGraphView(context: Context) : View(context) {
     fun addSample(downloadMbps: Float, uploadMbps: Float) {
         download.addLast(downloadMbps.coerceAtLeast(0f))
         upload.addLast(uploadMbps.coerceAtLeast(0f))
+        statistics.add(downloadMbps, uploadMbps)
         while (download.size > 60) download.removeFirst()
         while (upload.size > 60) upload.removeFirst()
         invalidate()
     }
+
+    fun currentStats(): SpeedSampleWindow.Stats = statistics.stats()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
