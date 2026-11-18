@@ -2930,6 +2930,15 @@ class MainActivity : Activity() {
 
     private fun showConnectionHistoryDialog() {
         val entries = connectionHistory.getEntries()
+        val weekAgo = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+        val recentEntries = entries.filter { it.timestamp >= weekAgo }
+        val stability = ConnectionStability.summarize(
+            recentEntries.map { ConnectionStability.Event(it.timestamp, it.state) },
+            System.currentTimeMillis()
+        )
+        val stabilityText = "За 7 дней · по сохранённым событиям\\n" +
+            "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\\n" +
+            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}"
         val body = if (entries.isEmpty()) {
             "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
         } else {
@@ -2958,6 +2967,14 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFF9EAEFF.toInt())
             setPadding(0, 0, 0, dp(12))
+        })
+        historyContent.addView(TextView(this).apply {
+            text = stabilityText
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(dp(12), dp(11), dp(12), dp(11))
+            background = rounded(0xFF202B43.toInt(), 14)
         })
         if (entries.isEmpty()) {
             historyContent.addView(TextView(this).apply {
@@ -3020,7 +3037,7 @@ class MainActivity : Activity() {
                 }.ifBlank { "История подключений Astra VPN пуста." }
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "ASTRA VPN — история подключений\n\n$shareText")
+                    putExtra(Intent.EXTRA_TEXT, "ASTRA VPN — история подключений\n$stabilityText\n\n$shareText")
                 }
                 startActivity(Intent.createChooser(share, "Поделиться историей"))
             }
