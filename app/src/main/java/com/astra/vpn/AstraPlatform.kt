@@ -33,7 +33,9 @@ import java.net.NetworkInterface as JavaNetworkInterface
 class AstraPlatform(
     private val vpnService: VpnService,
     private val onTunCreated: (ParcelFileDescriptor) -> Unit,
-    private val protectSockets: Boolean = true
+    private val protectSockets: Boolean = true,
+    private val preferredPhysicalNetwork: Network? = null,
+    private val manageVpnUnderlyingNetworks: Boolean = true
 ) : PlatformInterface {
 
     private val connectivity = vpnService.getSystemService(ConnectivityManager::class.java)
@@ -68,7 +70,14 @@ class AstraPlatform(
         if (protectSockets) {
             check(vpnService.protect(fd)) { "Не удалось исключить сокет sing-box из VPN-туннеля" }
         } else {
-            val physicalNetwork = resolveUnderlyingNetwork(connectivity.activeNetwork)
+            val physicalNetwork = preferredPhysicalNetwork
+                ?.takeIf { network ->
+                    val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+                    capabilities != null &&
+                        !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                }
+                ?: resolveUnderlyingNetwork(connectivity.activeNetwork)
                 ?: error("Не найдена физическая сеть для проверки серверов")
             ParcelFileDescriptor.fromFd(fd).use { socket ->
                 physicalNetwork.bindSocket(socket.fileDescriptor)
@@ -275,7 +284,7 @@ class AstraPlatform(
 
         // Update Android only when the physical underlay actually changes.
         // Connectivity callbacks can arrive in bursts during Wi-Fi/mobile handover.
-        if (lastUnderlyingNetwork != selectedNetwork) {
+        if (manageVpnUnderlyingNetworks && lastUnderlyingNetwork != selectedNetwork) {
             runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
                 .onSuccess { lastUnderlyingNetwork = selectedNetwork }
                 .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
