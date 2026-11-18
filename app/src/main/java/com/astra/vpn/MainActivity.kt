@@ -269,7 +269,9 @@ class MainActivity : Activity() {
             setPadding(dp(10), 0, dp(10), 0)
             setTextColor(Color.WHITE)
             background = rounded(CARD, 18).apply { setStroke(dp(1), 0xFF465B85.toInt()) }
-            setOnClickListener { showImportDialog() }
+            setOnClickListener {
+                if (!importClipboardInOneTap()) showImportDialog()
+            }
         }
         header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
@@ -657,6 +659,60 @@ class MainActivity : Activity() {
         autoUpdateHandler.postDelayed({
             if (!isFinishing && !isDestroyed && !latencyTestInFlight) checkAllLatencies()
         }, 1_200L)
+    }
+
+    /**
+     * Imports a recognized VPN link or HTTPS subscription directly from the clipboard.
+     * If the clipboard does not look like supported input, fall back to the import sheet.
+     */
+    private fun importClipboardInOneTap(): Boolean {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val value = runCatching {
+            if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
+                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)?.toString()?.trim()
+            } else null
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: return false
+
+        val looksLikeVpnInput = value.lineSequence().any { line ->
+            val item = line.trim()
+            item.startsWith("vless://", true) ||
+                item.startsWith("hysteria2://", true) ||
+                item.startsWith("hy2://", true) ||
+                item.startsWith("tuic://", true) ||
+                item.startsWith("https://", true)
+        }
+        if (!looksLikeVpnInput) return false
+
+        Toast.makeText(this, "Импортируем данные из буфера…", Toast.LENGTH_SHORT).show()
+        importExecutor.execute {
+            val result = runCatching {
+                val parsed = SubscriptionParser.importDetailed(value)
+                val links = parsed.links
+                require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
+                if (value.trimStart().startsWith("https://", true)) {
+                    profileStore.replaceSubscription(value.trim(), links, parsed.metadata)
+                } else {
+                    profileStore.addAll(links)
+                }
+                links
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { links ->
+                    renderProfiles()
+                    checkAllLatencies()
+                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Не удалось импортировать")
+                        .setMessage(error.message?.takeIf { it.isNotBlank() }
+                            ?: "Проверь ссылку в буфере и подключение к интернету.")
+                        .setPositiveButton("ОК", null)
+                        .show()
+                }
+            }
+        }
+        return true
     }
 
     private fun startQrScan() {
