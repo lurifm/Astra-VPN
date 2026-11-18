@@ -1227,7 +1227,7 @@ class MainActivity : Activity() {
                 val countryName = CountryFlagResolver.countryNameForFlag(countryFlag)
                 text = if (countryFlag.isNotBlank() && countryFlag != "🌐") {
                     "${countryName.uppercase(java.util.Locale.getDefault())}  ·  ${protocolLabel}"
-                } else protocolName(link)
+                } else protocolLabel
                 textSize = 9.5f
                 letterSpacing = .07f
                 typeface = Typeface.DEFAULT_BOLD
