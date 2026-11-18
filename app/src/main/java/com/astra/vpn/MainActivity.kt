@@ -640,6 +640,35 @@ class MainActivity : Activity() {
         }, 1_200L)
     }
 
+    private fun startQrScan() {
+        runCatching {
+            com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+                .getClient(this)
+                .startScan()
+                .addOnSuccessListener { barcode ->
+                    val value = barcode.rawValue?.trim().orEmpty()
+                    if (value.isEmpty()) {
+                        Toast.makeText(this, "В QR-коде не найден текст", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showImportDialog(value)
+                    }
+                }
+                .addOnFailureListener {
+                    Toast.makeText(
+                        this,
+                        "Не удалось запустить сканер. Проверь наличие и обновление Google Play services.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }.onFailure {
+            Toast.makeText(
+                this,
+                "Сканирование QR-кодов сейчас недоступно на этом устройстве.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private fun showImportDialog(initialText: String? = null) {
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val panel = LinearLayout(this).apply {
@@ -759,6 +788,20 @@ class MainActivity : Activity() {
             }
         }
         panel.addView(pasteButton, matchWidth())
+        val qrButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = "Сканировать QR-код"
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(LIGHT_ACCENT)
+            setOnClickListener {
+                dialog.dismiss()
+                startQrScan()
+            }
+        }
+        panel.addView(qrButton, matchWidth())
+
         val fileButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
