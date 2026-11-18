@@ -1822,27 +1822,60 @@ class MainActivity : Activity() {
     }
 
     private fun showNetworkMonitorDialog() {
-        // The live monitor card is part of the main layout. Never detach/reparent it
-        // into a dialog: doing so would silently remove monitoring from the home screen.
-        val details = TextView(this).apply {
-            text = listOf(
-                monitorProtection.text,
-                monitorVpnCountry.text,
-                monitorNetwork.text,
-                monitorOperator.text,
-                monitorDownload.text,
-                monitorUpload.text,
-                monitorLocation.text
-            ).joinToString("\n")
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setLineSpacing(dp(5).toFloat(), 1f)
-            setPadding(dp(18), dp(12), dp(18), dp(12))
+        val rows = listOf(
+            "ЗАЩИТА" to monitorProtection.text.toString(),
+            "VPN-СЕРВЕР" to monitorVpnCountry.text.toString(),
+            "ТИП СЕТИ" to monitorNetwork.text.toString(),
+            "ОПЕРАТОР" to monitorOperator.text.toString(),
+            "ЗАГРУЗКА" to monitorDownload.text.toString(),
+            "ОТДАЧА" to monitorUpload.text.toString(),
+            "МЕСТОПОЛОЖЕНИЕ" to monitorLocation.text.toString()
+        )
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(12))
+            background = rounded(BG, 22)
+        }
+        content.addView(TextView(this).apply {
+            text = "✦  СОСТОЯНИЕ СЕТИ В РЕАЛЬНОМ ВРЕМЕНИ"
+            textSize = 10f
+            letterSpacing = 0.1f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF9EAEFF.toInt())
+            setPadding(0, 0, 0, dp(12))
+        })
+        rows.forEach { (label, value) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                background = rounded(0xFF151F32.toInt(), 14)
+            }
+            row.addView(TextView(this).apply {
+                text = label
+                textSize = 9f
+                letterSpacing = 0.12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(MUTED)
+            })
+            row.addView(TextView(this).apply {
+                text = value.ifBlank { "—" }
+                textSize = 14f
+                typeface = Typeface.DEFAULT_MEDIUM
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(3), 0, 0)
+            })
+            content.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(7) })
+        }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
         }
         MaterialAlertDialogBuilder(this)
             .setTitle("Мониторинг сети")
-            .setView(ScrollView(this).apply { addView(details) })
-            .setPositiveButton("Закрыть", null)
+            .setView(scroll)
+            .setPositiveButton("Готово", null)
             .show()
     }
 
@@ -1907,11 +1940,40 @@ class MainActivity : Activity() {
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
-            appendLine("Время отчёта: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+            appendLine("Время отчёта: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()))
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(12))
+            background = rounded(BG, 22)
+        }
+        val state = when {
+            connected -> "●  VPN ПОДКЛЮЧЁН"
+            connecting -> "◌  ИДЁТ ПОДКЛЮЧЕНИЕ"
+            else -> "○  VPN ОТКЛЮЧЁН"
+        }
+        content.addView(TextView(this).apply {
+            text = state
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (connected) GREEN else if (connecting) AMBER else MUTED)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF151F32.toInt(), 14)
+        })
+        content.addView(TextView(this).apply {
+            text = report
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+            setLineSpacing(dp(4).toFloat(), 1f)
+            setPadding(dp(4), dp(12), dp(4), dp(4))
+        })
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
         }
         MaterialAlertDialogBuilder(this)
             .setTitle("Диагностика соединения")
-            .setMessage(report)
+            .setView(scroll)
             .setPositiveButton("Поделиться") { _, _ ->
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
