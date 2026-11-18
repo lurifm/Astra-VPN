@@ -1954,6 +1954,7 @@ class MainActivity : Activity() {
         importExecutor.shutdownNow()
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
+        healthCheckExecutor.shutdownNow()
         super.onDestroy()
     }
 
