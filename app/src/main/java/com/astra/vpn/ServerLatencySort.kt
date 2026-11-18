@@ -1,0 +1,25 @@
+package com.astra.vpn
+
+import java.util.Locale
+
+/**
+ * Keeps reachable servers first when sorting by measured latency.
+ * Missing/failed measurements (null) are always placed at the bottom.
+ */
+object ServerLatencySort {
+    fun sort(
+        profiles: List<String>,
+        mode: String,
+        latencyMs: Map<String, Long>,
+        favorites: Set<String>,
+        locale: Locale = Locale.getDefault()
+    ): List<String> = when (mode) {
+        "ping" -> profiles.sortedWith(
+            compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }
+                .thenByDescending { it in favorites }
+                .thenBy { it }
+        )
+        "alphabet" -> profiles.sortedBy { it.lowercase(locale) }
+        else -> profiles.sortedByDescending { it in favorites }
+    }
+}
