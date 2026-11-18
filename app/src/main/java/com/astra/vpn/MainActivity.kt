@@ -573,11 +573,8 @@ class MainActivity : Activity() {
         }
         monitorDetails.addView(monitorLocation)
         monitorCard.addView(monitorDetails, matchWidth())
-        // Keep the main screen compact; detailed live metrics expand on demand.
-        // The card is compact and sits above the server list; the list retains the remaining space.
-        root.addView(monitorCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
+        // Network monitoring is intentionally hidden from the home screen.
+        // It remains available from Settings → Tools.
         root.addView(listHeader)
         root.addView(filterRow, matchWidth())
         root.addView(serverCountLabel, matchWidth())
@@ -616,7 +613,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(5))
         })
         panel.addView(TextView(this).apply {
-            text = "Подключи свою орбиту"
+            text = "Добавить серверы"
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -1384,7 +1381,7 @@ class MainActivity : Activity() {
                 setTextColor(LIGHT_ACCENT)
             }, matchWidth())
             emptyCard.addView(TextView(this).apply {
-                text = if (hasProfiles) "Ничего не найдено" else "Твоя орбита пока пуста"
+                text = if (hasProfiles) "Ничего не найдено" else "Серверы ещё не добавлены"
                 textSize = 17f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
