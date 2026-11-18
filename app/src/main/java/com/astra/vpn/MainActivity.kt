@@ -116,7 +116,8 @@ class MainActivity : Activity() {
             when (intent?.action) {
                 AstraLatencyTestService.ACTION_RESULTS -> {
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
-                    applyLatencyResults(payload)
+                    val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
+                    applyLatencyResults(payload, finished)
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
@@ -1411,18 +1412,23 @@ class MainActivity : Activity() {
         applyLatencyResults(pending)
     }
 
-    private fun applyLatencyResults(payload: String) {
-        getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
-            .remove(KEY_LATENCY_PENDING_RESULTS)
-            .apply()
-        latencyTestInFlight = false
+    private fun applyLatencyResults(payload: String, finished: Boolean) {
+        if (finished) {
+            getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .apply()
+            latencyTestInFlight = false
+        }
         val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        // Render each successful measurement immediately instead of waiting for
+        // the slowest server in the subscription to finish its URL-test.
         urlTestProfileMap.forEach { (tag, profile) ->
-            val ms = if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else -1L
+            if (!values.has(tag)) return@forEach
+            val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
-                pingInfo[profile] = "URL-test $ms мс · ${latencyQuality(ms)}"
-            } else {
+                pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
+            } else if (finished) {
                 latencyMs.remove(profile)
                 pingInfo[profile] = "н/д"
             }
