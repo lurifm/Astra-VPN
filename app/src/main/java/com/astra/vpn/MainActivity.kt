@@ -206,6 +206,8 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
                     connecting = true
+                    consecutiveHealthFailures = 0
+                    lastHealthCheckAt = 0L
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
                 }
@@ -220,6 +222,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_DISCONNECTED -> {
                     connected = false
                     connecting = false
+                    consecutiveHealthFailures = 0
                     tunnelInternetOk = null
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
@@ -227,6 +230,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
                     connecting = false
+                    consecutiveHealthFailures = 0
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
