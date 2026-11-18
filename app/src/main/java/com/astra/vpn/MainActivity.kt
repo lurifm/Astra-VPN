@@ -2371,7 +2371,8 @@ class MainActivity : Activity() {
             selectingFastest = false
             val fastest = BestServerSelector.select(
                 profiles = urlTestProfileMap.values.toList(),
-                latencyMs = latencyMs
+                latencyMs = latencyMs,
+                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList())
             )
             if (fastest != null) {
                 selectedProfile = fastest
@@ -2716,7 +2717,8 @@ class MainActivity : Activity() {
         }
         val alternate = BestServerSelector.select(
             profiles = profiles.filterNot { it == current },
-            latencyMs = latencyMs
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(profiles.filterNot { it == current })
         ) ?: run {
             renderProfiles()
             return
@@ -3479,6 +3481,18 @@ class MainActivity : Activity() {
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
         refreshSubscriptions(showResult = false)
+    }
+
+    private fun recentServerFailureCounts(profiles: List<String>): Map<String, Int> {
+        val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+        val failuresByName = connectionHistory.getEntries()
+            .asSequence()
+            .filter { it.timestamp >= cutoff && it.state == "error" }
+            .groupingBy { it.serverName.trim().lowercase(java.util.Locale.ROOT) }
+            .eachCount()
+        return profiles.associateWith { profile ->
+            failuresByName[profileName(profile).trim().lowercase(java.util.Locale.ROOT)] ?: 0
+        }
     }
 
     private fun profileName(link: String): String {
