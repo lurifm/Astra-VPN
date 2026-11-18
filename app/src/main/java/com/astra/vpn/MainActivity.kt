@@ -2949,7 +2949,8 @@ class MainActivity : Activity() {
                 val previous = runCatching {
                     AppTrafficStatsReader.readPeriod(this, now - 2L * dayMs, now - dayMs)
                 }.getOrNull()
-                current to previous
+                val weekly = AppTrafficStatsReader.readLastSevenDays(this, now)
+                Triple(current, previous, weekly)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -2958,6 +2959,7 @@ class MainActivity : Activity() {
                     onSuccess = { period ->
                         val stats = period.first
                         val previous = period.second
+                        val weekly = period.third
                         val total = stats.totalDownloadedBytes + stats.totalUploadedBytes
                         val downloaded = stats.totalDownloadedBytes
                         val uploaded = stats.totalUploadedBytes
@@ -3049,6 +3051,63 @@ class MainActivity : Activity() {
                             if (share < 100.0) track.addView(View(this), LinearLayout.LayoutParams(0, dp(5), (100.0 - share).toFloat().coerceAtLeast(0.5f)))
                             card.addView(track)
                             target.addView(card, matchWidth().apply { topMargin = dp(6) })
+                        }
+                        target.addView(TextView(this).apply {
+                            text = "ИСТОРИЯ ПРИЛОЖЕНИЙ · 7 ДНЕЙ"
+                            textSize = 9f
+                            letterSpacing = 0.12f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(MUTED)
+                            setPadding(0, dp(16), 0, dp(5))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "Динамика общесистемного трафика по дням. Сегодня учитывается не полностью."
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, 0, 0, dp(5))
+                        })
+                        val weeklyApps = weekly.flatMap { it.apps }
+                            .groupBy { it.uid }
+                            .mapValues { (_, entries) -> entries.sumOf { it.totalBytes }.coerceAtLeast(0L) }
+                            .entries.sortedByDescending { it.value }.take(5)
+                        if (weeklyApps.isEmpty()) {
+                            target.addView(TextView(this).apply {
+                                text = "За эту неделю статистика приложений пока недоступна."
+                                textSize = 11f
+                                setTextColor(0xFFD8E0F2.toInt())
+                            })
+                        }
+                        val bars = "▁▂▃▄▅▆▇█"
+                        weeklyApps.forEachIndexed { index, entry ->
+                            val label = weekly.asSequence().flatMap { it.apps.asSequence() }
+                                .firstOrNull { it.uid == entry.key }?.label ?: "UID ${entry.key}"
+                            val dailyValues = weekly.map { day ->
+                                day.apps.firstOrNull { it.uid == entry.key }?.totalBytes ?: 0L
+                            }
+                            val maxDay = dailyValues.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+                            val sparkline = dailyValues.joinToString("") { value ->
+                                val slot = if (value <= 0L) 0 else
+                                    ((value.toDouble() / maxDay.toDouble()) * (bars.lastIndex)).toInt().coerceIn(1, bars.lastIndex)
+                                bars[slot].toString()
+                            }
+                            val card = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(9), dp(8), dp(9), dp(8))
+                                background = rounded(0xFF19253A.toInt(), 12)
+                            }
+                            card.addView(TextView(this).apply {
+                                text = "${index + 1}. $label"
+                                textSize = 11f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(Color.WHITE)
+                            })
+                            card.addView(TextView(this).apply {
+                                text = sparkline + "    Всего: ${AppTrafficStatsReader.formatBytes(entry.value)}"
+                                textSize = 12f
+                                setTextColor(0xFFB9C8FF.toInt())
+                                setPadding(0, dp(3), 0, 0)
+                            })
+                            target.addView(card, matchWidth().apply { topMargin = dp(5) })
                         }
                     },
                     onFailure = { error ->
