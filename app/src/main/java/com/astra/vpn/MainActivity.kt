@@ -520,16 +520,99 @@ class MainActivity : Activity() {
     }
 
     private fun showImportDialog() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(6))
+        }
+        panel.addView(TextView(this).apply {
+            text = "✦"
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(2), 0, dp(5))
+        })
+        panel.addView(TextView(this).apply {
+            text = "Подключи свою орбиту"
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+        })
+        panel.addView(TextView(this).apply {
+            text = "Вставь ссылку на отдельный сервер или HTTPS-подписку. Данные профилей сохраняются в зашифрованном хранилище на устройстве."
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(7), dp(4), dp(15))
+        })
+        panel.addView(TextView(this).apply {
+            text = "ССЫЛКА ИЛИ АДРЕС ПОДПИСКИ"
+            textSize = 10f
+            letterSpacing = .09f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(dp(2), 0, 0, dp(7))
+        })
         val input = EditText(this).apply {
-            hint = "Вставь ссылку или HTTPS-подписку"
+            hint = "https://… или vless://…"
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
+            textSize = 14f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_VARIATION_URI
+            minLines = 2
+            maxLines = 4
+            gravity = Gravity.TOP or Gravity.START
             setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF172238.toInt(), 0xFF111A2B.toInt())
+            ).apply {
+                cornerRadius = dp(15).toFloat()
+                setStroke(dp(1), 0xFF3A4B70.toInt())
+            }
         }
+        panel.addView(input, matchWidth().apply { bottomMargin = dp(9) })
+        val pasteButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = "Вставить из буфера обмена"
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(LIGHT_ACCENT)
+            icon = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(LIGHT_ACCENT)
+                setSize(dp(8), dp(8))
+            }
+            iconPadding = dp(8)
+            setOnClickListener {
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clipText = runCatching {
+                    if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
+                        clipboard.primaryClip!!.getItemAt(0).coerceToText(this@MainActivity)?.toString()
+                    } else null
+                }.getOrNull()?.trim().orEmpty()
+                if (clipText.isNotEmpty()) {
+                    input.setText(clipText)
+                    input.setSelection(input.text.length)
+                } else {
+                    Toast.makeText(this@MainActivity, "В буфере обмена нет текста", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        panel.addView(pasteButton, matchWidth())
+        panel.addView(TextView(this).apply {
+            text = "Поддерживаются VLESS, Hysteria2, TUIC и HTTPS-подписки."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(2), dp(10), dp(2), dp(2))
+        })
+
         MaterialAlertDialogBuilder(this)
             .setTitle("Добавить серверы")
-            .setMessage("Можно вставить ссылку на сервер или HTTPS-ссылку подписки. Импортированные профили хранятся зашифрованно на устройстве.")
-            .setView(input)
+            .setView(panel)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Импортировать", null)
             .create()
@@ -543,6 +626,7 @@ class MainActivity : Activity() {
                         }
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         input.isEnabled = false
+                        pasteButton.isEnabled = false
                         status.text = "Импортируем серверы…"
                         importExecutor.execute {
                             // Keep network, parsing and encrypted persistence off the UI thread.
@@ -569,9 +653,7 @@ class MainActivity : Activity() {
                                 }.onFailure { error ->
                                     status.text = "Ошибка импорта"
                                     status.setTextColor(RED)
-                                    // Network/parser errors can echo the submitted URL, which may
-                                    // contain access credentials. Only storage errors have safe,
-                                    // user-facing recovery text.
+                                    // Never echo a submitted URL: subscription links may contain credentials.
                                     val message = if (error is ProfileStorageException) {
                                         error.message ?: "Не удалось открыть защищённое хранилище."
                                     } else {
