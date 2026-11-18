@@ -107,6 +107,7 @@ class MainActivity : Activity() {
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var sortMode = "original"
+    private var subscriptionsExpanded = false
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
     private val searchRenderHandler = Handler(Looper.getMainLooper())
@@ -256,17 +257,19 @@ class MainActivity : Activity() {
             letterSpacing = .12f
         }
         val addButton = TextView(this).apply {
-            text = "+"
+            text = "＋ Добавить"
             contentDescription = "Добавить сервер или подписку"
-            textSize = 34f
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            setPadding(dp(10), 0, dp(10), 0)
             setTextColor(Color.WHITE)
-            background = rounded(CARD, 18)
+            background = rounded(CARD, 18).apply { setStroke(dp(1), 0xFF465B85.toInt()) }
             setOnClickListener { showImportDialog() }
         }
         header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
-        header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
+        header.addView(addButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
 
         val subtitle = TextView(this).apply {
             text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ  ·  БЕЗ ЛИШНИХ НАСТРОЕК"
@@ -782,7 +785,7 @@ class MainActivity : Activity() {
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Вставить из буфера обмена"
+            text = "📋 Вставить"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -801,11 +804,15 @@ class MainActivity : Activity() {
                 }
             }
         }
-        panel.addView(pasteButton, matchWidth())
+        val importMethodsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        importMethodsRow.addView(pasteButton, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(5) })
         val qrButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Сканировать QR-код"
+            text = "▦ QR"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -814,12 +821,12 @@ class MainActivity : Activity() {
                 startQrScan()
             }
         }
-        panel.addView(qrButton, matchWidth())
+        importMethodsRow.addView(qrButton, LinearLayout.LayoutParams(0, dp(44), 0.78f).apply { rightMargin = dp(5) })
 
         val fileButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Выбрать файл конфигурации"
+            text = "📁 Файл"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -839,7 +846,8 @@ class MainActivity : Activity() {
                     }
             }
         }
-        panel.addView(fileButton, matchWidth())
+        importMethodsRow.addView(fileButton, LinearLayout.LayoutParams(0, dp(44), 0.9f))
+        panel.addView(importMethodsRow, matchWidth())
         panel.addView(TextView(this).apply {
             text = "VLESS  ·  Hysteria2  ·  TUIC  ·  HTTPS-подписки"
             textSize = 11f
@@ -1268,17 +1276,19 @@ class MainActivity : Activity() {
                     lastAttempt > 0L -> "Последняя попытка: ${dateFormat.format(java.util.Date(lastAttempt))} · успешных обновлений пока нет"
                     else -> "Подписки ещё не обновлялись"
                 }
-                addView(TextView(this@MainActivity).apply {
-                    text = historyText
-                    textSize = 10f
-                    setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
-                    setPadding(0, dp(4), 0, 0)
-                })
+                text = historyText
+                textSize = 10f
+                setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
+                setPadding(dp(2), dp(5), 0, 0)
+                visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
+                }
+                addView(subscriptionHistory)
             })
             summaries.forEach { subscription ->
                 val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
                 val isSubscriptionRefreshing = refreshEntry?.state == "updating"
                 val card = LinearLayout(this).apply {
+                    visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(15), dp(13), dp(15), dp(13))
                     background = rounded(CARD, 16).apply {
