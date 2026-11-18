@@ -1609,6 +1609,7 @@ class MainActivity : Activity() {
             connecting = true
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
+            updateProtectionLabels()
         } catch (error: Exception) {
             // Do not leave a stale configuration behind after a failed service start.
             pendingConfig = null
@@ -1616,6 +1617,7 @@ class MainActivity : Activity() {
             connected = false
             status.text = "Не удалось запустить VPN"
             status.setTextColor(RED)
+            updateProtectionLabels()
             Toast.makeText(this, "Не удалось запустить VPN. Проверь выбранный сервер и разрешение на VPN.", Toast.LENGTH_LONG).show()
         }
         renderProfiles()
@@ -1628,6 +1630,8 @@ class MainActivity : Activity() {
         connecting = false
         status.text = "Отключаемся…"
         status.setTextColor(MUTED)
+        tunnelInternetOk = null
+        updateProtectionLabels()
         renderProfiles()
     }
 
