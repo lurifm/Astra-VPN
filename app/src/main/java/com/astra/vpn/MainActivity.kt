@@ -1583,6 +1583,18 @@ class MainActivity : Activity() {
                 )
                 minimumHeight = dp(72)
                 elevation = dp(if (isSelected) 3 else 0).toFloat()
+                // Expose selection and active-tunnel state as actual Android view
+                // state, not only as text in the row's accessibility description.
+                isSelected = isSelected
+                isActivated = connected && link == activeProfile
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    stateDescription = when {
+                        isSelected && isActivated -> "Выбран и используется"
+                        isActivated -> "Используется для VPN"
+                        isSelected -> "Выбран для подключения"
+                        else -> null
+                    }
+                }
                 contentDescription = buildString {
                     append(name)
                     append(", ")
