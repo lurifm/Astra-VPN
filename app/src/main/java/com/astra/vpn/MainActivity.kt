@@ -1181,7 +1181,10 @@ class MainActivity : Activity() {
                         else -> MUTED
                     }
                 setTextColor(tone)
-                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else if (pingInfo[link] == "н/д") 0x1AFF7777 else 0x1A9AA6BF, 8)
+                // Match the pill tint to the measured quality instead of painting
+                // every successful result green (a 400 ms route is not "fast").
+                val pillTint = 0x1A000000 or (tone and 0x00FFFFFF)
+                background = rounded(pillTint, 8)
                 contentDescription = "Задержка измеряется HTTP URL-test через соответствующий сервер sing-box. Недоступные серверы отображаются как н/д."
                 setPadding(dp(9), dp(5), dp(9), dp(5))
             }
@@ -2322,8 +2325,8 @@ class MainActivity : Activity() {
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
-        private const val ACCENT = 0xFF647CFF.toInt()
-        private const val LIGHT_ACCENT = 0xFFA9B8FF.toInt()
+        private const val ACCENT = 0xFF69BFFF.toInt()
+        private const val LIGHT_ACCENT = 0xFFB7DFFF.toInt()
         private const val GREEN = 0xFF55D69A.toInt()
         private const val AMBER = 0xFFFFC66D.toInt()
         private const val RED = 0xFFFF7777.toInt()
