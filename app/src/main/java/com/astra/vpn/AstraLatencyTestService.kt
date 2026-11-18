@@ -2,6 +2,7 @@ package com.astra.vpn
 
 import android.content.Context
 import android.content.Intent
+import android.net.Network
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
@@ -46,8 +47,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
         val config = intent?.getStringExtra(EXTRA_CONFIG)
         val tagsJson = intent?.getStringExtra(EXTRA_TAGS)
-        if (config.isNullOrBlank() || tagsJson.isNullOrBlank()) {
-            publishFailure("Не передана конфигурация проверки")
+        val probeNetwork = intent?.getParcelableExtra<Network>(EXTRA_NETWORK)
+        if (config.isNullOrBlank() || tagsJson.isNullOrBlank() || probeNetwork == null) {
+            publishFailure("Не передана конфигурация или физическая сеть для проверки")
             finish()
             return START_NOT_STICKY
         }
@@ -70,7 +72,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 runCatching { descriptor.close() }
                 publishFailure("Проверка неожиданно запросила VPN-интерфейс")
                 handler.post { finish() }
-            }, protectSockets = false)
+            }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
             val commandServer = CommandServer(this, platform)
             server = commandServer
             commandServer.start()
@@ -224,6 +226,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val ACTION_ERROR = "com.astra.vpn.action.LATENCY_ERROR"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.LATENCY_CONFIG"
         const val EXTRA_TAGS = "com.astra.vpn.extra.LATENCY_TAGS"
+        const val EXTRA_NETWORK = "com.astra.vpn.extra.LATENCY_NETWORK"
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
         const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
@@ -235,11 +238,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val TEST_TIMEOUT_MS = 45_000L
         private const val RESULT_SETTLE_MS = 2_000L
 
-        fun start(context: Context, config: String, tags: Set<String>) {
+        fun start(context: Context, config: String, tags: Set<String>, network: Network) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_CONFIG, config)
                 .putExtra(EXTRA_TAGS, JSONArray(tags.toList()).toString())
+                .putExtra(EXTRA_NETWORK, network)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
