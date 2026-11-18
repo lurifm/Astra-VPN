@@ -47,4 +47,34 @@ class BestServerSelectorTest {
     fun returnsNullWhenNoServerResponded() {
         assertNull(BestServerSelector.select(listOf("vless://offline"), emptyMap()))
     }
+    @Test
+    fun prefersMoreStableServerWhenLatencyIsClose() {
+        val selected = BestServerSelector.select(
+            listOf("vless://unstable", "vless://stable"),
+            mapOf("vless://unstable" to 45L, "vless://stable" to 65L),
+            recentFailures = mapOf("vless://unstable" to 3)
+        )
+        assertEquals("vless://stable", selected)
+    }
+
+    @Test
+    fun stabilityPenaltyIsCappedAndCannotHideLargeLatencyDifference() {
+        val selected = BestServerSelector.select(
+            listOf("vless://unstable", "vless://fast"),
+            mapOf("vless://unstable" to 300L, "vless://fast" to 40L),
+            recentFailures = mapOf("vless://unstable" to 100)
+        )
+        assertEquals("vless://fast", selected)
+    }
+
+    @Test
+    fun negativeFailureCountsAreIgnored() {
+        val selected = BestServerSelector.select(
+            listOf("vless://node"),
+            mapOf("vless://node" to 50L),
+            recentFailures = mapOf("vless://node" to -5)
+        )
+        assertEquals("vless://node", selected)
+    }
+
 }
