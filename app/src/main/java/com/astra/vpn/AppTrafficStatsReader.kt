@@ -24,7 +24,7 @@ internal object AppTrafficStatsReader {
         val downloadedBytes: Long,
         val uploadedBytes: Long
     ) {
-        val totalBytes: Long get() = downloadedBytes + uploadedBytes
+        val totalBytes: Long get() = safeAdd(downloadedBytes, uploadedBytes)
     }
 
     data class DailySnapshot(
@@ -79,7 +79,7 @@ internal object AppTrafficStatsReader {
                 val day = runCatching { readPeriod(context, start, end) }.getOrNull()
                 if (day != null) result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), day.apps)
             } else {
-                result += DailySnapshot(dayKey, dateFormat.format(start), emptyList())
+                result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), emptyList())
             }
         }
         return result
@@ -106,8 +106,8 @@ internal object AppTrafficStatsReader {
                     val uid = bucket.uid
                     if (uid < 0) continue
                     val values = totals.getOrPut(uid) { longArrayOf(0L, 0L) }
-                    values[0] = (values[0] + bucket.rxBytes).coerceAtLeast(0L)
-                    values[1] = (values[1] + bucket.txBytes).coerceAtLeast(0L)
+                    values[0] = safeAdd(values[0], bucket.rxBytes)
+                    values[1] = safeAdd(values[1], bucket.txBytes)
                 }
                 if (mobile) mobileAvailable = true else wifiAvailable = true
             } finally {
@@ -144,6 +144,12 @@ internal object AppTrafficStatsReader {
             apps.sumOf { it.downloadedBytes }.coerceAtLeast(0L),
             apps.sumOf { it.uploadedBytes }.coerceAtLeast(0L)
         )
+    }
+
+    private fun safeAdd(first: Long, second: Long): Long {
+        val a = first.coerceAtLeast(0L)
+        val b = second.coerceAtLeast(0L)
+        return if (Long.MAX_VALUE - a < b) Long.MAX_VALUE else a + b
     }
 
     fun formatBytes(bytes: Long): String {
