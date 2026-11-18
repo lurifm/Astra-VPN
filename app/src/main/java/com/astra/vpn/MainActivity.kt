@@ -25,7 +25,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import com.google.android.material.button.MaterialButton
 import android.widget.CheckBox
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -44,7 +44,7 @@ class MainActivity : Activity() {
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
     private lateinit var status: TextView
-    private lateinit var connectButton: Button
+    private lateinit var connectButton: MaterialButton
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -212,13 +212,18 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, dp(7), 0, dp(17))
         }
-        connectButton = Button(this).apply {
+        connectButton = MaterialButton(this).apply {
             text = "ПОДКЛЮЧИТЬСЯ"
             isAllCaps = false
             textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            background = rounded(ACCENT, 18)
+            cornerRadius = dp(18)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+            rippleColor = android.content.res.ColorStateList.valueOf(0x33FFFFFF)
+            insetTop = 0
+            insetBottom = 0
+            elevation = dp(2).toFloat()
             isEnabled = false
             setOnClickListener {
                 // Give immediate visible feedback before asking Android to start/stop VpnService.
