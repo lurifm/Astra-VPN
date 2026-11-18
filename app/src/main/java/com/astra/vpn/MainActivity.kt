@@ -1144,6 +1144,69 @@ class MainActivity : Activity() {
             locale = java.util.Locale.getDefault()
         )
 
+        if (displayProfiles.isEmpty()) {
+            val hasProfiles = profiles.isNotEmpty()
+            val emptyCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(22), dp(26), dp(22), dp(24))
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(0xFF1A2540.toInt(), 0xFF111A2C.toInt())
+                ).apply {
+                    cornerRadius = dp(22).toFloat()
+                    setStroke(dp(1), 0xFF34466B.toInt())
+                }
+            }
+            emptyCard.addView(TextView(this).apply {
+                text = if (hasProfiles) "⌕" else "✦"
+                textSize = 34f
+                gravity = Gravity.CENTER
+                setTextColor(LIGHT_ACCENT)
+            }, matchWidth())
+            emptyCard.addView(TextView(this).apply {
+                text = if (hasProfiles) "Ничего не найдено" else "Твоя орбита пока пуста"
+                textSize = 17f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(7), 0, dp(4))
+            }, matchWidth())
+            emptyCard.addView(TextView(this).apply {
+                text = if (hasProfiles) {
+                    "Попробуй изменить запрос или выбрать другую страну."
+                } else {
+                    "Добавь ссылку на сервер или HTTPS-подписку, чтобы начать пользоваться Astra VPN."
+                }
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(MUTED)
+                setPadding(dp(4), 0, dp(4), dp(15))
+            }, matchWidth())
+            val emptyAction = MaterialButton(this).apply {
+                text = if (hasProfiles) "Сбросить фильтры" else "Добавить серверы"
+                isAllCaps = false
+                textSize = 13f
+                cornerRadius = dp(14)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+                setTextColor(Color.WHITE)
+                setOnClickListener {
+                    if (hasProfiles) {
+                        serverSearch.setText("")
+                        if (countryFilter.selectedItemPosition != 0) countryFilter.setSelection(0)
+                        else renderProfiles()
+                    } else {
+                        showImportDialog()
+                    }
+                }
+            }
+            emptyCard.addView(emptyAction, LinearLayout.LayoutParams(matchWidth().width, dp(48)))
+            profileList.addView(emptyCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(12)
+            })
+        }
+
         displayProfiles.forEach { link ->
             val isSelected = link == selected
             // displayProfiles is derived from profiles, so every row already has
