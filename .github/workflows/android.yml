@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Keep only the newest build for a branch; rapid UI/engine commits should not
+# queue many obsolete Gradle builds.
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
