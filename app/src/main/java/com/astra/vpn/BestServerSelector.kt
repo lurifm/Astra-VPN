@@ -28,9 +28,14 @@ internal object BestServerSelector {
                 val failures = recentFailures[profile]?.coerceAtLeast(0) ?: 0
                 val stabilityPenalty = (failures.toLong() * FAILURE_PENALTY_MS)
                     .coerceAtMost(MAX_FAILURE_PENALTY_MS)
-                Triple(profile, latency, latency + protocolPenalty + stabilityPenalty)
+                val score = addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty)
+                Triple(profile, latency, score)
             }
             .minWithOrNull(compareBy<Triple<String, Long, Long>> { it.third }.thenBy { it.second })
             ?.first
     }
+
+    /** Keep an extreme/corrupt latency sample from wrapping the score negative. */
+    private fun addPenalty(latency: Long, penalty: Long): Long =
+        if (Long.MAX_VALUE - latency < penalty) Long.MAX_VALUE else latency + penalty
 }
