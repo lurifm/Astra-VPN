@@ -16,11 +16,12 @@ internal object AppTrafficTrend {
         return if (delta > 0L) "↑ +$rounded% ко вчера" else "↓ −$rounded% ко вчера"
     }
 
-    fun dailyTotals(days: List<AppTrafficStatsReader.DailySnapshot>): List<Long> =
-        days.map { day ->
-            day.apps.fold(0L) { total, app ->
-                val value = app.totalBytes.coerceAtLeast(0L)
-                if (Long.MAX_VALUE - total < value) Long.MAX_VALUE else total + value
-            }
+    fun safeSum(values: Iterable<Long>): Long =
+        values.fold(0L) { total, value ->
+            val positive = value.coerceAtLeast(0L)
+            if (Long.MAX_VALUE - total < positive) Long.MAX_VALUE else total + positive
         }
+
+    fun dailyTotals(days: List<AppTrafficStatsReader.DailySnapshot>): List<Long> =
+        days.map { day -> safeSum(day.apps.map { it.totalBytes }) }
 }
