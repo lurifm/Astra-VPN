@@ -2936,8 +2936,8 @@ class MainActivity : Activity() {
             recentEntries.map { ConnectionStability.Event(it.timestamp, it.state) },
             System.currentTimeMillis()
         )
-        val stabilityText = "За 7 дней · по сохранённым событиям\\n" +
-            "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\\n" +
+        val stabilityText = "За 7 дней · по сохранённым событиям\n" +
+            "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\n" +
             "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}"
         val body = if (entries.isEmpty()) {
             "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
