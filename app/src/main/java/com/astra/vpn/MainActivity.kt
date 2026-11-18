@@ -1485,23 +1485,35 @@ class MainActivity : Activity() {
             }
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
+                val measuredLatency = latencyMs[link]
                 text = when {
-                    latencyMs[link] != null -> "●  $latency"
-                    latency == "н/д" -> "●  н/д"
-                    latency == "Проверяем…" -> "◌  Проверяем"
-                    else -> "○  Не проверен"
+                    measuredLatency != null -> "●  PING  $latency"
+                    latency == "н/д" -> "●  PING  н/д"
+                    latency == "Проверяем…" -> "◌  PING  проверяем…"
+                    else -> "○  PING  не проверен"
                 }
                 textSize = 11f
                 typeface = Typeface.DEFAULT_BOLD
-                val tone = latencyMs[link]?.let { latencyColor(it) }
-                    ?: when (pingInfo[link]) {
+                val tone = measuredLatency?.let { latencyColor(it) }
+                    ?: when (latency) {
                         "н/д" -> RED
                         "Проверяем…" -> AMBER
                         else -> MUTED
                     }
                 setTextColor(tone)
-                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else if (pingInfo[link] == "н/д") 0x1AFF7777 else 0x1A9AA6BF, 8)
-                contentDescription = "Задержка измеряется HTTP URL-test через соответствующий сервер sing-box. Недоступные серверы отображаются как н/д."
+                val pillColor = when {
+                    measuredLatency != null -> 0x1A55D69A
+                    latency == "н/д" -> 0x1AFF7777
+                    latency == "Проверяем…" -> 0x1AFFC66D
+                    else -> 0x1A9AA6BF
+                }
+                background = rounded(pillColor, 8)
+                contentDescription = when {
+                    measuredLatency != null -> "Пинг сервера: $latency"
+                    latency == "н/д" -> "Пинг недоступен"
+                    latency == "Проверяем…" -> "Проверяем пинг сервера"
+                    else -> "Пинг ещё не проверялся"
+                }
                 setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             details.addView(title)
