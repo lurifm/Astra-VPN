@@ -31,6 +31,19 @@ class SubscriptionParserUrlTest {
         assertRejected("https://example.com:70000/sub")
     }
 
+    @Test fun acceptsImportTextWithinTwoMegabytes() {
+        SubscriptionParser.validateInputSize("x".repeat(2 * 1024 * 1024))
+    }
+
+    @Test fun rejectsImportTextLargerThanTwoMegabytes() {
+        try {
+            SubscriptionParser.validateInputSize("x".repeat(2 * 1024 * 1024 + 1))
+            fail("Expected oversized import text to be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected size limit.
+        }
+    }
+
     private fun assertRejected(value: String) {
         try {
             SubscriptionParser.validateSubscriptionUrl(value)
