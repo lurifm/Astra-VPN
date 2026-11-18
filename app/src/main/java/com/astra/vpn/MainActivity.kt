@@ -908,7 +908,7 @@ class MainActivity : Activity() {
                     result.onSuccess { links ->
                         renderProfiles()
                         checkAllLatencies()
-                        status.Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
@@ -1385,7 +1385,9 @@ class MainActivity : Activity() {
         val profileDetails = profiles.associateWith { link ->
             val uri = Uri.parse(link)
             val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-            val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+            val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+            val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
+            val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val protocol = when (uri.scheme?.lowercase()) {
                 "vless" -> "VLESS"
                 "hysteria2", "hy2" -> "Hysteria2"
@@ -1817,12 +1819,12 @@ class MainActivity : Activity() {
                 contentDescription = if (link in favorites) "Убрать сервер $name из избранного" else "Добавить сервер $name в избранное"
                 setOnClickListener { toggleFavoriteServer(link) }
             }
-                        row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
+            row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
             row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-                        profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
             })
         }
@@ -3261,7 +3263,9 @@ class MainActivity : Activity() {
     private fun profileSummary(link: String): String {
         val uri = Uri.parse(link)
         val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-        val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+        val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+            val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
+            val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
         val protocol = when (uri.scheme?.lowercase()) {
             "vless" -> "VLESS"
             "hysteria2", "hy2" -> "Hysteria2"
