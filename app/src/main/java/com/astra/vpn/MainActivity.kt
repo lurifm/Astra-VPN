@@ -990,14 +990,14 @@ class MainActivity : Activity() {
         val vlessProfiles = profiles.filter { link ->
             val uri = Uri.parse(link)
             val scheme = uri.scheme.orEmpty().lowercase()
-            if (scheme != "vless") {
+            if (scheme != "vless" || uri.host.isNullOrBlank() || uri.port !in 1..65535) {
                 latencyMs.remove(link)
-                // Do not invent a latency for protocols that are not probed yet.
-                // In particular, a TCP socket check cannot validate UDP-only servers.
+                // Do not invent a latency for unsupported protocols or malformed links.
+                // A TCP socket check cannot validate UDP-only servers.
                 pingInfo[link] = "н/д"
                 false
             } else {
-                !uri.host.isNullOrBlank() && uri.port in 1..65535
+                true
             }
         }
 
