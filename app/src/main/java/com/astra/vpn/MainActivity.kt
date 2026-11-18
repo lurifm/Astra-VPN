@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
@@ -971,6 +972,7 @@ class MainActivity : Activity() {
 
     private fun checkAllLatencies() {
         val profiles = safeProfiles() ?: return
+        val generation = latencyCheckGeneration.incrementAndGet()
         val currentProfiles = profiles.toHashSet()
         // Drop cached results for removed profiles so ping sorting never
         // keeps ghost entries or stale measurements after subscription edits.
@@ -1012,18 +1014,26 @@ class MainActivity : Activity() {
             latencyMs.remove(link)
             pingInfo[link] = "Проверяем…"
             pingExecutor.execute {
+                // A newer refresh supersedes queued work. Do not spend time on
+                // obsolete probes or let their results overwrite fresh values.
+                if (generation != latencyCheckGeneration.get()) {
+                    remaining.decrementAndGet()
+                    return@execute
+                }
                 val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
-                result.onSuccess {
-                    latencyMs[link] = it.tcpMedianMs
-                    pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
-                }.onFailure {
-                    latencyMs.remove(link)
-                    pingInfo[link] = "н/д"
+                if (generation == latencyCheckGeneration.get()) {
+                    result.onSuccess {
+                        latencyMs[link] = it.tcpMedianMs
+                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
+                    }.onFailure {
+                        latencyMs.remove(link)
+                        pingInfo[link] = "н/д"
+                    }
                 }
 
                 if (remaining.decrementAndGet() == 0) {
                     runOnUiThread {
-                        if (!isFinishing && !isDestroyed) renderProfiles()
+                        if (generation == latencyCheckGeneration.get() && !isFinishing && !isDestroyed) renderProfiles()
                     }
                 }
             }
