@@ -77,7 +77,7 @@ internal object AppTrafficStatsReader {
             val end = minOf(calendar.timeInMillis, now)
             if (start < end) {
                 val day = runCatching { readPeriod(context, start, end) }.getOrNull()
-                if (day != null) result += DailySnapshot(dayKey, dateFormat.format(start), day.apps)
+                if (day != null) result += DailySnapshot(dayKey, dateFormat.format(java.util.Date(start)), day.apps)
             } else {
                 result += DailySnapshot(dayKey, dateFormat.format(start), emptyList())
             }
