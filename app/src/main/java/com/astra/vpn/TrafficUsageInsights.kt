@@ -26,7 +26,7 @@ internal object TrafficUsageInsights {
         val hundredMiB = 100L * 1024L * 1024L
         return when {
             now >= oneGiB -> "Высокий расход: за сутки использовано не менее 1 ГБ."
-            before > 0L && now - before >= hundredMiB && now >= before * 2L ->
+            before > 0L && now > before && now - before >= hundredMiB && now - before >= before ->
                 "Расход заметно вырос: более чем вдвое и минимум на 100 МБ."
             else -> null
         }
