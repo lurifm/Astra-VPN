@@ -130,6 +130,17 @@ class MainActivity : Activity() {
     private lateinit var monitorLocation: TextView
     private lateinit var speedGraph: SpeedGraphView
     private lateinit var monitorSpeedStats: TextView
+    private lateinit var monitorDailyTraffic: TextView
+    private val dailyTrafficAccumulator: DailyTrafficAccumulator by lazy {
+        val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
+        DailyTrafficAccumulator(
+            dayKey = prefs.getInt("day", 0),
+            lastRx = prefs.getLong("rx", -1L),
+            lastTx = prefs.getLong("tx", -1L),
+            downloaded = prefs.getLong("downloaded", 0L),
+            uploaded = prefs.getLong("uploaded", 0L)
+        )
+    }
     private val monitorExecutor = Executors.newSingleThreadExecutor()
     private val monitorHandler = Handler(Looper.getMainLooper())
     private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
@@ -617,7 +628,7 @@ class MainActivity : Activity() {
         monitorDetails.addView(monitorNetwork)
         monitorDetails.addView(monitorOperator)
         monitorDetails.addView(TextView(this).apply {
-            text = "Скорость всего устройства · последние 60 секунд"
+            text = "Скорость всего устройства · последние 60 секунд\n*Трафик за сегодня, пока монитор активен"
             textSize = 11f
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
@@ -625,6 +636,13 @@ class MainActivity : Activity() {
         monitorDetails.addView(speedRow)
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorDetails.addView(monitorSpeedStats)
+        monitorDailyTraffic = TextView(this).apply {
+            text = "Сегодня: ↓ — / ↑ —"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        monitorDetails.addView(monitorDailyTraffic)
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
             textSize = 12f
@@ -2604,6 +2622,24 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updateDailyTraffic(rx: Long, tx: Long) {
+        val calendar = java.util.Calendar.getInstance()
+        val dayKey = calendar.get(java.util.Calendar.YEAR) * 10000 +
+            (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val totals = dailyTrafficAccumulator.update(dayKey, rx, tx)
+        getSharedPreferences("astra_daily_traffic", MODE_PRIVATE).edit()
+            .putInt("day", dailyTrafficAccumulator.currentDayKey())
+            .putLong("rx", dailyTrafficAccumulator.lastRxBytes())
+            .putLong("tx", dailyTrafficAccumulator.lastTxBytes())
+            .putLong("downloaded", totals.downloadedBytes)
+            .putLong("uploaded", totals.uploadedBytes)
+            .apply()
+        monitorDailyTraffic.text = "Сегодня*  ↓ " +
+            DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
+    }
+
     private fun updateTrafficMonitor() {
         // Android exposes aggregate device counters without special usage-access
         // permission. These include background apps, so label them as device-wide.
@@ -2615,6 +2651,7 @@ class MainActivity : Activity() {
             monitorUpload.text = "↑ недоступно"
             return
         }
+        updateDailyTraffic(rx, tx)
         if (lastTrafficAt > 0L && lastRxBytes >= 0L && lastTxBytes >= 0L) {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
