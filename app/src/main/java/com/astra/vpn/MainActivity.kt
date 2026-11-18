@@ -83,6 +83,7 @@ class MainActivity : Activity() {
     private lateinit var serverCountLabel: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
+    private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
@@ -332,20 +333,21 @@ class MainActivity : Activity() {
             setPadding(0, dp(7), 0, dp(17))
         }
         connectButton = MaterialButton(this).apply {
-            text = "ПОДКЛЮЧИТЬСЯ"
+            text = "⏻"
             contentDescription = "Подключить или отключить VPN"
             isAllCaps = false
-            textSize = 17f
-            letterSpacing = .01f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 48f
+            letterSpacing = 0f
+            typeface = Typeface.DEFAULT
             setTextColor(Color.WHITE)
-            cornerRadius = dp(28)
-            minHeight = dp(60)
+            cornerRadius = dp(56)
+            minWidth = 0
+            minHeight = dp(108)
             backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
-            rippleColor = android.content.res.ColorStateList.valueOf(0x33FFFFFF)
+            rippleColor = android.content.res.ColorStateList.valueOf(0x44FFFFFF)
             insetTop = 0
             insetBottom = 0
-            elevation = dp(2).toFloat()
+            elevation = dp(4).toFloat()
             isEnabled = false
             setOnClickListener {
                 // Give immediate visible feedback before asking Android to start/stop VpnService.
@@ -353,21 +355,30 @@ class MainActivity : Activity() {
                 if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
-                    text = "ОТКЛЮЧАЕМ…"
+                    connectActionLabel.text = "Отключаем…"
                     stopTunnel()
                 } else {
                     status.text = "Подготавливаем подключение…"
                     status.setTextColor(AMBER)
-                    text = "ЗАПУСКАЕМ…"
+                    connectActionLabel.text = "Запускаем…"
                     connectSelectedProfile()
                 }
             }
+        }
+        connectActionLabel = TextView(this).apply {
+            text = "Подключиться"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(9), 0, 0)
         }
         connectionCard = connectCard
         connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
-        connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
+        connectCard.addView(connectButton, LinearLayout.LayoutParams(dp(108), dp(108)))
+        connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val listHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1480,11 +1491,11 @@ class MainActivity : Activity() {
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
-        connectButton.text = when {
-            connected && selected != activeProfile -> "ПЕРЕКЛЮЧИТЬ СЕРВЕР"
-            connected -> "ОТКЛЮЧИТЬ VPN"
-            connecting -> "ПОДКЛЮЧАЕМСЯ…"
-            else -> "ПОДКЛЮЧИТЬСЯ"
+        connectActionLabel.text = when {
+            connected && selected != activeProfile -> "Переключить сервер"
+            connected -> "Отключить VPN"
+            connecting -> "Подключаемся…"
+            else -> "Подключиться"
         }
         // Make the primary action communicate its current meaning at a glance:
         // blue to connect, amber while starting, and a restrained coral to disconnect.
