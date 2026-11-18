@@ -144,6 +144,10 @@ class MainActivity : Activity() {
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
+                    urlTestProfileMap.values.forEach { profile ->
+                        latencyMs.remove(profile)
+                        pingInfo[profile] = "н/д"
+                    }
                     val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR) ?: "Не удалось проверить серверы"
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
@@ -927,11 +931,19 @@ class MainActivity : Activity() {
                 background = serverRowBackground(isSelected)
                 elevation = dp(if (isSelected) 3 else 0).toFloat()
                 setOnClickListener {
-                    if (!connecting) {
+                    if (connecting) {
+                        Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
+                    } else if (connected && link != activeProfile) {
+                        // One tap switches the active tunnel: no extra confirmation dialog.
+                        selectedProfile = link
+                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+                            Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        startTunnel(nextConfig)
+                    } else {
                         selectedProfile = link
                         renderProfiles()
-                    } else {
-                        Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     }
                 }
                 setOnLongClickListener {
