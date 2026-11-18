@@ -277,7 +277,7 @@ class MainActivity : Activity() {
         val subtitle = TextView(this).apply {
             text = "VPN-защита для повседневного использования"
             textSize = 11f
-            typeface = Typeface.DEFAULT_NORMAL
+            typeface = Typeface.DEFAULT
             includeFontPadding = true
             letterSpacing = .025f
             setTextColor(MUTED)
