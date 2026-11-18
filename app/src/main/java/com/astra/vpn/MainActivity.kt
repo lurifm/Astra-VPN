@@ -221,21 +221,39 @@ class MainActivity : Activity() {
         header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "PRIVATE CONNECTION  ·  ANDROID"
-            textSize = 14f
+            text = "БЫСТРОЕ И ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .14f
             setTextColor(MUTED)
-            setPadding(0, dp(3), 0, dp(20))
+            setPadding(dp(2), dp(1), 0, dp(18))
         }
 
         val connectCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(20), dp(24), dp(20), dp(22))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF263B63.toInt(), 0xFF151F34.toInt())).apply { cornerRadius = dp(28).toFloat(); setStroke(dp(1), 0xFF40577F.toInt()) }
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF263B63.toInt(), 0xFF19263F.toInt(), 0xFF121C30.toInt())
+            ).apply {
+                cornerRadius = dp(26).toFloat()
+                setStroke(dp(1), 0xFF536B9B.toInt())
+            }
+            elevation = dp(3).toFloat()
+        }
+        val connectionCaption = TextView(this).apply {
+            text = "СТАТУС СОЕДИНЕНИЯ"
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = .16f
+            gravity = Gravity.CENTER
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, 0, 0, dp(9))
         }
         status = TextView(this).apply {
             text = "Выбери сервер"
-            textSize = 16f
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(AMBER)
@@ -250,10 +268,11 @@ class MainActivity : Activity() {
         connectButton = MaterialButton(this).apply {
             text = "ПОДКЛЮЧИТЬСЯ"
             isAllCaps = false
-            textSize = 17f
+            textSize = 16f
+            letterSpacing = .02f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            cornerRadius = dp(18)
+            cornerRadius = dp(16)
             backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
             rippleColor = android.content.res.ColorStateList.valueOf(0x33FFFFFF)
             insetTop = 0
@@ -276,6 +295,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
         connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
@@ -286,8 +306,8 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "Серверы"
-            textSize = 20f
+            text = "Выбор сервера"
+            textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
         }
