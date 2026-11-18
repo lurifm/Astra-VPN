@@ -1,5 +1,7 @@
 package com.astra.vpn
 
+import java.util.Locale
+
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -36,4 +38,15 @@ class CountryFlagResolverTest {
     @Test fun recognizesExplicitRussianCountryName() {
         assertEquals("🇷🇺", CountryFlagResolver.flagFor("Россия • Москва"))
     }
+    @Test fun matchingIsStableUnderTurkishDeviceLocale() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            assertEquals("🇫🇮", CountryFlagResolver.flagFor("FINLAND"))
+            assertEquals("🇹🇷", CountryFlagResolver.flagFor("TURKEY"))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
 }
