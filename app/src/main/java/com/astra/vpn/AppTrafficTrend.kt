@@ -17,5 +17,10 @@ internal object AppTrafficTrend {
     }
 
     fun dailyTotals(days: List<AppTrafficStatsReader.DailySnapshot>): List<Long> =
-        days.map { day -> day.apps.sumOf { it.totalBytes.coerceAtLeast(0L) }.coerceAtLeast(0L) }
+        days.map { day ->
+            day.apps.fold(0L) { total, app ->
+                val value = app.totalBytes.coerceAtLeast(0L)
+                if (Long.MAX_VALUE - total < value) Long.MAX_VALUE else total + value
+            }
+        }
 }
