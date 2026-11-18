@@ -745,6 +745,7 @@ class MainActivity : Activity() {
                     putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
                         "text/plain", "application/octet-stream", "application/x-yaml"
                     ))
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 }
                 runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
                     .onFailure {
@@ -1977,15 +1978,41 @@ class MainActivity : Activity() {
                 updateProtectionLabels()
             }
         } else if (requestCode == REQUEST_IMPORT_FILE && resultCode == RESULT_OK) {
-            val uri = data?.data ?: return
+            val uris = buildList {
+                data?.clipData?.let { clip ->
+                    for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(::add)
+                }
+                data?.data?.let { if (none { existing -> existing == it }) add(it) }
+            }
+            if (uris.isEmpty()) return
             importExecutor.execute {
+                val imported = mutableListOf<String>()
+                val failures = mutableListOf<String>()
+                uris.forEachIndexed { index, uri ->
+                    runCatching {
+                        val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                            val output = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            var total = 0
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                total += count
+                                require(total <= 2 * 1024 * 1024) { "Файл больше 2 МБ" }
+                                output.write(buffer, 0, count)
+                            }
+                            output.toByteArray()
+                        } ?: error("Не удалось открыть файл")
+                        SubscriptionParser.importDetailed(String(bytes, Charsets.UTF_8)).links
+                    }.onSuccess { imported.addAll(it) }
+                     .onFailure { failures.add("Файл ${index + 1}: ${it.message ?: "не удалось прочитать"}") }
+                }
                 val result = runCatching {
-                    val content = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                        ?: error("Не удалось открыть файл")
-                    val parsed = SubscriptionParser.importDetailed(content)
-                    val links = parsed.links
-                    profileStore.addAll(links)
-                    links
+                    require(imported.isNotEmpty()) {
+                        failures.firstOrNull() ?: "В выбранных файлах не найдены поддерживаемые серверы"
+                    }
+                    profileStore.addAll(imported.distinct())
+                    imported.distinct()
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1994,13 +2021,23 @@ class MainActivity : Activity() {
                         checkAllLatencies()
                         status.text = "Импортировано: ${links.size}"
                         status.setTextColor(GREEN)
-                        Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        val summary = buildString {
+                            append("Добавлено серверов: ${links.size}")
+                            if (failures.isNotEmpty()) append("\nНе удалось обработать файлов: ${failures.size}")
+                        }
+                        Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+                        if (failures.isNotEmpty()) {
+                            MaterialAlertDialogBuilder(this)
+                                .setTitle("Частичный импорт")
+                                .setMessage(failures.take(5).joinToString("\n"))
+                                .setPositiveButton("ОК", null).show()
+                        }
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
                         MaterialAlertDialogBuilder(this)
-                            .setTitle("Не удалось импортировать файл")
-                            .setMessage(error.message ?: "Проверь формат файла и попробуй ещё раз.")
+                            .setTitle("Не удалось импортировать файлы")
+                            .setMessage(error.message ?: "Проверь формат выбранных файлов.")
                             .setPositiveButton("ОК", null).show()
                     }
                 }
