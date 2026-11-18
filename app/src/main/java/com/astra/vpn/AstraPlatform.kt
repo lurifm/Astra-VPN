@@ -59,15 +59,18 @@ class AstraPlatform(
         private const val TAG = "AstraPlatform"
     }
 
-    // The latency runner lives outside the active VPN process. Its sockets
-    // already use Android's physical default network, so calling VpnService.protect()
-    // there is both unnecessary and unsafe: that service is not the system-bound
-    // VPN owner. Keep protection enabled only for the actual tunnel service.
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = protectSockets
+    // The latency runner is a separate process but shares the app UID with the
+    // active VPN. Its sockets must be explicitly bound to the physical underlay;
+    // otherwise Android may route the probes back into Astra's own TUN.
+    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (protectSockets) {
             check(vpnService.protect(fd)) { "Не удалось исключить сокет sing-box из VPN-туннеля" }
+        } else {
+            val physicalNetwork = resolveUnderlyingNetwork(connectivity.activeNetwork)
+                ?: error("Не найдена физическая сеть для проверки серверов")
+            physicalNetwork.bindSocket(fd)
         }
     }
 
