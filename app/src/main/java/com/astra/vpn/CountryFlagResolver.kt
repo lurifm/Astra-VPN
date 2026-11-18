@@ -1,5 +1,7 @@
 package com.astra.vpn
 
+import java.util.Locale
+
 /**
  * Resolves a display flag only from an explicit country name or ISO-style alias
  * in the profile label. It deliberately does not infer a server's physical
@@ -97,7 +99,7 @@ object CountryFlagResolver {
     fun countryNameForFlag(flag: String): String = namesByFlag[flag] ?: "Другая страна"
 
     fun flagFor(label: String): String {
-        val normalized = label.lowercase()
+        val normalized = label.lowercase(Locale.ROOT)
             .replace(separatorRegex, " ")
             .trim()
         if (normalized.isEmpty()) return "🌐"
