@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Astra" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#7188FF</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#A8B6FF</item>
+        <item name="colorOnSecondary">#10152A</item>
+        <item name="colorSurface">#171F35</item>
+        <item name="colorOnSurface">#F4F6FF</item>
+        <item name="android:colorAccent">#8FA1FF</item>
+        <item name="android:statusBarColor">#0B1020</item>
+        <item name="android:navigationBarColor">#0B1020</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
