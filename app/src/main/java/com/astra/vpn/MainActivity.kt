@@ -212,7 +212,19 @@ class MainActivity : Activity() {
             background = rounded(ACCENT, 18)
             isEnabled = false
             setOnClickListener {
-                if (connected && selectedProfile == activeProfile) stopTunnel() else connectSelectedProfile()
+                // Give immediate visible feedback before asking Android to start/stop VpnService.
+                performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                if (connected && selectedProfile == activeProfile) {
+                    status.text = "Отключаем VPN…"
+                    status.setTextColor(AMBER)
+                    text = "ОТКЛЮЧАЕМ…"
+                    stopTunnel()
+                } else {
+                    status.text = "Подготавливаем подключение…"
+                    status.setTextColor(AMBER)
+                    text = "ЗАПУСКАЕМ…"
+                    connectSelectedProfile()
+                }
             }
         }
         connectCard.addView(status, matchWidth())
