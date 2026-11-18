@@ -1260,13 +1260,30 @@ class MainActivity : Activity() {
             profileList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(2), dp(2), 0, dp(10))
-                addView(TextView(this@MainActivity).apply {
-                    text = "ПОДПИСКИ"
-                    textSize = 11f
-                    letterSpacing = .10f
+                val subscriptionsToggle = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    isClickable = true
+                    isFocusable = true
+                    setPadding(dp(10), dp(9), dp(10), dp(9))
+                    background = rounded(0xFF141E31.toInt(), 13)
+                }
+                subscriptionsToggle.addView(TextView(this@MainActivity).apply {
+                    text = "Подписки · ${summaries.size}"
+                    textSize = 14f
                     typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                subscriptionsToggle.addView(TextView(this@MainActivity).apply {
+                    text = if (subscriptionsExpanded) "Свернуть  ⌃" else "Показать  ⌄"
+                    textSize = 12f
                     setTextColor(LIGHT_ACCENT)
                 })
+                subscriptionsToggle.setOnClickListener {
+                    subscriptionsExpanded = !subscriptionsExpanded
+                    renderProfiles()
+                }
+                addView(subscriptionsToggle, matchWidth())
                 val lastSuccess = settingsPrefs.getLong("last_subscription_update", 0L)
                 val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", 0L)
                 val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
@@ -1276,13 +1293,13 @@ class MainActivity : Activity() {
                     lastAttempt > 0L -> "Последняя попытка: ${dateFormat.format(java.util.Date(lastAttempt))} · успешных обновлений пока нет"
                     else -> "Подписки ещё не обновлялись"
                 }
-                text = historyText
-                textSize = 10f
-                setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
-                setPadding(dp(2), dp(5), 0, 0)
-                visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
-                }
-                addView(subscriptionHistory)
+                addView(TextView(this@MainActivity).apply {
+                    text = historyText
+                    textSize = 10f
+                    setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
+                    setPadding(dp(2), dp(5), 0, 0)
+                    visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
+                })
             })
             summaries.forEach { subscription ->
                 val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
