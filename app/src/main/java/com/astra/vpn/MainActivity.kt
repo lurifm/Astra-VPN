@@ -631,6 +631,14 @@ class MainActivity : Activity() {
             }
         }
 
+        // A visible grab handle makes the import panel feel like a native
+        // draggable sheet instead of a dialog floating over the home screen.
+        panel.addView(View(this).apply {
+            background = rounded(0xFF53617A.toInt(), 99)
+        }, LinearLayout.LayoutParams(dp(38), dp(4)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(12)
+        })
         val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2791,6 +2799,12 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        sheetContent.addView(View(this).apply {
+            background = rounded(0xFF53617A.toInt(), 99)
+        }, LinearLayout.LayoutParams(dp(38), dp(4)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(10)
+        })
         sheetHeader.addView(TextView(this).apply {
             text = "Настройки"
             textSize = 21f
@@ -2846,6 +2860,7 @@ class MainActivity : Activity() {
             }
         }
         sheet.show()
+        sheet.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
 
