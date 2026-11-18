@@ -1022,15 +1022,30 @@ class MainActivity : Activity() {
             val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val title = TextView(this).apply {
                 text = name
-                textSize = 16f
+                textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
                 maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            val protocol = TextView(this).apply {
+                text = protocolName(link)
+                textSize = 10f
+                letterSpacing = .08f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(MUTED)
+                setPadding(0, dp(3), 0, dp(5))
             }
             val meta = TextView(this).apply {
-                val latency = pingInfo[link] ?: "не проверен"
-                text = "${protocolName(link)}  ·  $latency"
-                textSize = 12f
+                val latency = pingInfo[link] ?: "Не проверен"
+                text = when {
+                    latencyMs[link] != null -> "●  $latency"
+                    latency == "н/д" -> "●  н/д"
+                    latency == "Проверяем…" -> "◌  Проверяем"
+                    else -> "○  Не проверен"
+                }
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
                 val tone = latencyMs[link]?.let { latencyColor(it) }
                     ?: when (pingInfo[link]) {
                         "н/д" -> RED
@@ -1038,11 +1053,12 @@ class MainActivity : Activity() {
                         else -> MUTED
                     }
                 setTextColor(tone)
-                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else 0x1A9AA6BF, 9)
+                background = rounded(if (latencyMs[link] != null) 0x1A55D69A else if (pingInfo[link] == "н/д") 0x1AFF7777 else 0x1A9AA6BF, 8)
                 contentDescription = "Задержка измеряется HTTP URL-test через соответствующий сервер sing-box. Недоступные серверы отображаются как н/д."
-                setPadding(dp(8), dp(4), dp(8), dp(4))
+                setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             details.addView(title)
+            details.addView(protocol)
             details.addView(meta)
             val favoriteButton = TextView(this).apply {
                 text = if (link in favorites) "★" else "☆"
