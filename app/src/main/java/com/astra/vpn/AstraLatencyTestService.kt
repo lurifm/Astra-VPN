@@ -125,13 +125,18 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 }
             }
             if (snapshot.isNotEmpty() && !stopped.get()) {
+                val partial = synchronized(latestResults) {
+                    snapshot.forEach { (tag, delay) ->
+                        if (delay != null && delay > 0L) latestResults[tag] = delay
+                    }
+                    latestResults.toMap()
+                }
+                // Stream every successful measurement to the UI immediately.
+                // A slow/unavailable node no longer hides the results of faster nodes.
+                publishResults(partial, finished = false)
                 synchronized(latestResults) {
-                    latestResults.putAll(snapshot)
-                    // sing-box may publish an initial group snapshot with 0 ms
-                    // values before URLTest has actually completed. Do not treat those
-                    // placeholders as final results: finish early only after every
-                    // outbound has a positive measured delay. Failed nodes are resolved
-                    // to n/d by the hard timeout below.
+                    // Zero values are sing-box's initial placeholders, not measurements.
+                    // Finish early only when every outbound has a real positive result.
                     if (latestResults.keys.containsAll(expectedTags) &&
                         latestResults.values.all { delay -> delay != null && delay > 0L }
                     ) {
@@ -151,20 +156,27 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private fun finishAndPublish() {
         if (stopped.get()) return
         val results = synchronized(latestResults) { expectedTags.associateWith { latestResults[it] } }
-        publishResults(results)
+        publishResults(results, finished = true)
         finish()
     }
 
-    private fun publishResults(results: Map<String, Long?>) {
+    private fun publishResults(results: Map<String, Long?>, finished: Boolean) {
         val json = JSONObject()
         results.forEach { (tag, delay) -> json.put(tag, delay ?: JSONObject.NULL) }
         val payload = json.toString()
-        // Persist before broadcasting: Android may recreate/destroy the Activity
-        // while this foreground measurement service is still running.
-        getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_PENDING_RESULTS, payload)
-            .apply()
-        sendBroadcast(Intent(ACTION_RESULTS).setPackage(packageName).putExtra(EXTRA_RESULTS, payload))
+        // Only the terminal snapshot is persisted for Activity recreation.
+        // Partial snapshots are live UI updates and must not replace the final result.
+        if (finished) {
+            getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_PENDING_RESULTS, payload)
+                .apply()
+        }
+        sendBroadcast(
+            Intent(ACTION_RESULTS)
+                .setPackage(packageName)
+                .putExtra(EXTRA_RESULTS, payload)
+                .putExtra(EXTRA_FINAL, finished)
+        )
     }
 
     private fun publishFailure(message: String) {
@@ -209,6 +221,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_CONFIG = "com.astra.vpn.extra.LATENCY_CONFIG"
         const val EXTRA_TAGS = "com.astra.vpn.extra.LATENCY_TAGS"
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
+        const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
