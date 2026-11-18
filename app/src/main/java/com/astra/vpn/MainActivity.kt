@@ -1066,6 +1066,21 @@ class MainActivity : Activity() {
             connecting -> "ПОДКЛЮЧАЕМСЯ…"
             else -> "ПОДКЛЮЧИТЬСЯ"
         }
+        // Make the primary action communicate its current meaning at a glance:
+        // blue to connect, amber while starting, and a restrained coral to disconnect.
+        val actionColor = when {
+            connecting -> AMBER
+            connected && selected == activeProfile -> 0xFFB85F78.toInt()
+            else -> ACCENT
+        }
+        connectButton.backgroundTintList =
+            android.content.res.ColorStateList.valueOf(actionColor)
+        connectButton.contentDescription = when {
+            connecting -> "Подключение VPN выполняется"
+            connected && selected == activeProfile -> "Отключить VPN"
+            connected -> "Переключить VPN на выбранный сервер"
+            else -> "Подключить VPN к выбранному серверу"
+        }
         if (selected != null && connected && selected == activeProfile) {
             selectedInfo.text = when (tunnelInternetOk) {
                 true -> "🛡 Защита проверена · интернет через VPN работает\n${profileSummary(selected)}"
