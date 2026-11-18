@@ -970,11 +970,54 @@ class MainActivity : Activity() {
         }
 
         if (profiles.isEmpty() || filteredProfiles.isEmpty()) {
-            profileList.addView(TextView(this).apply {
-                text = if (profiles.isEmpty()) "Пока нет серверов. Нажми + и импортируй ссылку подписки." else "По заданным фильтрам серверы не найдены."
-                textSize = 14f
+            val emptyCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(20), dp(24), dp(20), dp(22))
+                background = rounded(CARD, 20)
+            }
+            val emptyTitle = TextView(this).apply {
+                text = if (profiles.isEmpty()) "Пока нет серверов" else "Ничего не найдено"
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+            }
+            val emptyMessage = TextView(this).apply {
+                text = if (profiles.isEmpty()) {
+                    "Добавь сервер по ссылке или импортируй подписку — они появятся здесь."
+                } else {
+                    "Попробуй изменить запрос или выбрать другую страну."
+                }
+                textSize = 13f
+                gravity = Gravity.CENTER
                 setTextColor(MUTED)
-                setPadding(dp(4), dp(12), dp(4), dp(12))
+                setPadding(0, dp(7), 0, dp(15))
+            }
+            emptyCard.addView(emptyTitle)
+            emptyCard.addView(emptyMessage)
+            if (profiles.isEmpty()) {
+                val importAction = MaterialButton(this).apply {
+                    text = "Добавить сервер"
+                    isAllCaps = false
+                    setOnClickListener { showImportDialog() }
+                }
+                emptyCard.addView(importAction, LinearLayout.LayoutParams(matchWidth().width, dp(48)))
+            } else {
+                val resetAction = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = "Сбросить поиск и фильтры"
+                    isAllCaps = false
+                    setOnClickListener {
+                        serverSearch.setText("")
+                        countryFilter.setSelection(0)
+                        renderProfiles()
+                    }
+                }
+                emptyCard.addView(resetAction, LinearLayout.LayoutParams(matchWidth().width, dp(48)))
+            }
+            profileList.addView(emptyCard, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(12)
             })
             return
         }
