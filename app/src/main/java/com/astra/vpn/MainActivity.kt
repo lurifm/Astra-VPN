@@ -3147,7 +3147,7 @@ class MainActivity : Activity() {
                 .distinctBy { it.packageName }
                 .sortedBy { it.label.lowercase(java.util.Locale.getDefault()) }
         }.getOrElse { emptyList() }
-        val checks = mutableMapOf<String, CheckBox>()
+        val checks = mutableMapOf<String, android.widget.Switch>()
         val appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         apps.forEach { app ->
             val check = android.widget.Switch(this).apply {
