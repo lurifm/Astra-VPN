@@ -20,9 +20,18 @@ class AstraApplication : Application() {
     }
 
     private fun setupLibbox() {
-        val baseDirectory = filesDir.apply { mkdirs() }
-        val workingDirectory = (getExternalFilesDir(null) ?: filesDir).apply { mkdirs() }
-        val temporaryDirectory = cacheDir.apply { mkdirs() }
+        // The URL-test engine runs in :latency so it has an independent libbox
+        // singleton and command.sock. Keep every writable path process-isolated.
+        val processSuffix = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName().substringAfterLast(":", "main")
+        } else {
+            "main"
+        }
+        val processRoot = if (processSuffix == "main") filesDir else java.io.File(filesDir, processSuffix)
+        val baseDirectory = processRoot.apply { mkdirs() }
+        val workingRoot = getExternalFilesDir(null) ?: filesDir
+        val workingDirectory = (if (processSuffix == "main") workingRoot else java.io.File(workingRoot, processSuffix)).apply { mkdirs() }
+        val temporaryDirectory = (if (processSuffix == "main") cacheDir else java.io.File(cacheDir, processSuffix)).apply { mkdirs() }
 
         Libbox.setLocale(Locale.getDefault().toLanguageTag())
 
