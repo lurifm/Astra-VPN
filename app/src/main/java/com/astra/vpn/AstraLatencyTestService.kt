@@ -158,7 +158,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private fun publishResults(results: Map<String, Long?>) {
         val json = JSONObject()
         results.forEach { (tag, delay) -> json.put(tag, delay ?: JSONObject.NULL) }
-        sendBroadcast(Intent(ACTION_RESULTS).setPackage(packageName).putExtra(EXTRA_RESULTS, json.toString()))
+        val payload = json.toString()
+        // Persist before broadcasting: Android may recreate/destroy the Activity
+        // while this foreground measurement service is still running.
+        getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_PENDING_RESULTS, payload)
+            .apply()
+        sendBroadcast(Intent(ACTION_RESULTS).setPackage(packageName).putExtra(EXTRA_RESULTS, payload))
     }
 
     private fun publishFailure(message: String) {
@@ -204,6 +210,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_TAGS = "com.astra.vpn.extra.LATENCY_TAGS"
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
+        private const val LATENCY_PREFS = "astra_latency_results"
+        private const val KEY_PENDING_RESULTS = "pending_results"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         private const val TEST_TIMEOUT_MS = 20_000L
