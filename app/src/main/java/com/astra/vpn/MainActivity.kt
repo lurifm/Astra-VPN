@@ -131,6 +131,10 @@ class MainActivity : Activity() {
     private lateinit var speedGraph: SpeedGraphView
     private lateinit var monitorSpeedStats: TextView
     private lateinit var monitorDailyTraffic: TextView
+    private lateinit var monitorWeeklyTraffic: TextView
+    private val dailyTrafficHistory: DailyTrafficHistory by lazy {
+        DailyTrafficHistory.decode(getSharedPreferences("astra_daily_traffic", MODE_PRIVATE).getString("week", null))
+    }
     private val dailyTrafficAccumulator: DailyTrafficAccumulator by lazy {
         val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
         DailyTrafficAccumulator(
@@ -643,6 +647,13 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(6))
         }
         monitorDetails.addView(monitorDailyTraffic)
+        monitorWeeklyTraffic = TextView(this).apply {
+            text = "За 7 дней*: ↓ — / ↑ —"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(8))
+        }
+        monitorDetails.addView(monitorWeeklyTraffic)
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
             textSize = 12f
@@ -2628,16 +2639,27 @@ class MainActivity : Activity() {
             (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
             calendar.get(java.util.Calendar.DAY_OF_MONTH)
         val totals = dailyTrafficAccumulator.update(dayKey, rx, tx)
-        getSharedPreferences("astra_daily_traffic", MODE_PRIVATE).edit()
+        dailyTrafficHistory.record(dayKey, totals.downloadedBytes, totals.uploadedBytes)
+        val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
+        prefs.edit()
             .putInt("day", dailyTrafficAccumulator.currentDayKey())
             .putLong("rx", dailyTrafficAccumulator.lastRxBytes())
             .putLong("tx", dailyTrafficAccumulator.lastTxBytes())
             .putLong("downloaded", totals.downloadedBytes)
             .putLong("uploaded", totals.uploadedBytes)
+            .putString("week", dailyTrafficHistory.encode())
             .apply()
         monitorDailyTraffic.text = "Сегодня*  ↓ " +
             DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
             "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
+        val weekly = dailyTrafficHistory.total()
+        monitorWeeklyTraffic.text = "За 7 дней*  ↓ " +
+            DailyTrafficAccumulator.formatBytes(weekly.downloadedBytes) +
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(weekly.uploadedBytes) +
+            "\\n" + dailyTrafficHistory.entries().joinToString("  ·  ") { entry ->
+                val date = String.format(java.util.Locale.US, "%02d.%02d", entry.dayKey % 100, (entry.dayKey / 100) % 100)
+                "$date ↓ ${DailyTrafficAccumulator.formatBytes(entry.totals.downloadedBytes)} ↑ ${DailyTrafficAccumulator.formatBytes(entry.totals.uploadedBytes)}"
+            }
     }
 
     private fun updateTrafficMonitor() {
