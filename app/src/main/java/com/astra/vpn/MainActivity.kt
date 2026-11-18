@@ -2763,7 +2763,7 @@ class MainActivity : Activity() {
                     if (ok) {
                         consecutiveHealthFailures = 0
                     } else {
-                        consecutiveHealthFailures += 1
+                        consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
                         maybeAutoFailover()
                     }
                     updateProtectionLabels()
