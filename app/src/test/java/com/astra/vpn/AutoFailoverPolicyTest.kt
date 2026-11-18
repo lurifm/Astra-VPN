@@ -19,6 +19,19 @@ class AutoFailoverPolicyTest {
         assertTrue(AutoFailoverPolicy.shouldSwitch(3, 50_000L, 110_000L))
     }
 
+    @Test fun failureCountIncrementsNormally() {
+        assertTrue(AutoFailoverPolicy.nextFailureCount(0) == 1)
+        assertTrue(AutoFailoverPolicy.nextFailureCount(2) == 3)
+    }
+
+    @Test fun failureCountDoesNotOverflow() {
+        assertTrue(AutoFailoverPolicy.nextFailureCount(Int.MAX_VALUE) == Int.MAX_VALUE)
+    }
+
+    @Test fun negativeFailureCountRecoversToOne() {
+        assertTrue(AutoFailoverPolicy.nextFailureCount(-7) == 1)
+    }
+
     @Test fun ignoresClockMovingBackwards() {
         assertFalse(AutoFailoverPolicy.shouldSwitch(4, 100_000L, 99_000L))
     }
