@@ -907,7 +907,7 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "н/д"
                 text = "${protocolName(link)}  ·  $latency"
                 textSize = 12f
-                setTextColor(if (latencyMs[link] != null) GREEN else MUTED)
+                setTextColor(latencyMs[link]?.let { latencyColor(it) } ?: MUTED)
                 contentDescription = "Задержка измерена реальным TCP-соединением до сервера. Для UDP-протоколов значение пока не измеряется."
                 setPadding(0, dp(4), 0, 0)
             }
@@ -950,6 +950,20 @@ class MainActivity : Activity() {
         Toast.makeText(this, if (added) "Добавлено в избранное" else "Убрано из избранного", Toast.LENGTH_SHORT).show()
     }
 
+    private fun latencyQuality(ms: Long): String = when {
+        ms < 50L -> "отлично"
+        ms < 100L -> "хорошо"
+        ms < 180L -> "средне"
+        ms < 250L -> "высоко"
+        else -> "очень высоко"
+    }
+
+    private fun latencyColor(ms: Long): Int = when {
+        ms < 100L -> GREEN
+        ms < 180L -> AMBER
+        else -> RED
+    }
+
     private fun checkAllLatencies() {
         val profiles = safeProfiles() ?: return
         val currentProfiles = profiles.toHashSet()
@@ -971,11 +985,9 @@ class MainActivity : Activity() {
             val scheme = uri.scheme.orEmpty().lowercase()
             if (scheme != "vless") {
                 latencyMs.remove(link)
-                pingInfo[link] = if (scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic") {
-                    "н/д"
-                } else {
-                    "—"
-                }
+                // Do not invent a latency for protocols that are not probed yet.
+                // In particular, a TCP socket check cannot validate UDP-only servers.
+                pingInfo[link] = "н/д"
                 false
             } else {
                 !uri.host.isNullOrBlank() && uri.port in 1..65535
@@ -998,7 +1010,7 @@ class MainActivity : Activity() {
                 val result = runCatching { TcpLatencyProbe.measure(uri.host.orEmpty(), uri.port) }
                 result.onSuccess {
                     latencyMs[link] = it.tcpMedianMs
-                    pingInfo[link] = "TCP-пинг ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
+                    pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
                 }.onFailure {
                     latencyMs.remove(link)
                     pingInfo[link] = "н/д"
@@ -1048,7 +1060,7 @@ class MainActivity : Activity() {
                 synchronized(latencyMs) {
                     result.onSuccess {
                         latencyMs[link] = it.tcpMedianMs
-                        pingInfo[link] = "TCP-пинг ${it.tcpMedianMs} мс · DNS ${it.dnsMs} мс"
+                        pingInfo[link] = "TCP ${it.tcpMedianMs} мс · ${latencyQuality(it.tcpMedianMs)} · DNS ${it.dnsMs} мс · ${it.successfulSamples}/${TcpLatencyProbe.SAMPLE_COUNT}"
                     }.onFailure {
                         latencyMs.remove(link)
                         pingInfo[link] = "TCP недоступен"
