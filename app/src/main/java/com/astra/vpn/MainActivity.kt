@@ -1517,15 +1517,24 @@ class MainActivity : Activity() {
                 setPadding(dp(9), dp(5), dp(9), dp(5))
             }
             details.addView(title)
-            if (connected && link == activeProfile) {
+            val isActiveServer = connected && link == activeProfile
+            if (isSelected || isActiveServer) {
                 details.addView(TextView(this).apply {
-                    text = "●  АКТИВНОЕ СОЕДИНЕНИЕ"
+                    text = when {
+                        isSelected && isActiveServer -> "●  АКТИВЕН · ВЫБРАН"
+                        isActiveServer -> "●  АКТИВНОЕ СОЕДИНЕНИЕ"
+                        else -> "◆  ВЫБРАН ДЛЯ ПОДКЛЮЧЕНИЯ"
+                    }
                     textSize = 9f
-                    letterSpacing = .06f
+                    letterSpacing = .055f
                     typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(GREEN)
+                    setTextColor(if (isActiveServer) GREEN else LIGHT_ACCENT)
                     setPadding(0, dp(3), 0, dp(4))
-                    contentDescription = "Этот сервер сейчас используется для VPN-соединения"
+                    contentDescription = when {
+                        isSelected && isActiveServer -> "Этот сервер выбран и сейчас используется для VPN-соединения"
+                        isActiveServer -> "Этот сервер сейчас используется для VPN-соединения"
+                        else -> "Этот сервер выбран для следующего подключения"
+                    }
                 })
             }
             details.addView(protocolText)
