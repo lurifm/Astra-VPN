@@ -62,20 +62,25 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                     SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 }
+                SubscriptionRefreshHistory.recordAttempt(settings, source)
                 try {
                     val count = SubscriptionRefreshCoordinator.refresh(store, source)
+                    SubscriptionRefreshHistory.recordSuccess(settings, source)
                     updated++
                     serverCount += count
                 } catch (_: InterruptedException) {
+                    SubscriptionRefreshHistory.recordFailure(settings, source)
                     Thread.currentThread().interrupt()
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
                     SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 } catch (_: java.util.concurrent.CancellationException) {
+                    SubscriptionRefreshHistory.recordFailure(settings, source)
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
                     SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
                     return Result.retry()
                 } catch (_: Exception) {
+                    SubscriptionRefreshHistory.recordFailure(settings, source)
                     failures++
                     failedSources += SubscriptionSourceFingerprint.of(source)
                 }
