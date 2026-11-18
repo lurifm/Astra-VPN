@@ -140,6 +140,8 @@ class MainActivity : Activity() {
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
+    private var consecutiveHealthFailures = 0
+    private var lastAutoFailoverAt = 0L
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
@@ -2678,15 +2680,46 @@ class MainActivity : Activity() {
         lastHealthCheckAt = now
         healthCheckExecutor.execute {
             val ok = TunnelHealthChecker.check(vpnNetwork)
-            tunnelInternetOk = ok
             healthCheckInFlight.set(false)
             runOnUiThread {
                 if (!isFinishing && !isDestroyed && connected) {
+                    tunnelInternetOk = ok
+                    if (ok) {
+                        consecutiveHealthFailures = 0
+                    } else {
+                        consecutiveHealthFailures += 1
+                        maybeAutoFailover()
+                    }
                     updateProtectionLabels()
                     renderProfiles()
                 }
             }
         }
+    }
+
+    /**
+     * Switch only after repeated failed end-to-end checks. A single blocked
+     * probe or transient network handover must not cause a server change.
+     */
+    private fun maybeAutoFailover() {
+        if (!connected || connecting || selectingFastest) return
+        val now = System.currentTimeMillis()
+        if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
+        val profiles = safeProfiles() ?: return
+        val current = activeProfile ?: selectedProfile
+        val alternate = BestServerSelector.select(
+            profiles = profiles.filterNot { it == current },
+            latencyMs = latencyMs
+        ) ?: return
+        lastAutoFailoverAt = now
+        consecutiveHealthFailures = 0
+        selectedProfile = alternate
+        selectedInfo.text = profileSummary(alternate)
+        status.text = "Переключаем сервер…"
+        status.setTextColor(AMBER)
+        updateConnectionCardAppearance("switching")
+        Toast.makeText(this, "Связь нестабильна. Переключаемся на другой сервер…", Toast.LENGTH_LONG).show()
+        connectSelectedProfile()
     }
 
     private fun updateProtectionLabels() {
