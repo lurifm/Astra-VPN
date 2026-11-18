@@ -1294,10 +1294,9 @@ class MainActivity : Activity() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
-        if (receiverRegistered) {
-            unregisterReceiver(vpnStateReceiver)
-            receiverRegistered = false
-        }
+        // Keep the receiver registered while this Activity instance is alive.
+        // A latency test can finish while the app is backgrounded; unregistering
+        // here would drop its one-shot result and leave rows stuck on "Проверяем…".
         super.onStop()
     }
 
@@ -2044,7 +2043,12 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
+        if (receiverRegistered) {
+            runCatching { unregisterReceiver(vpnStateReceiver) }
+            receiverRegistered = false
+        }
         monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
         pingExecutor.shutdownNow()
