@@ -66,11 +66,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
         )
         try {
-            val platform = AstraPlatform(this) { descriptor ->
+            val platform = AstraPlatform(this, { descriptor ->
                 runCatching { descriptor.close() }
                 publishFailure("Проверка неожиданно запросила VPN-интерфейс")
                 handler.post { finish() }
-            }
+            }, protectSockets = false)
             val commandServer = CommandServer(this, platform)
             server = commandServer
             commandServer.start()
