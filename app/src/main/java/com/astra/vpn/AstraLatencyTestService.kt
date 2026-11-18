@@ -127,7 +127,14 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             if (snapshot.isNotEmpty() && !stopped.get()) {
                 synchronized(latestResults) {
                     latestResults.putAll(snapshot)
-                    if (latestResults.keys.containsAll(expectedTags)) {
+                    // sing-box may publish an initial group snapshot with 0 ms
+                    // values before URLTest has actually completed. Do not treat those
+                    // placeholders as final results: finish early only after every
+                    // outbound has a positive measured delay. Failed nodes are resolved
+                    // to n/d by the hard timeout below.
+                    if (latestResults.keys.containsAll(expectedTags) &&
+                        latestResults.values.all { delay -> delay != null && delay > 0L }
+                    ) {
                         handler.removeCallbacks(completionDebounce)
                         handler.postDelayed(completionDebounce, RESULT_SETTLE_MS)
                     }
