@@ -1072,7 +1072,12 @@ class MainActivity : Activity() {
     }
 
     private fun checkAllLatencies() {
-        val profiles = safeProfiles() ?: return
+        val profiles = safeProfiles()
+        if (profiles == null) {
+            pendingFastestSelection = false
+            selectingFastest = false
+            return
+        }
         if (latencyTestInFlight) {
             Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
             return
@@ -1082,6 +1087,8 @@ class MainActivity : Activity() {
         latencyMs.keys.toList().filterNot { it in currentProfiles }.forEach { latencyMs.remove(it) }
         pingInfo.keys.toList().filterNot { it in currentProfiles }.forEach { pingInfo.remove(it) }
         if (profiles.isEmpty()) {
+            pendingFastestSelection = false
+            selectingFastest = false
             renderProfiles()
             return
         }
