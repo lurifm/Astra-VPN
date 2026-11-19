@@ -7,7 +7,7 @@ package com.astra.vpn
 internal object ThroughputMeasurement {
     const val DEFAULT_MIN_BYTES = 512L * 1024L
     const val DEFAULT_MAX_BYTES = 16L * 1024L * 1024L
-    const val MIN_DURATION_NANOS = 250_000_000L
+    const val MIN_DURATION_NANOS = 10_000_000L
     const val MAX_DURATION_NANOS = 60_000_000_000L
 
     data class Sample(
