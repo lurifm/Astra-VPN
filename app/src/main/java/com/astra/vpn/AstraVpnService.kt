@@ -14,6 +14,7 @@ import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AstraVpnService : VpnService(), CommandServerHandler {
@@ -29,6 +30,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val healthExecutor = Executors.newSingleThreadExecutor()
     private val healthProbeInFlight = AtomicBoolean(false)
+    @Volatile private var healthProbeTask: FutureTask<Unit>? = null
     private val healthTick = object : Runnable {
         override fun run() {
             synchronized(lifecycleLock) {
@@ -40,16 +42,39 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             if (network != null && capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
                 healthProbeInFlight.compareAndSet(false, true)
             ) {
-                runCatching {
-                    healthExecutor.execute {
+                val task = FutureTask<Unit> {
+                    try {
                         val reachable = runCatching { TunnelHealthChecker.check(network) }.getOrDefault(false)
+                        val currentNetwork = connectivity.activeNetwork
+                        val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
+                        val serviceActive = synchronized(lifecycleLock) {
+                            !stopping && tunDescriptor != null
+                        }
+                        val sameVpnNetwork = currentNetwork == network &&
+                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                        if (ServiceHealthResultPolicy.shouldPublish(
+                                android.os.SystemClock.elapsedRealtime(),
+                                android.os.SystemClock.elapsedRealtime(),
+                                serviceActive,
+                                sameVpnNetwork
+                            )
+                        ) {
+                            val result = Intent(ACTION_HEALTH).setPackage(packageName)
+                                .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
+                                .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
+                            sendBroadcast(result)
+                        }
+                    } finally {
                         healthProbeInFlight.set(false)
-                        val result = Intent(ACTION_HEALTH).setPackage(packageName)
-                            .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
-                            .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
-                        sendBroadcast(result)
+                        healthProbeTask = null
                     }
-                }.onFailure { healthProbeInFlight.set(false) }
+                }
+                healthProbeTask = task
+                runCatching { healthExecutor.execute(task) }
+                    .onFailure {
+                        healthProbeTask = null
+                        healthProbeInFlight.set(false)
+                    }
             }
             mainHandler.postDelayed(this, HEALTH_INTERVAL_MS)
         }
@@ -62,6 +87,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
     private fun stopHealthMonitoring() {
         mainHandler.removeCallbacks(healthTick)
+        healthProbeTask?.cancel(true)
+        healthProbeTask = null
+        healthProbeInFlight.set(false)
     }
     private val tunTimeout = Runnable {
         synchronized(lifecycleLock) {
