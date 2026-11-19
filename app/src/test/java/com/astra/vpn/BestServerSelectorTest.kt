@@ -131,7 +131,7 @@ class BestServerSelectorTest {
             latencyMs = mapOf(
                 "vless://fresh-fast" to 50L,
                 "tuic://fresh-slower" to 55L,
-                "hysteria2://stale" to 1L
+                "hysteria2://stale" to 200L
             ),
             throughputMbps = mapOf(
                 "vless://fresh-fast" to 80.0,
