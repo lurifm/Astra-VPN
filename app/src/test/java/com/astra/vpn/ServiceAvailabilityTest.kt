@@ -16,6 +16,22 @@ class ServiceAvailabilityTest {
         ServiceAvailability.Probe(3, 2)
     }
 
+    @Test fun summarizesIncompleteChecksWithoutCallingThemAvailable() {
+        assertEquals(
+            "Проверка неполная: ChatGPT",
+            ServiceAvailability.summary(
+                mapOf(
+                    "YouTube" to ServiceAvailability.State.AVAILABLE,
+                    "ChatGPT" to ServiceAvailability.State.UNKNOWN
+                )
+            )
+        )
+        assertEquals(
+            "Проверенные сервисы доступны",
+            ServiceAvailability.summary(mapOf("YouTube" to ServiceAvailability.State.AVAILABLE))
+        )
+    }
+
     @Test fun summarizesMixedAndUnknownServiceResults() {
         assertEquals(
             "Недоступно: Telegram",
