@@ -106,4 +106,29 @@ class BestServerSelectorTest {
         )
         assertEquals("vless://normal", selected)
     }
+
+    @Test
+    fun measuredThroughputBreaksCloseLatencyTie() {
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://fast-ping-slow-link", "vless://slower-ping-fast-link"),
+            latencyMs = mapOf(
+                "vless://fast-ping-slow-link" to 40L,
+                "vless://slower-ping-fast-link" to 55L
+            ),
+            throughputMbps = mapOf(
+                "vless://fast-ping-slow-link" to 10.0,
+                "vless://slower-ping-fast-link" to 100.0
+            )
+        )
+        assertEquals("vless://slower-ping-fast-link", selected)
+    }
+
+    @Test
+    fun missingThroughputKeepsExistingLatencyBehavior() {
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://fast", "vless://slow"),
+            latencyMs = mapOf("vless://fast" to 30L, "vless://slow" to 70L)
+        )
+        assertEquals("vless://fast", selected)
+    }
 }
