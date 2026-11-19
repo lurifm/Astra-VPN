@@ -85,6 +85,7 @@ class MainActivity : Activity() {
     private lateinit var connectButton: MaterialButton
     private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
+    private lateinit var constellationView: ConstellationView
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
     private var starPulseAnimator: android.animation.ValueAnimator? = null
@@ -361,6 +362,10 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(0, dp(7), 0, dp(17))
         }
+        constellationView = ConstellationView(this).apply {
+            contentDescription = "Созвездия Astra. Звёзды оживают при подключении"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         connectButton = MaterialButton(this).apply {
             text = "✦"
             contentDescription = "Подключить или отключить VPN"
@@ -395,7 +400,7 @@ class MainActivity : Activity() {
             }
         }
         connectActionLabel = TextView(this).apply {
-            text = "Подключиться"
+            text = "Запуск"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -405,6 +410,10 @@ class MainActivity : Activity() {
         connectionCard = connectCard
         connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
+        connectCard.addView(constellationView, LinearLayout.LayoutParams(matchWidth().width, dp(44)).apply {
+            topMargin = dp(3)
+            bottomMargin = dp(5)
+        })
         connectCard.addView(selectedInfo, matchWidth())
         connectCard.addView(connectButton, LinearLayout.LayoutParams(dp(108), dp(108)))
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -415,7 +424,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, dp(12))
         }
         val listTitle = TextView(this).apply {
-            text = "СЕРВЕРЫ"
+            text = "ОРБИТЫ"
             textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -1520,7 +1529,7 @@ class MainActivity : Activity() {
                 })
             }
             profileList.addView(TextView(this).apply {
-                text = "СЕРВЕРЫ"
+                text = "ОРБИТЫ"
                 textSize = 11f
                 letterSpacing = .10f
                 typeface = Typeface.DEFAULT_BOLD
@@ -1578,9 +1587,9 @@ class MainActivity : Activity() {
         }
         val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
         serverCountLabel.text = if (latencyTestInFlight) {
-            "${filteredProfiles.size} серверов  ·  пинг $measuredPingCount/${profiles.size}"
+            "${filteredProfiles.size} орбит  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
-            "${filteredProfiles.size} серверов  ·  $sortLabel"
+            "${filteredProfiles.size} орбит  ·  $sortLabel"
         }
         serverCountLabel.contentDescription = if (latencyTestInFlight) {
             "Проверка задержки: получены результаты для $measuredPingCount из ${profiles.size} серверов. Нажмите для настроек."
@@ -1591,10 +1600,10 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
         connectActionLabel.text = when {
-            connected && selected != activeProfile -> "Переключить сервер"
-            connected -> "Отключить VPN"
+            connected && selected != activeProfile -> "Прыжок"
+            connected -> "Посадка"
             connecting -> "Подключаемся…"
-            else -> "Подключиться"
+            else -> "Запуск"
         }
         // Make the primary action communicate its current meaning at a glance:
         // blue to connect, amber while starting, and a restrained coral to disconnect.
@@ -1969,6 +1978,22 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
+            val orbitQuality = when (latencyMs[link]) {
+                null -> 0
+                in 1L..100L -> 3
+                in 101L..250L -> 2
+                else -> 1
+            }
+            row.addView(OrbitMarkerView(this).apply {
+                quality = orbitQuality
+                selected = isSelected || isActiveServer
+                contentDescription = when (orbitQuality) {
+                    3 -> "Орбита со звёздным качеством связи"
+                    2 -> "Орбита с хорошим качеством связи"
+                    1 -> "Орбита с повышенной задержкой"
+                    else -> "Орбита ещё не проверена"
+                }
+            }, LinearLayout.LayoutParams(dp(30), dp(46)).apply { leftMargin = dp(4) })
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
@@ -2626,7 +2651,7 @@ class MainActivity : Activity() {
                 status.text = "Выбран быстрый сервер"
                 status.setTextColor(GREEN)
                 selectedInfo.text = profileSummary(fastest)
-                Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Выбрана орбита: " + profileName(fastest), Toast.LENGTH_LONG).show()
                 if (tilePendingStart) {
                     tilePendingStart = false
                     connectSelectedProfile()
@@ -4251,6 +4276,7 @@ class MainActivity : Activity() {
             "switching" -> 0xFF8290E8.toInt()
             else -> 0xFF7569B8.toInt()
         }
+        if (::constellationView.isInitialized) constellationView.setActive(state == "connected")
         connectionCard.background = GradientDrawable(
             GradientDrawable.Orientation.TL_BR, colors
         ).apply {
