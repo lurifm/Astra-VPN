@@ -17,7 +17,17 @@ class SingBoxThroughputTestConfigTest {
                 SingBoxThroughputTestConfig.Target(first, 19081),
                 SingBoxThroughputTestConfig.Target(second, 19082)
             ),
-            validateConfig = {}
+            validateConfig = {},
+            buildOutbound = { link ->
+                val type = if (link.startsWith("vless:")) "vless" else "hysteria2"
+                JSONObject()
+                    .put("type", type)
+                    .put("server", "example.com")
+                    .put("server_port", 443)
+                    .put("uuid", "11111111-1111-1111-1111-111111111111")
+                    .put("password", "test-password")
+                    .put("tls", JSONObject().put("enabled", true).put("server_name", "example.com"))
+            }
         )
         val config = JSONObject(result.json)
         val inbounds = config.getJSONArray("inbounds")
