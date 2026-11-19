@@ -19,6 +19,8 @@ object TunnelHealthChecker {
         "https://www.google.com/generate_204"
     )
 
+    internal fun isReachableStatusCode(code: Int): Boolean = code in 200..399
+
     fun check(vpnNetwork: Network): Boolean {
         for (endpoint in endpoints) {
             val reachable = runCatching {
@@ -33,7 +35,7 @@ object TunnelHealthChecker {
                 }
                 try {
                     val code = connection.responseCode
-                    code == HttpURLConnection.HTTP_NO_CONTENT
+                    isReachableStatusCode(code)
                 } finally {
                     connection.disconnect()
                 }

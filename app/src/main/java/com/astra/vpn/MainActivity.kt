@@ -83,6 +83,7 @@ class MainActivity : Activity() {
     private lateinit var serverCountLabel: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
+    private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
@@ -98,6 +99,7 @@ class MainActivity : Activity() {
     // Keep auto-selection probes isolated from background list refresh probes.
     private val autoSelectExecutor = Executors.newFixedThreadPool(3)
     private var selectingFastest = false
+    private var tilePendingStart = false
     private var selectedProfile: String? = null
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
@@ -107,6 +109,7 @@ class MainActivity : Activity() {
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var sortMode = "original"
+    private var subscriptionsExpanded = false
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
     private val searchRenderHandler = Handler(Looper.getMainLooper())
@@ -126,6 +129,22 @@ class MainActivity : Activity() {
     private lateinit var monitorUpload: TextView
     private lateinit var monitorLocation: TextView
     private lateinit var speedGraph: SpeedGraphView
+    private lateinit var monitorSpeedStats: TextView
+    private lateinit var monitorDailyTraffic: TextView
+    private lateinit var monitorWeeklyTraffic: TextView
+    private val dailyTrafficHistory: DailyTrafficHistory by lazy {
+        DailyTrafficHistory.decode(getSharedPreferences("astra_daily_traffic", MODE_PRIVATE).getString("week", null))
+    }
+    private val dailyTrafficAccumulator: DailyTrafficAccumulator by lazy {
+        val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
+        DailyTrafficAccumulator(
+            dayKey = prefs.getInt("day", 0),
+            lastRx = prefs.getLong("rx", -1L),
+            lastTx = prefs.getLong("tx", -1L),
+            downloaded = prefs.getLong("downloaded", 0L),
+            uploaded = prefs.getLong("uploaded", 0L)
+        )
+    }
     private val monitorExecutor = Executors.newSingleThreadExecutor()
     private val monitorHandler = Handler(Looper.getMainLooper())
     private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
@@ -134,9 +153,12 @@ class MainActivity : Activity() {
     // Network type and carrier metadata change infrequently; avoid querying telephony every frame.
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
+    private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
+    private var consecutiveHealthFailures = 0
+    private var lastAutoFailoverAt = 0L
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
@@ -163,10 +185,12 @@ class MainActivity : Activity() {
                     pendingFastestSelection = false
                     selectingFastest = false
                     urlTestProfileMap.values.forEach { profile ->
-                        latencyMs.remove(profile)
-                        pingInfo[profile] = "н/д"
+                        // Keep successful partial measurements if the isolated test
+                        // service fails later; only unmeasured nodes are unavailable.
+                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
                     }
-                    val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR) ?: "Не удалось проверить серверы"
+                    val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR)
+                        ?: "Проверка прервана. Сохранены уже полученные результаты."
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
@@ -182,6 +206,8 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_CONNECTING -> {
                     connected = false
                     connecting = true
+                    consecutiveHealthFailures = 0
+                    lastHealthCheckAt = 0L
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
                 }
@@ -196,6 +222,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_DISCONNECTED -> {
                     connected = false
                     connecting = false
+                    consecutiveHealthFailures = 0
                     tunnelInternetOk = null
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
@@ -203,6 +230,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_ERROR -> {
                     connected = false
                     connecting = false
+                    consecutiveHealthFailures = 0
                     tunnelInternetOk = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
@@ -250,29 +278,35 @@ class MainActivity : Activity() {
         }
         val brand = TextView(this).apply {
             text = "ASTRA VPN"
-            textSize = 24f
+            textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            letterSpacing = .12f
+            includeFontPadding = true
+            letterSpacing = .045f
         }
         val addButton = TextView(this).apply {
-            text = "+"
+            text = "＋ Добавить"
             contentDescription = "Добавить сервер или подписку"
-            textSize = 34f
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            setPadding(dp(10), 0, dp(10), 0)
             setTextColor(Color.WHITE)
-            background = rounded(CARD, 18)
-            setOnClickListener { showImportDialog() }
+            background = rounded(CARD, 18).apply { setStroke(dp(1), 0xFF465B85.toInt()) }
+            setOnClickListener {
+                if (!importClipboardInOneTap()) showImportDialog()
+            }
         }
         header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
-        header.addView(addButton, LinearLayout.LayoutParams(dp(52), dp(48)))
+        header.addView(addButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
 
         val subtitle = TextView(this).apply {
-            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ  ·  БЕЗ ЛИШНИХ НАСТРОЕК"
-            textSize = 9f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = .14f
+            text = "VPN-защита для повседневного использования"
+            textSize = 11f
+            typeface = Typeface.DEFAULT
+            includeFontPadding = true
+            letterSpacing = .025f
             setTextColor(MUTED)
             setPadding(dp(2), dp(1), 0, dp(18))
         }
@@ -303,7 +337,7 @@ class MainActivity : Activity() {
             rightMargin = dp(8)
         })
         connectionCaption.addView(TextView(this).apply {
-            text = "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ"
+            text = "СТАТУС СОЕДИНЕНИЯ"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = .16f
@@ -325,19 +359,21 @@ class MainActivity : Activity() {
             setPadding(0, dp(7), 0, dp(17))
         }
         connectButton = MaterialButton(this).apply {
-            text = "ПОДКЛЮЧИТЬСЯ"
+            text = "✦"
             contentDescription = "Подключить или отключить VPN"
             isAllCaps = false
-            textSize = 16f
-            letterSpacing = .02f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 48f
+            letterSpacing = 0f
+            typeface = Typeface.DEFAULT
             setTextColor(Color.WHITE)
-            cornerRadius = dp(16)
+            cornerRadius = dp(56)
+            minWidth = 0
+            minHeight = dp(108)
             backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
-            rippleColor = android.content.res.ColorStateList.valueOf(0x33FFFFFF)
+            rippleColor = android.content.res.ColorStateList.valueOf(0x44FFFFFF)
             insetTop = 0
             insetBottom = 0
-            elevation = dp(2).toFloat()
+            elevation = dp(4).toFloat()
             isEnabled = false
             setOnClickListener {
                 // Give immediate visible feedback before asking Android to start/stop VpnService.
@@ -345,21 +381,30 @@ class MainActivity : Activity() {
                 if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
-                    text = "ОТКЛЮЧАЕМ…"
+                    connectActionLabel.text = "Отключаем…"
                     stopTunnel()
                 } else {
                     status.text = "Подготавливаем подключение…"
                     status.setTextColor(AMBER)
-                    text = "ЗАПУСКАЕМ…"
+                    connectActionLabel.text = "Запускаем…"
                     connectSelectedProfile()
                 }
             }
+        }
+        connectActionLabel = TextView(this).apply {
+            text = "Подключиться"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(9), 0, 0)
         }
         connectionCard = connectCard
         connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
         connectCard.addView(selectedInfo, matchWidth())
-        connectCard.addView(connectButton, LinearLayout.LayoutParams(matchWidth().width, dp(54)))
+        connectCard.addView(connectButton, LinearLayout.LayoutParams(dp(108), dp(108)))
+        connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val listHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -472,7 +517,7 @@ class MainActivity : Activity() {
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4) })
-        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(112), dp(48)).apply { leftMargin = dp(4) })
+        filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(132), dp(48)).apply { leftMargin = dp(4) })
         serverCountLabel = TextView(this).apply {
             text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
             textSize = 10f
@@ -575,6 +620,12 @@ class MainActivity : Activity() {
         speedRow.addView(monitorDownload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedRow.addView(monitorUpload, LinearLayout.LayoutParams(0, dp(30), 1f))
         speedGraph = SpeedGraphView(this)
+        monitorSpeedStats = TextView(this).apply {
+            text = "Средняя: ↓ — / ↑ — Мбит/с   ·   Пик: ↓ — / ↑ —"
+            textSize = 10f
+            setTextColor(MUTED)
+            setPadding(0, dp(4), 0, dp(5))
+        }
         monitorVpnCountry = TextView(this).apply {
             text = "Страна выхода VPN: —"
             textSize = 13f
@@ -585,13 +636,28 @@ class MainActivity : Activity() {
         monitorDetails.addView(monitorNetwork)
         monitorDetails.addView(monitorOperator)
         monitorDetails.addView(TextView(this).apply {
-            text = "Скорость всего устройства"
+            text = "Скорость всего устройства · последние 60 секунд\n*Трафик за день с момента первого замера; возможна неполная статистика"
             textSize = 11f
             setTextColor(MUTED)
             setPadding(0, dp(6), 0, 0)
         })
         monitorDetails.addView(speedRow)
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
+        monitorDetails.addView(monitorSpeedStats)
+        monitorDailyTraffic = TextView(this).apply {
+            text = "Сегодня: ↓ — / ↑ —"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        monitorDetails.addView(monitorDailyTraffic)
+        monitorWeeklyTraffic = TextView(this).apply {
+            text = "За 7 дней*: ↓ — / ↑ —"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(8))
+        }
+        monitorDetails.addView(monitorWeeklyTraffic)
         monitorLocation = TextView(this).apply {
             text = "IP-геолокация: определяем…"
             textSize = 12f
@@ -638,6 +704,60 @@ class MainActivity : Activity() {
         autoUpdateHandler.postDelayed({
             if (!isFinishing && !isDestroyed && !latencyTestInFlight) checkAllLatencies()
         }, 1_200L)
+    }
+
+    /**
+     * Imports a recognized VPN link or HTTPS subscription directly from the clipboard.
+     * If the clipboard does not look like supported input, fall back to the import sheet.
+     */
+    private fun importClipboardInOneTap(): Boolean {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val value = runCatching {
+            if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
+                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)?.toString()?.trim()
+            } else null
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: return false
+
+        val looksLikeVpnInput = value.lineSequence().any { line ->
+            val item = line.trim()
+            item.startsWith("vless://", true) ||
+                item.startsWith("hysteria2://", true) ||
+                item.startsWith("hy2://", true) ||
+                item.startsWith("tuic://", true) ||
+                item.startsWith("https://", true)
+        }
+        if (!looksLikeVpnInput) return false
+
+        Toast.makeText(this, "Импортируем данные из буфера…", Toast.LENGTH_SHORT).show()
+        importExecutor.execute {
+            val result = runCatching {
+                val parsed = SubscriptionParser.importDetailed(value)
+                val links = parsed.links
+                require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
+                if (value.trimStart().startsWith("https://", true)) {
+                    profileStore.replaceSubscription(value.trim(), links, parsed.metadata)
+                } else {
+                    profileStore.addAll(links)
+                }
+                links
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { links ->
+                    renderProfiles()
+                    checkAllLatencies()
+                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Не удалось импортировать")
+                        .setMessage(error.message?.takeIf { it.isNotBlank() }
+                            ?: "Проверь ссылку в буфере и подключение к интернету.")
+                        .setPositiveButton("ОК", null)
+                        .show()
+                }
+            }
+        }
+        return true
     }
 
     private fun startQrScan() {
@@ -782,7 +902,7 @@ class MainActivity : Activity() {
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Вставить из буфера обмена"
+            text = "📋 Вставить"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -801,11 +921,15 @@ class MainActivity : Activity() {
                 }
             }
         }
-        panel.addView(pasteButton, matchWidth())
+        val importMethodsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        importMethodsRow.addView(pasteButton, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(5) })
         val qrButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Сканировать QR-код"
+            text = "▦ QR"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -814,12 +938,12 @@ class MainActivity : Activity() {
                 startQrScan()
             }
         }
-        panel.addView(qrButton, matchWidth())
+        importMethodsRow.addView(qrButton, LinearLayout.LayoutParams(0, dp(44), 0.78f).apply { rightMargin = dp(5) })
 
         val fileButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "Выбрать файл конфигурации"
+            text = "📁 Файл"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -839,7 +963,8 @@ class MainActivity : Activity() {
                     }
             }
         }
-        panel.addView(fileButton, matchWidth())
+        importMethodsRow.addView(fileButton, LinearLayout.LayoutParams(0, dp(44), 0.9f))
+        panel.addView(importMethodsRow, matchWidth())
         panel.addView(TextView(this).apply {
             text = "VLESS  ·  Hysteria2  ·  TUIC  ·  HTTPS-подписки"
             textSize = 11f
@@ -862,7 +987,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF6556D9.toInt())
+            elevation = dp(2).toFloat()
         }
         actions.addView(cancelButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
         actions.addView(importButton, LinearLayout.LayoutParams(0, dp(52), 1.35f))
@@ -908,9 +1034,7 @@ class MainActivity : Activity() {
                     result.onSuccess { links ->
                         renderProfiles()
                         checkAllLatencies()
-                        status.text = "Импортировано: ${links.size}"
-                        status.setTextColor(GREEN)
-                        Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
@@ -1254,13 +1378,30 @@ class MainActivity : Activity() {
             profileList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(2), dp(2), 0, dp(10))
-                addView(TextView(this@MainActivity).apply {
-                    text = "ПОДПИСКИ"
-                    textSize = 11f
-                    letterSpacing = .10f
+                val subscriptionsToggle = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    isClickable = true
+                    isFocusable = true
+                    setPadding(dp(10), dp(9), dp(10), dp(9))
+                    background = rounded(0xFF141E31.toInt(), 13)
+                }
+                subscriptionsToggle.addView(TextView(this@MainActivity).apply {
+                    text = "Подписки · ${summaries.size}"
+                    textSize = 14f
                     typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                subscriptionsToggle.addView(TextView(this@MainActivity).apply {
+                    text = if (subscriptionsExpanded) "Свернуть  ⌃" else "Показать  ⌄"
+                    textSize = 12f
                     setTextColor(LIGHT_ACCENT)
                 })
+                subscriptionsToggle.setOnClickListener {
+                    subscriptionsExpanded = !subscriptionsExpanded
+                    renderProfiles()
+                }
+                addView(subscriptionsToggle, matchWidth())
                 val lastSuccess = settingsPrefs.getLong("last_subscription_update", 0L)
                 val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", 0L)
                 val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy · HH:mm", java.util.Locale.getDefault())
@@ -1274,13 +1415,15 @@ class MainActivity : Activity() {
                     text = historyText
                     textSize = 10f
                     setTextColor(if (refreshingSubscriptions) AMBER else MUTED)
-                    setPadding(0, dp(4), 0, 0)
+                    setPadding(dp(2), dp(5), 0, 0)
+                    visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
                 })
             })
             summaries.forEach { subscription ->
                 val refreshEntry = SubscriptionRefreshHistory.get(settingsPrefs, subscription.sourceUrl)
                 val isSubscriptionRefreshing = refreshEntry?.state == "updating"
                 val card = LinearLayout(this).apply {
+                    visibility = if (subscriptionsExpanded) View.VISIBLE else View.GONE
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(15), dp(13), dp(15), dp(13))
                     background = rounded(CARD, 16).apply {
@@ -1296,7 +1439,7 @@ class MainActivity : Activity() {
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 subscriptionHeader.addView(TextView(this).apply {
-                    text = "☁  ${subscription.title}"
+                    text = "☁  ${subscription.title.takeUnless { title -> title.startsWith("base64:", true) || (title.length > 48 && title.matches(Regex("[A-Za-z0-9+/=_-]+"))) } ?: (Uri.parse(subscription.sourceUrl).host ?: "Подписка")}"
                     textSize = 15f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.WHITE)
@@ -1387,7 +1530,9 @@ class MainActivity : Activity() {
         val profileDetails = profiles.associateWith { link ->
             val uri = Uri.parse(link)
             val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-            val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+            val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+            val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
+            val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val protocol = when (uri.scheme?.lowercase()) {
                 "vless" -> "VLESS"
                 "hysteria2", "hy2" -> "Hysteria2"
@@ -1429,23 +1574,24 @@ class MainActivity : Activity() {
             else -> "как в подписке"
         }
         val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
-        val pingProgress = if (latencyTestInFlight) {
-            "  ·  PING: ${measuredPingCount}/${profiles.size}"
+        serverCountLabel.text = if (latencyTestInFlight) {
+            "${filteredProfiles.size} серверов  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
-            "  ·  PING: ${measuredPingCount}/${profiles.size} ИЗМЕРЕНО"
+            "${filteredProfiles.size} серверов  ·  $sortLabel"
         }
-        serverCountLabel.text =
-            "ПОКАЗАНО ${filteredProfiles.size} ИЗ ${profiles.size}  ·  СОРТИРОВКА: $sortLabel$pingProgress  ›"
-        serverCountLabel.contentDescription =
-            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: ${measuredPingCount} из ${profiles.size}. Нажмите для настроек."
+        serverCountLabel.contentDescription = if (latencyTestInFlight) {
+            "Проверка задержки: получены результаты для $measuredPingCount из ${profiles.size} серверов. Нажмите для настроек."
+        } else {
+            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: $measuredPingCount из ${profiles.size}. Нажмите для настроек."
+        }
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
-        connectButton.text = when {
-            connected && selected != activeProfile -> "ПЕРЕКЛЮЧИТЬ СЕРВЕР"
-            connected -> "ОТКЛЮЧИТЬ VPN"
-            connecting -> "ПОДКЛЮЧАЕМСЯ…"
-            else -> "ПОДКЛЮЧИТЬСЯ"
+        connectActionLabel.text = when {
+            connected && selected != activeProfile -> "Переключить сервер"
+            connected -> "Отключить VPN"
+            connecting -> "Подключаемся…"
+            else -> "Подключиться"
         }
         // Make the primary action communicate its current meaning at a glance:
         // blue to connect, amber while starting, and a restrained coral to disconnect.
@@ -1722,7 +1868,7 @@ class MainActivity : Activity() {
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                maxLines = 1
+                maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val protocolText = TextView(this).apply {
@@ -1747,7 +1893,7 @@ class MainActivity : Activity() {
                 text = when {
                     measuredLatency != null && isFastestProfile -> "✦  ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
-                    latency == "н/д" -> "●  PING  нет замера"
+                    latency == "н/д" -> "●  Не отвечает"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
                     else -> "○  PING  не проверен"
                 }
@@ -1771,7 +1917,7 @@ class MainActivity : Activity() {
                 contentDescription = when {
                     measuredLatency != null && isFastestProfile -> "Самый быстрый измеренный сервер: $measuredLatency миллисекунд"
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
-                    latency == "н/д" -> "Задержка пока не измерена"
+                    latency == "н/д" -> "Сервер не ответил на проверку"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
                 }
@@ -1819,19 +1965,11 @@ class MainActivity : Activity() {
                 contentDescription = if (link in favorites) "Убрать сервер $name из избранного" else "Добавить сервер $name в избранное"
                 setOnClickListener { toggleFavoriteServer(link) }
             }
-            val selectMark = TextView(this).apply {
-                text = if (isSelected) "✓" else "›"
-                textSize = 23f
-                setTextColor(if (isSelected) LIGHT_ACCENT else MUTED)
-                gravity = Gravity.CENTER
-                contentDescription = if (isSelected) "Выбранный сервер" else "Выбрать сервер"
-            }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
             row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-            row.addView(selectMark, LinearLayout.LayoutParams(dp(28), dp(42)))
             profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
             })
@@ -1926,14 +2064,13 @@ class MainActivity : Activity() {
     private fun latencyQuality(ms: Long): String = when {
         ms < 50L -> "отлично"
         ms < 100L -> "хорошо"
-        ms < 180L -> "средне"
-        ms < 250L -> "высоко"
-        else -> "очень высоко"
+        ms <= 250L -> "средне"
+        else -> "высоко"
     }
 
     private fun latencyColor(ms: Long): Int = when {
-        ms < 100L -> GREEN
-        ms < 180L -> AMBER
+        ms <= 100L -> GREEN
+        ms <= 250L -> AMBER
         else -> RED
     }
 
@@ -1963,12 +2100,14 @@ class MainActivity : Activity() {
             latencyMs.remove(profile)
             pingInfo[profile] = "Проверяем…"
         }
+        // Flip the state before rendering so the progress counter immediately
+        // shows 0/N instead of briefly displaying the idle sorting label.
+        latencyTestInFlight = true
         renderProfiles()
         Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
 
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
-        latencyTestInFlight = true
         val generation = latencyCheckGeneration.get()
         pingExecutor.execute {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
@@ -2182,9 +2321,45 @@ class MainActivity : Activity() {
         restorePendingLatencyResult()
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
+        if (intent?.action == ACTION_TILE_TOGGLE) {
+            intent.action = null
+            handleQuickTileToggle()
+        }
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent == null) return
+        setIntent(intent)
+        if (intent.action == ACTION_TILE_TOGGLE) {
+            intent.action = null
+            handleQuickTileToggle()
+        }
+    }
+
+    private fun handleQuickTileToggle() {
+        if (connected) {
+            stopTunnel()
+            return
+        }
+        if (connecting) {
+            Toast.makeText(this, "Подключение уже выполняется", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (selectedProfile != null) {
+            connectSelectedProfile()
+        } else if (latencyTestInFlight) {
+            tilePendingStart = true
+            pendingFastestSelection = true
+            selectingFastest = true
+            Toast.makeText(this, "Выберем лучший сервер после проверки…", Toast.LENGTH_SHORT).show()
+        } else {
+            tilePendingStart = true
+            selectFastestServer()
+        }
     }
 
     private fun restorePendingLatencyResult() {
@@ -2235,16 +2410,23 @@ class MainActivity : Activity() {
         if (pendingFastestSelection && finished) {
             pendingFastestSelection = false
             selectingFastest = false
-            val fastest = urlTestProfileMap.values.mapNotNull { link ->
-                latencyMs[link]?.let { link to it }
-            }.minByOrNull { it.second }?.first
+            val fastest = BestServerSelector.select(
+                profiles = urlTestProfileMap.values.toList(),
+                latencyMs = latencyMs,
+                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList())
+            )
             if (fastest != null) {
                 selectedProfile = fastest
                 status.text = "Выбран быстрый сервер"
                 status.setTextColor(GREEN)
                 selectedInfo.text = profileSummary(fastest)
                 Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+                if (tilePendingStart) {
+                    tilePendingStart = false
+                    connectSelectedProfile()
+                }
             } else {
+                tilePendingStart = false
                 Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
             }
         }
@@ -2455,6 +2637,35 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updateDailyTraffic(rx: Long, tx: Long) {
+        val calendar = java.util.Calendar.getInstance()
+        val dayKey = calendar.get(java.util.Calendar.YEAR) * 10000 +
+            (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val totals = dailyTrafficAccumulator.update(dayKey, rx, tx)
+        dailyTrafficHistory.record(dayKey, totals.downloadedBytes, totals.uploadedBytes)
+        val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
+        prefs.edit()
+            .putInt("day", dailyTrafficAccumulator.currentDayKey())
+            .putLong("rx", dailyTrafficAccumulator.lastRxBytes())
+            .putLong("tx", dailyTrafficAccumulator.lastTxBytes())
+            .putLong("downloaded", totals.downloadedBytes)
+            .putLong("uploaded", totals.uploadedBytes)
+            .putString("week", dailyTrafficHistory.encode())
+            .apply()
+        monitorDailyTraffic.text = "Сегодня*  ↓ " +
+            DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
+        val weekly = dailyTrafficHistory.total()
+        monitorWeeklyTraffic.text = "За 7 дней*  ↓ " +
+            DailyTrafficAccumulator.formatBytes(weekly.downloadedBytes) +
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(weekly.uploadedBytes) +
+            "\n" + dailyTrafficHistory.entries().joinToString("  ·  ") { entry ->
+                val date = String.format(java.util.Locale.US, "%02d.%02d", entry.dayKey % 100, (entry.dayKey / 100) % 100)
+                "$date ↓ ${DailyTrafficAccumulator.formatBytes(entry.totals.downloadedBytes)} ↑ ${DailyTrafficAccumulator.formatBytes(entry.totals.uploadedBytes)}"
+            }
+    }
+
     private fun updateTrafficMonitor() {
         // Android exposes aggregate device counters without special usage-access
         // permission. These include background apps, so label them as device-wide.
@@ -2466,6 +2677,7 @@ class MainActivity : Activity() {
             monitorUpload.text = "↑ недоступно"
             return
         }
+        updateDailyTraffic(rx, tx)
         if (lastTrafficAt > 0L && lastRxBytes >= 0L && lastTxBytes >= 0L) {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
@@ -2473,6 +2685,13 @@ class MainActivity : Activity() {
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
             monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
             speedGraph.addSample(down, up)
+            val stats = speedGraph.currentStats()
+            monitorSpeedStats.text = String.format(
+                java.util.Locale.US,
+                "Средняя: ↓ %.2f / ↑ %.2f Мбит/с   ·   Пик: ↓ %.2f / ↑ %.2f",
+                stats.averageDownloadMbps, stats.averageUploadMbps,
+                stats.peakDownloadMbps, stats.peakUploadMbps
+            )
         }
         lastRxBytes = rx
         lastTxBytes = tx
@@ -2536,20 +2755,84 @@ class MainActivity : Activity() {
             updateProtectionLabels()
             return
         }
-        val now = System.currentTimeMillis()
+        // Use monotonic time so wall-clock changes cannot stall or spam health probes.
+        val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
-        healthCheckExecutor.execute {
-            val ok = TunnelHealthChecker.check(vpnNetwork)
-            tunnelInternetOk = ok
-            healthCheckInFlight.set(false)
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed && connected) {
-                    updateProtectionLabels()
-                    renderProfiles()
+        try {
+            healthCheckExecutor.execute {
+                val ok = try {
+                    TunnelHealthChecker.check(vpnNetwork)
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    // Always release the gate, even if a platform/network call fails unexpectedly.
+                    healthCheckInFlight.set(false)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed && connected) {
+                        // Discard a probe result if Android replaced the VPN Network
+                        // while the request was in flight; it says nothing about the new tunnel.
+                        val currentNetwork = connectivity.activeNetwork
+                        val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
+                        if (currentNetwork != vpnNetwork ||
+                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                        ) {
+                            lastHealthCheckAt = 0L
+                            return@runOnUiThread
+                        }
+                        tunnelInternetOk = ok
+                        if (ok) {
+                            consecutiveHealthFailures = 0
+                        } else {
+                            consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
+                            maybeAutoFailover()
+                        }
+                        updateProtectionLabels()
+                        renderProfiles()
+                    }
                 }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Activity teardown can race with a scheduled probe after executor shutdown.
+            healthCheckInFlight.set(false)
         }
+    }
+
+    /**
+     * Switch only after repeated failed end-to-end checks. A single blocked
+     * probe or transient network handover must not cause a server change.
+     */
+    private fun maybeAutoFailover() {
+        if (!connected || connecting || selectingFastest) return
+        // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
+        val profiles = safeProfiles() ?: return
+        val current = activeProfile ?: selectedProfile
+        // A failed end-to-end health check invalidates the cached ping result
+        // for this node; otherwise a later failover could bounce straight back.
+        if (current != null) {
+            latencyMs.remove(current)
+            pingInfo[current] = "Не отвечает · проверка соединения не пройдена"
+        }
+        val alternate = BestServerSelector.select(
+            profiles = profiles.filterNot { it == current },
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(profiles.filterNot { it == current })
+        ) ?: run {
+            renderProfiles()
+            return
+        }
+        lastAutoFailoverAt = now
+        consecutiveHealthFailures = 0
+        selectedProfile = alternate
+        selectedInfo.text = profileSummary(alternate)
+        status.text = "Переключаем сервер…"
+        status.setTextColor(AMBER)
+        updateConnectionCardAppearance("switching")
+        Toast.makeText(this, "Связь нестабильна. Переключаемся на другой сервер…", Toast.LENGTH_LONG).show()
+        connectSelectedProfile()
     }
 
     private fun updateProtectionLabels() {
@@ -2613,6 +2896,50 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(7) })
         }
+        content.addView(TextView(this).apply {
+            text = if (hasAppUsageAccess()) {
+                "Статистика приложений: доступ разрешён"
+            } else {
+                "Статистика приложений: нужен дополнительный доступ Android"
+            }
+            textSize = 12f
+            setTextColor(if (hasAppUsageAccess()) GREEN else AMBER)
+            setPadding(dp(12), dp(10), dp(12), dp(8))
+        })
+        content.addView(TextView(this).apply {
+            text = "Открыть доступ к статистике приложений"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener {
+                val usageIntent = Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                runCatching { startActivity(usageIntent) }.onFailure {
+                    Toast.makeText(this@MainActivity, "Не удалось открыть настройки доступа", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+        val appTrafficContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(0xFF111B2D.toInt(), 16)
+        }
+        content.addView(appTrafficContainer, matchWidth().apply { topMargin = dp(8) })
+        content.addView(TextView(this).apply {
+            text = "Обновить статистику"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFB9C8FF.toInt())
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnClickListener { loadAppTrafficStats(appTrafficContainer) }
+        })
+        if (hasAppUsageAccess()) loadAppTrafficStats(appTrafficContainer)
+        else appTrafficContainer.addView(TextView(this).apply {
+            text = "Топ приложений по трафику появится здесь после предоставления доступа."
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+        })
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
@@ -2622,6 +2949,249 @@ class MainActivity : Activity() {
             .setView(scroll)
             .setPositiveButton("Готово", null)
             .show()
+    }
+
+    private fun hasAppUsageAccess(): Boolean = AppTrafficStatsReader.hasAccess(this)
+
+    private fun loadAppTrafficStats(target: LinearLayout) {
+        target.removeAllViews()
+        if (!hasAppUsageAccess()) {
+            target.addView(TextView(this).apply {
+                text = "Разреши доступ Usage Access в настройках Android."
+                textSize = 12f
+                setTextColor(AMBER)
+            })
+            return
+        }
+        target.addView(TextView(this).apply {
+            text = "Загружаю статистику Android…"
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+        })
+        diagnosticsExecutor.execute {
+            val now = System.currentTimeMillis()
+            val dayMs = 24L * 60L * 60L * 1000L
+            val result = runCatching {
+                val current = AppTrafficStatsReader.readPeriod(this, now - dayMs, now)
+                val previous = runCatching {
+                    AppTrafficStatsReader.readPeriod(this, now - 2L * dayMs, now - dayMs)
+                }.getOrNull()
+                val weekly = AppTrafficStatsReader.readLastSevenDays(this, now)
+                Triple(current, previous, weekly)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                target.removeAllViews()
+                result.fold(
+                    onSuccess = { period ->
+                        val stats = period.first
+                        val previous = period.second
+                        val weekly = period.third
+                        val total = AppTrafficStatsReader.addCounters(stats.totalDownloadedBytes, stats.totalUploadedBytes)
+                        val downloaded = stats.totalDownloadedBytes
+                        val uploaded = stats.totalUploadedBytes
+                        val currentTotals = TrafficUsageInsights.Totals(downloaded, uploaded)
+                        val previousTotals = previous?.let {
+                            TrafficUsageInsights.Totals(it.totalDownloadedBytes, it.totalUploadedBytes)
+                        }
+                        val availability = buildList {
+                            add(if (stats.wifiAvailable) "Wi-Fi" else "Wi-Fi —")
+                            add(if (stats.mobileAvailable) "Мобильная сеть" else "Мобильная сеть —")
+                        }.joinToString(" · ")
+                        target.addView(TextView(this).apply {
+                            text = "ЗА 24 ЧАСА"
+                            textSize = 9f
+                            letterSpacing = 0.12f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(MUTED)
+                        })
+                        target.addView(TextView(this).apply {
+                            text = AppTrafficStatsReader.formatBytes(total)
+                            textSize = 22f
+                            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                            setTextColor(Color.WHITE)
+                            setPadding(0, dp(3), 0, dp(2))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "↓ ${AppTrafficStatsReader.formatBytes(downloaded)}    ↑ ${AppTrafficStatsReader.formatBytes(uploaded)}"
+                            textSize = 11f
+                            setTextColor(0xFFB9C8FF.toInt())
+                        })
+                        target.addView(TextView(this).apply {
+                            text = availability + "\nОбщесистемные данные Android, не только VPN."
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, dp(5), 0, dp(10))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = previousTotals?.let { TrafficUsageInsights.comparison(currentTotals, it) }
+                                ?: "Сравнение со вчера недоступно: Android не вернул данные за предыдущие 24 часа."
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(0xFFD8E0F2.toInt())
+                            setPadding(0, 0, 0, dp(5))
+                        })
+                        val warning = previousTotals?.let { TrafficUsageInsights.warning(currentTotals, it) }
+                        if (warning != null) {
+                            target.addView(TextView(this).apply {
+                                text = "⚠ $warning"
+                                textSize = 11f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(AMBER)
+                                setPadding(dp(9), dp(7), dp(9), dp(7))
+                                background = rounded(0xFF332819.toInt(), 10)
+                            })
+                        }
+                        val top = stats.apps.take(8)
+                        if (top.isEmpty()) {
+                            target.addView(TextView(this).apply {
+                                text = "Нет данных за выбранный период."
+                                textSize = 12f
+                                setTextColor(0xFFD8E0F2.toInt())
+                            })
+                        }
+                        top.forEachIndexed { index, app ->
+                            val share = if (total > 0L) (app.totalBytes.toDouble() * 100.0 / total).coerceIn(0.0, 100.0) else 0.0
+                            val card = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(9), dp(8), dp(9), dp(8))
+                                background = rounded(0xFF19253A.toInt(), 12)
+                            }
+                            card.addView(TextView(this).apply {
+                                text = "${index + 1}. ${app.label}  ·  ${String.format(java.util.Locale.getDefault(), "%.1f%%", share)}"
+                                textSize = 12f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(Color.WHITE)
+                            })
+                            card.addView(TextView(this).apply {
+                                text = "↓ ${AppTrafficStatsReader.formatBytes(app.downloadedBytes)}   ↑ ${AppTrafficStatsReader.formatBytes(app.uploadedBytes)}"
+                                textSize = 10f
+                                setTextColor(0xFFB9C8FF.toInt())
+                                setPadding(0, dp(3), 0, dp(6))
+                            })
+                            val track = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                background = rounded(0xFF29364D.toInt(), 5)
+                            }
+                            val fill = View(this).apply { background = rounded(0xFF7D91FF.toInt(), 5) }
+                            track.addView(fill, LinearLayout.LayoutParams(0, dp(5), share.toFloat().coerceIn(0.5f, 100f)))
+                            if (share < 100.0) track.addView(View(this), LinearLayout.LayoutParams(0, dp(5), (100.0 - share).toFloat().coerceAtLeast(0.5f)))
+                            card.addView(track)
+                            target.addView(card, matchWidth().apply { topMargin = dp(6) })
+                        }
+                        target.addView(TextView(this).apply {
+                            text = "ИСТОРИЯ ПРИЛОЖЕНИЙ · 7 ДНЕЙ"
+                            textSize = 9f
+                            letterSpacing = 0.12f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(MUTED)
+                            setPadding(0, dp(16), 0, dp(5))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "Трафик приложений: слева старые дни, справа сегодня. Сегодня учитывается не полностью."
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, 0, 0, dp(5))
+                        })
+                        val bars = "▁▂▃▄▅▆▇█"
+                        val dailyTotals = AppTrafficTrend.dailyTotals(weekly)
+                        val maxDaily = dailyTotals.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+                        val totalSparkline = dailyTotals.joinToString("") { value ->
+                            val slot = if (value <= 0L) 0 else
+                                ((value.toDouble() / maxDaily.toDouble()) * bars.lastIndex).toInt().coerceIn(1, bars.lastIndex)
+                            bars[slot].toString()
+                        }
+                        target.addView(TextView(this).apply {
+                            text = "Весь трафик по дням"
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(Color.WHITE)
+                            setPadding(0, dp(5), 0, dp(3))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = totalSparkline + "    " + AppTrafficStatsReader.formatBytes(AppTrafficTrend.safeSum(dailyTotals))
+                            textSize = 12f
+                            setTextColor(0xFFB9C8FF.toInt())
+                        })
+                        target.addView(TextView(this).apply {
+                            text = weekly.joinToString(" · ") { it.dayLabel }
+                            textSize = 9f
+                            setTextColor(MUTED)
+                            setPadding(0, 0, 0, dp(7))
+                        })
+                        target.addView(TextView(this).apply {
+                            text = "Динамика приложений · вчера к позавчера (изменение от 50 МБ)"
+                            textSize = 10f
+                            setTextColor(MUTED)
+                            setPadding(0, dp(7), 0, dp(3))
+                        })
+                        val yesterdayApps = weekly.getOrNull(weekly.size - 2)?.apps.orEmpty().associateBy { it.uid }
+                        val dayBeforeApps = weekly.getOrNull(weekly.size - 3)?.apps.orEmpty().associateBy { it.uid }
+                        val weeklyApps = weekly.flatMap { it.apps }
+                            .groupBy { it.uid }
+                            .mapValues { (_, entries) -> AppTrafficTrend.safeSum(entries.map { it.totalBytes }) }
+                            .entries.sortedByDescending { it.value }.take(5)
+                        if (weeklyApps.isEmpty()) {
+                            target.addView(TextView(this).apply {
+                                text = "За эту неделю статистика приложений пока недоступна."
+                                textSize = 11f
+                                setTextColor(0xFFD8E0F2.toInt())
+                            })
+                        }
+                        weeklyApps.forEachIndexed { index, entry ->
+                            val label = weekly.asSequence().flatMap { it.apps.asSequence() }
+                                .firstOrNull { it.uid == entry.key }?.label ?: "UID ${entry.key}"
+                            val dailyValues = weekly.map { day ->
+                                day.apps.firstOrNull { it.uid == entry.key }?.totalBytes ?: 0L
+                            }
+                            val maxDay = dailyValues.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+                            val sparkline = dailyValues.joinToString("") { value ->
+                                val slot = if (value <= 0L) 0 else
+                                    ((value.toDouble() / maxDay.toDouble()) * (bars.lastIndex)).toInt().coerceIn(1, bars.lastIndex)
+                                bars[slot].toString()
+                            }
+                            val card = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(9), dp(8), dp(9), dp(8))
+                                background = rounded(0xFF19253A.toInt(), 12)
+                            }
+                            card.addView(TextView(this).apply {
+                                text = "${index + 1}. $label"
+                                textSize = 11f
+                                typeface = Typeface.DEFAULT_BOLD
+                                setTextColor(Color.WHITE)
+                            })
+                            card.addView(TextView(this).apply {
+                                text = sparkline + "    Всего: ${AppTrafficStatsReader.formatBytes(entry.value)}"
+                                textSize = 12f
+                                setTextColor(0xFFB9C8FF.toInt())
+                                setPadding(0, dp(3), 0, 0)
+                            })
+                            val yesterdayBytes = yesterdayApps[entry.key]?.totalBytes ?: 0L
+                            val previousBytes = dayBeforeApps[entry.key]?.totalBytes ?: 0L
+                            val trend = AppTrafficTrend.describe(yesterdayBytes, previousBytes)
+                            if (trend != null) {
+                                card.addView(TextView(this).apply {
+                                    text = trend
+                                    textSize = 10f
+                                    typeface = Typeface.DEFAULT_BOLD
+                                    setTextColor(if (trend.startsWith("↑")) AMBER else 0xFF8FD6B5.toInt())
+                                    setPadding(0, dp(3), 0, 0)
+                                })
+                            }
+                            target.addView(card, matchWidth().apply { topMargin = dp(5) })
+                        }
+                    },
+                    onFailure = { error ->
+                        target.addView(TextView(this).apply {
+                            text = "Не удалось прочитать статистику: ${error.message ?: "ошибка Android"}. Проверь доступ Usage Access."
+                            textSize = 12f
+                            setTextColor(AMBER)
+                        })
+                    }
+                )
+            }
+        }
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
@@ -2685,6 +3255,9 @@ class MainActivity : Activity() {
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
+            appendLine()
+            appendLine("ДОСТУПНОСТЬ СЕРВИСОВ")
+            appendLine(if (vpnTransport) "Проверка выполняется через VPN…" else "Для проверки сервисов через VPN сначала подключись.")
             appendLine("Время отчёта: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()))
         }
         val content = LinearLayout(this).apply {
@@ -2705,34 +3278,57 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF151F32.toInt(), 14)
         })
-        content.addView(TextView(this).apply {
+        val reportView = TextView(this).apply {
             text = report
             textSize = 12f
             setTextColor(0xFFD8E0F2.toInt())
             setLineSpacing(dp(4).toFloat(), 1f)
             setPadding(dp(4), dp(12), dp(4), dp(4))
-        })
+        }
+        content.addView(reportView)
+        var latestReport = report
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             addView(content)
         }
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Диагностика соединения")
             .setView(scroll)
-            .setPositiveButton("Поделиться") { _, _ ->
-                val share = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — диагностика")
-                    putExtra(Intent.EXTRA_TEXT, report)
-                }
-                startActivity(Intent.createChooser(share, "Отправить отчёт"))
-            }
+            .setPositiveButton("Поделиться", null)
             .setNegativeButton("Закрыть", null)
             .show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — диагностика")
+                putExtra(Intent.EXTRA_TEXT, latestReport)
+            }
+            startActivity(Intent.createChooser(share, "Отправить отчёт"))
+        }
+        if (vpnTransport && network != null) {
+            diagnosticsExecutor.execute {
+                val results = ServiceReachabilityChecker.checkAll(network)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
+                    val serviceReport = results.joinToString("\n") { it.display() }
+                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport)
+                    reportView.text = latestReport
+                }
+            }
+        }
     }
 
     private fun showConnectionHistoryDialog() {
         val entries = connectionHistory.getEntries()
+        val weekAgo = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+        val recentEntries = entries.filter { it.timestamp >= weekAgo }
+        val stability = ConnectionStability.summarize(
+            recentEntries.map { ConnectionStability.Event(it.timestamp, it.state) },
+            System.currentTimeMillis()
+        )
+        val stabilityText = "За 7 дней · по сохранённым событиям\n" +
+            "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\n" +
+            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}"
         val body = if (entries.isEmpty()) {
             "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
         } else {
@@ -2761,6 +3357,14 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFF9EAEFF.toInt())
             setPadding(0, 0, 0, dp(12))
+        })
+        historyContent.addView(TextView(this).apply {
+            text = stabilityText
+            textSize = 12f
+            setTextColor(0xFFD8E0F2.toInt())
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(dp(12), dp(11), dp(12), dp(11))
+            background = rounded(0xFF202B43.toInt(), 14)
         })
         if (entries.isEmpty()) {
             historyContent.addView(TextView(this).apply {
@@ -2823,7 +3427,7 @@ class MainActivity : Activity() {
                 }.ifBlank { "История подключений Astra VPN пуста." }
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "ASTRA VPN — история подключений\n\n$shareText")
+                    putExtra(Intent.EXTRA_TEXT, "ASTRA VPN — история подключений\n$stabilityText\n\n$shareText")
                 }
                 startActivity(Intent.createChooser(share, "Поделиться историей"))
             }
@@ -2885,60 +3489,64 @@ class MainActivity : Activity() {
         panel.addView(sortGroup)
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
-            text = "Мониторинг сети  ›"
-            textSize = 15f
+            text = "📶  Мониторинг сети"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(16), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showNetworkMonitorDialog() }
         }
         panel.addView(monitorEntry)
 
         val diagnosticsEntry = TextView(this).apply {
-            text = "Диагностика соединения  ›"
-            textSize = 15f
+            text = "🩺  Диагностика соединения"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
 
         val historyEntry = TextView(this).apply {
-            text = "История подключений  ›"
-            textSize = 15f
+            text = "🕘  История подключений"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showConnectionHistoryDialog() }
         }
         panel.addView(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
-            text = "Приложения через VPN  ›"
-            textSize = 15f
+            text = "📱  Приложения через VPN"
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(LIGHT_ACCENT)
-            setPadding(0, dp(12), 0, dp(14))
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
             setOnClickListener { showAppRoutingDialog() }
         }
         panel.addView(appRoutingEntry)
         addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
-        val autoUpdate = CheckBox(this).apply {
+        val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("auto_update", false)
         }
         panel.addView(autoUpdate)
-        val updateOnOpen = CheckBox(this).apply {
+        val updateOnOpen = android.widget.Switch(this).apply {
             text = "Обновлять при открытии приложения"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("update_on_open", false)
         }
         panel.addView(updateOnOpen)
-        val subscriptionNotifications = CheckBox(this).apply {
+        val subscriptionNotifications = android.widget.Switch(this).apply {
             text = "Уведомлять об обновлении подписок"
             textSize = 14f
             setTextColor(Color.WHITE)
@@ -2986,7 +3594,7 @@ class MainActivity : Activity() {
             text = when {
                 lastAttempt <= 0L -> "Попыток обновления пока не было"
                 lastAttempt > lastUpdate -> "Последняя попытка: " + java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastAttempt)) + " · результат мог быть с ошибкой"
-                else -> "Последняя попытка совпадает с успешным обновлением"
+                else -> "Последняя попытка успешна"
             }
             textSize = 11f
             setTextColor(MUTED)
@@ -3124,10 +3732,10 @@ class MainActivity : Activity() {
                 .distinctBy { it.packageName }
                 .sortedBy { it.label.lowercase(java.util.Locale.getDefault()) }
         }.getOrElse { emptyList() }
-        val checks = mutableMapOf<String, CheckBox>()
+        val checks = mutableMapOf<String, android.widget.Switch>()
         val appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         apps.forEach { app ->
-            val check = CheckBox(this).apply {
+            val check = android.widget.Switch(this).apply {
                 text = app.label
                 tag = app.packageName
                 isChecked = app.packageName in selected
@@ -3263,6 +3871,18 @@ class MainActivity : Activity() {
         refreshSubscriptions(showResult = false)
     }
 
+    private fun recentServerFailureCounts(profiles: List<String>): Map<String, Int> {
+        val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+        val failuresByName = connectionHistory.getEntries()
+            .asSequence()
+            .filter { it.timestamp >= cutoff && it.state == "error" }
+            .groupingBy { it.serverName.trim().lowercase(java.util.Locale.ROOT) }
+            .eachCount()
+        return profiles.associateWith { profile ->
+            failuresByName[profileName(profile).trim().lowercase(java.util.Locale.ROOT)] ?: 0
+        }
+    }
+
     private fun profileName(link: String): String {
         val uri = Uri.parse(link)
         val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
@@ -3272,7 +3892,9 @@ class MainActivity : Activity() {
     private fun profileSummary(link: String): String {
         val uri = Uri.parse(link)
         val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-        val name = fragment.ifBlank { uri.host.orEmpty().ifBlank { "Сервер" } }
+        val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+            val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
+            val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
         val protocol = when (uri.scheme?.lowercase()) {
             "vless" -> "VLESS"
             "hysteria2", "hy2" -> "Hysteria2"
@@ -3323,6 +3945,39 @@ class MainActivity : Activity() {
         ).apply {
             cornerRadius = dp(26).toFloat()
             setStroke(dp(1), stroke)
+        }
+        if (::connectButton.isInitialized) {
+            val starColor = when (state) {
+                "connected" -> Color.WHITE
+                "connecting" -> 0xFFFFE2B3.toInt()
+                "switching" -> 0xFFDDE2FF.toInt()
+                else -> 0xFFB6C0D2.toInt()
+            }
+            val buttonColor = when (state) {
+                "connected" -> 0xFF23866D.toInt()
+                "connecting" -> 0xFF80613A.toInt()
+                "switching" -> 0xFF4B579A.toInt()
+                else -> 0xFF414B60.toInt()
+            }
+            connectButton.setTextColor(starColor)
+            connectButton.backgroundTintList = android.content.res.ColorStateList.valueOf(buttonColor)
+            connectButton.elevation = dp(if (state == "connected") 12 else 4).toFloat()
+            connectButton.contentDescription = when (state) {
+                "connected" -> "Отключить VPN. Звезда активна"
+                "connecting" -> "Подключение VPN. Звезда загорается"
+                "switching" -> "Переключение сервера"
+                else -> "Подключить VPN. Звезда неактивна"
+            }
+            if (state == "connected") {
+                connectButton.animate().cancel()
+                connectButton.scaleX = 0.94f
+                connectButton.scaleY = 0.94f
+                connectButton.animate().scaleX(1.07f).scaleY(1.07f).setDuration(220L)
+                    .withEndAction { connectButton.animate().scaleX(1f).scaleY(1f).setDuration(360L).start() }.start()
+            } else if (state == "disconnected") {
+                connectButton.animate().cancel()
+                connectButton.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
+            }
         }
         if (::connectionIndicator.isInitialized) {
             val indicatorColor = when (state) {
@@ -3380,10 +4035,12 @@ class MainActivity : Activity() {
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
+        diagnosticsExecutor.shutdownNow()
         super.onDestroy()
     }
 
     companion object {
+        const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
