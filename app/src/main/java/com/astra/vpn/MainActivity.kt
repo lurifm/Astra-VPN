@@ -3631,10 +3631,44 @@ class MainActivity : Activity() {
         if (vpnTransport && network != null) {
             diagnosticsExecutor.execute {
                 val results = ServiceReachabilityChecker.checkAll(network)
+                val securityAudit = active?.let { profile ->
+                    runCatching {
+                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile))
+                    }.getOrNull()
+                }
+                val dnsResolutionOk = runCatching {
+                    network.getAllByName("example.com").isNotEmpty()
+                }.getOrDefault(false)
+                val ipv6Reachable = runCatching {
+                    val connection = network.openConnection(URL("https://api64.ipify.org")) as HttpsURLConnection
+                    try {
+                        connection.connectTimeout = 4_000
+                        connection.readTimeout = 4_000
+                        connection.instanceFollowRedirects = false
+                        val address = connection.inputStream.bufferedReader().use { it.readText().trim() }
+                        java.net.InetAddress.getByName(address) is java.net.Inet6Address
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrDefault(false)
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
                     val serviceReport = results.joinToString("\n") { it.display() }
-                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport)
+                    val securityReport = buildString {
+                        appendLine("DNS/IPv6 — проверка через активную VPN-сеть")
+                        appendLine("DNS-over-HTTPS в конфигурации: " +
+                            if (securityAudit?.dnsRoutingProtected == true) "настроен" else "не подтверждён")
+                        appendLine("DNS-запрос через VPN: " + if (dnsResolutionOk) "успешен" else "не прошёл")
+                        appendLine("IPv4-маршрут в TUN: " +
+                            if (securityAudit?.ipv4TunnelConfigured == true && securityAudit.automaticRoutingEnabled) "настроен" else "не подтверждён")
+                        appendLine("IPv6-маршрут в TUN: " +
+                            if (securityAudit?.ipv6RoutingConfigured == true) "настроен" else "не подтверждён")
+                        appendLine("Публичный IPv6 через VPN: " +
+                            if (ipv6Reachable) "доступен" else "не получен")
+                        append("Примечание: это аудит конфигурации и доступности; он не доказывает отсутствие всех DNS/IPv6-утечек.")
+                    }
+                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport) +
+                        "\n\n" + securityReport
                     reportView.text = latestReport
                 }
             }
