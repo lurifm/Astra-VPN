@@ -63,7 +63,7 @@ internal class LatencyHistoryStore(context: Context) {
     private companion object {
         const val MAX_SAMPLES = 12
         const val MIN_SAMPLE_INTERVAL_MS = 60_000L
-        const val HISTORY_WINDOW_MS = LatencyStabilityScorer.DEFAULT_WINDOW_MS
+        const val HISTORY_WINDOW_MS = 21L * 24L * 60L * 60L * 1_000L
         const val MAX_VALID_LATENCY_MS = 60_000L
     }
 }
