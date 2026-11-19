@@ -3873,12 +3873,10 @@ class MainActivity : Activity() {
     }
 
     private fun recentServerFailureCounts(profiles: List<String>): Map<String, Int> {
-        val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
-        val failuresByName = connectionHistory.getEntries()
-            .asSequence()
-            .filter { it.timestamp >= cutoff && it.state == "error" }
-            .groupingBy { it.serverName.trim().lowercase(java.util.Locale.ROOT) }
-            .eachCount()
+        val failuresByName = ServerFailureScorer.weightedFailures(
+            entries = connectionHistory.getEntries(),
+            now = System.currentTimeMillis()
+        )
         return profiles.associateWith { profile ->
             failuresByName[profileName(profile).trim().lowercase(java.util.Locale.ROOT)] ?: 0
         }
