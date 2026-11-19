@@ -195,6 +195,7 @@ class MainActivity : Activity() {
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
+                    tilePendingStart = false
                     urlTestProfileMap.values.forEach { profile ->
                         // A broken test engine/channel is not evidence that the proxy is offline.
                         // Preserve successful measurements and label only unknown results as a test error.
@@ -2291,6 +2292,8 @@ class MainActivity : Activity() {
         latencyTestInFlight = false
         pendingFastestSelection = false
         selectingFastest = false
+        // A cancelled auto-selection must never trigger a delayed Quick Settings connection.
+        tilePendingStart = false
         runCatching {
             startService(Intent(this, AstraLatencyTestService::class.java)
                 .setAction(AstraLatencyTestService.ACTION_STOP))
