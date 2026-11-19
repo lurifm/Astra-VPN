@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import java.net.Inet6Address
 import android.provider.Settings
 
 /** Reports observable VPN/network facts; it never claims to prove absence of leaks. */
@@ -11,7 +12,8 @@ internal object AstraNetworkSecurity {
     data class Snapshot(
         val vpnTransportActive: Boolean,
         val dnsServers: List<String>,
-        val activeNetworkHasInternet: Boolean
+        val activeNetworkHasInternet: Boolean,
+        val ipv6DefaultRoutePresent: Boolean
     )
 
     fun snapshot(context: Context): Snapshot {
@@ -22,7 +24,10 @@ internal object AstraNetworkSecurity {
         return Snapshot(
             vpnTransportActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
             dnsServers = links?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList(),
-            activeNetworkHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            activeNetworkHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+            ipv6DefaultRoutePresent = links?.routes?.any { route ->
+                route.isDefaultRoute && route.destination.address is Inet6Address
+            } == true
         )
     }
 
