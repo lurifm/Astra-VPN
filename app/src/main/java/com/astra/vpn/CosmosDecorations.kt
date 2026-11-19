@@ -126,3 +126,44 @@ internal class OrbitMarkerView(context: Context) : View(context) {
         canvas.drawPath(path, paint)
     }
 }
+
+
+/** One-shot expanding halo used when the main Astra star is tapped. */
+internal class StarBurstView(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var progress = 1f
+    private var animator: ValueAnimator? = null
+
+    fun play() {
+        animator?.cancel()
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 520L
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                progress = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (progress >= 1f || width <= 0 || height <= 0) return
+        val d = resources.displayMetrics.density
+        val radius = (12f + progress * 39f) * d
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (2.6f - progress * 1.5f) * d
+        paint.color = Color.argb(((1f - progress) * 190).toInt(), 169, 184, 255)
+        canvas.drawCircle(width / 2f, height / 2f, radius, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(((1f - progress) * 34).toInt(), 169, 184, 255)
+        canvas.drawCircle(width / 2f, height / 2f, radius, paint)
+    }
+
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        animator = null
+        super.onDetachedFromWindow()
+    }
+}
