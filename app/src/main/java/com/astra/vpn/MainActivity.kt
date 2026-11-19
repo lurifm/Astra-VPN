@@ -254,6 +254,7 @@ class MainActivity : Activity() {
             }
             updateGeoLocationForState()
             updateProtectionLabels()
+            AstraHomeWidgetProvider.refreshAll(this@MainActivity)
             renderProfiles()
         }
     }
@@ -2677,6 +2678,7 @@ class MainActivity : Activity() {
         restorePendingLatencyResult()
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
+        AstraHomeWidgetProvider.refreshAll(this)
         if (intent?.action == ACTION_TILE_TOGGLE) {
             intent.action = null
             handleQuickTileToggle()
