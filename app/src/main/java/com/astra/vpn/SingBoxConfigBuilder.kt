@@ -11,7 +11,7 @@ import org.json.JSONObject
  */
 object SingBoxConfigBuilder {
 
-    fun build(serverLink: String): String {
+    fun build(serverLink: String, preferences: AstraNetworkPreferences = AstraNetworkPreferences()): String {
         val uri = Uri.parse(serverLink.trim())
         val scheme = uri.scheme?.lowercase()
             ?: error("У ссылки сервера отсутствует протокол")
@@ -52,16 +52,27 @@ object SingBoxConfigBuilder {
                 .put("type", "tun")
                 .put("tag", "tun-in")
                 .put("address", JSONArray().put("172.19.0.1/30").put("fdfe:dcba:9876::1/126"))
-                .put("mtu", 1400)
+                .put("mtu", preferences.mtu)
                 .put("auto_route", true)
                 .put("stack", "system")))
             .put("outbounds", outbounds)
             .put("route", JSONObject()
                 .put("auto_detect_interface", true)
                 .put("final", "proxy")
-                .put("rules", JSONArray().put(JSONObject()
-                    .put("protocol", "dns")
-                    .put("action", "hijack-dns"))))
+                .put("rules", JSONArray().apply {
+                    put(JSONObject()
+                        .put("protocol", "dns")
+                        .put("action", "hijack-dns"))
+                    if (preferences.routingPreset == AstraNetworkPreferences.RoutingPreset.LOCAL_DIRECT) {
+                        put(JSONObject()
+                            .put("domain_suffix", JSONArray().put("ru").put("рф").put("su")
+                                .put("yandex.ru").put("vk.com").put("vk.ru")
+                                .put("mail.ru").put("ok.ru").put("gosuslugi.ru")
+                                .put("nalog.gov.ru").put("sberbank.ru"))
+                            .put("action", "route")
+                            .put("outbound", "direct"))
+                    }
+                }))
         val json = config.toString()
         // Validate against the exact sing-box core bundled in this APK before starting the VPN.
         Libbox.checkConfig(json)
