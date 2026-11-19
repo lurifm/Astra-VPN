@@ -35,5 +35,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
+    // Android's local-test android.jar contains non-functional org.json stubs.
+    // Use the real JSON implementation for JVM tests that exercise config builders.
+    testImplementation("org.json:json:20240303")
 }
