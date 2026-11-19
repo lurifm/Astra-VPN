@@ -1195,6 +1195,88 @@ class MainActivity : Activity() {
         null
     }
 
+    /**
+     * Notify only when the provider actually supplied expiry/traffic metadata.
+     * Each warning class is deduplicated per subscription to avoid noisy repeats.
+     */
+    private fun checkSubscriptionWarnings() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val summaries = safeSubscriptionSummaries() ?: return
+        val manager = getSystemService(android.app.NotificationManager::class.java)
+        AstraNoticeChannels.ensureCreated(this)
+        val prefs = getSharedPreferences("astra_subscription_notices", MODE_PRIVATE)
+        summaries.forEach { item ->
+            val key = item.sourceUrl.hashCode().toUInt().toString(16)
+            val nowSeconds = System.currentTimeMillis() / 1000L
+            val expiry = item.expiresAtEpochSeconds
+            if (expiry != null && expiry > 0L) {
+                val remaining = expiry - nowSeconds
+                val warning = when {
+                    remaining <= 0L -> "expired" to "Срок действия подписки истёк"
+                    remaining <= 24L * 60L * 60L -> "1d" to "Подписка истекает в течение суток"
+                    remaining <= 7L * 24L * 60L * 60L -> "7d" to "Подписка истекает в течение 7 дней"
+                    else -> null
+                }
+                if (warning != null) {
+                    val noticeKey = "${key}_${warning.first}"
+                    if (!prefs.getBoolean(noticeKey, false)) {
+                        postSubscriptionNotice(manager, key.hashCode(), item.title, warning.second)
+                        prefs.edit().putBoolean(noticeKey, true).apply()
+                    }
+                }
+            }
+            val total = item.totalBytes?.takeIf { it > 0L }
+            if (total != null && (item.uploadBytes != null || item.downloadBytes != null)) {
+                val remaining = (total - subscriptionUsedBytes(item)).coerceAtLeast(0L)
+                if (remaining * 100L <= total) {
+                    val noticeKey = "${key}_traffic_low"
+                    if (!prefs.getBoolean(noticeKey, false)) {
+                        postSubscriptionNotice(
+                            manager,
+                            key.hashCode() xor 0x51A7,
+                            item.title,
+                            "Осталось около ${(remaining * 100L / total).coerceAtLeast(0L)}% трафика"
+                        )
+                        prefs.edit().putBoolean(noticeKey, true).apply()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun postSubscriptionNotice(
+        manager: android.app.NotificationManager,
+        id: Int,
+        title: String,
+        message: String
+    ) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pendingIntent = launchIntent?.let {
+            android.app.PendingIntent.getActivity(
+                this,
+                id,
+                it,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= 23) android.app.PendingIntent.FLAG_IMMUTABLE else 0
+            )
+        }
+        val builder = if (Build.VERSION.SDK_INT >= 26) {
+            android.app.Notification.Builder(this, AstraNoticeChannels.SUBSCRIPTIONS)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(this)
+        }
+        builder.setSmallIcon(R.drawable.ic_vpn)
+            .setContentTitle(title.ifBlank { "Astra VPN" })
+            .setContentText(message)
+            .setStyle(android.app.Notification.BigTextStyle().bigText(message))
+            .setAutoCancel(true)
+        if (pendingIntent != null) builder.setContentIntent(pendingIntent)
+        manager.notify(20_000 + (id and 0x0FFF), builder.build())
+    }
+
     private fun subscriptionExpiryState(item: SubscriptionSummary): Triple<String, Int, Int> {
         val expiry = item.expiresAtEpochSeconds ?: return Triple("HTTPS", LIGHT_ACCENT, 0xFF252B48.toInt())
         if (expiry <= 0L) return Triple("БЕЗ СРОКА", GREEN, 0xFF193B35.toInt())
@@ -2602,6 +2684,7 @@ class MainActivity : Activity() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
+        checkSubscriptionWarnings()
     }
 
     override fun onNewIntent(intent: Intent?) {
