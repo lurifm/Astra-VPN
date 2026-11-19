@@ -1988,7 +1988,7 @@ class MainActivity : Activity() {
             }
             details.addView(protocolText)
             details.addView(meta)
-            val stabilitySamples = latencyHistory.samples(link).map { it.latencyMs } + listOfNotNull(latencyMs[link])
+            val stabilitySamples = latencyHistory.samples(link).map { it.latencyMs }
             val stability = if (stabilitySamples.size >= 3) ServerStabilityRating.score(stabilitySamples) else null
             if (stability != null) {
                 details.addView(TextView(this).apply {
@@ -2847,9 +2847,6 @@ class MainActivity : Activity() {
             internet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
             validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         )
-        if (portalState == CaptivePortalState.NO_INTERNET) {
-            monitorNetwork.text = "Сеть подключена, но интернет не подтверждён"
-        }
         when {
             caps == null -> {
                 monitorNetwork.text = "Сеть: не определена"
@@ -2892,6 +2889,9 @@ class MainActivity : Activity() {
                 monitorNetwork.text = "Сеть: другое подключение"
                 monitorOperator.text = "Оператор: —"
             }
+        }
+        if (portalState == CaptivePortalState.NO_INTERNET) {
+            monitorNetwork.text = monitorNetwork.text.toString() + " · интернет не подтверждён"
         }
     }
 
