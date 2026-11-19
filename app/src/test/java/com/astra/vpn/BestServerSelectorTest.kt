@@ -68,6 +68,26 @@ class BestServerSelectorTest {
     }
 
     @Test
+    fun prefersStableLatencyWhenCurrentPingsAreClose() {
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://jittery", "vless://stable"),
+            latencyMs = mapOf("vless://jittery" to 45L, "vless://stable" to 65L),
+            latencyStabilityPenaltyMs = mapOf("vless://jittery" to 30L)
+        )
+        assertEquals("vless://stable", selected)
+    }
+
+    @Test
+    fun latencyJitterPenaltyIsBounded() {
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://jittery", "vless://fast"),
+            latencyMs = mapOf("vless://jittery" to 300L, "vless://fast" to 40L),
+            latencyStabilityPenaltyMs = mapOf("vless://jittery" to Long.MAX_VALUE)
+        )
+        assertEquals("vless://fast", selected)
+    }
+
+    @Test
     fun negativeFailureCountsAreIgnored() {
         val selected = BestServerSelector.select(
             listOf("vless://node"),
