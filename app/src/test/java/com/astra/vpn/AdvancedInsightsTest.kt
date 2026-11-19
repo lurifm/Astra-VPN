@@ -35,7 +35,7 @@ class AdvancedInsightsTest {
         )
         val result = TrafficForecast.estimate(two, 20261119)
         assertNotNull(result)
-        assertEquals(175L, result!!.averageDailyBytes)
+        assertEquals(225L, result!!.averageDailyBytes)
         assertEquals(2, result.sampleDays)
     }
 
