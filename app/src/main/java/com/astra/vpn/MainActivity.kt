@@ -273,7 +273,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF070B13.toInt(), 0xFF111B2D.toInt(), 0xFF090F1B.toInt()))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF05070D.toInt(), 0xFF10131F.toInt(), 0xFF070A12.toInt()))
         }
 
         val header = LinearLayout(this).apply {
@@ -343,10 +343,10 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF30295F.toInt(), 0xFF1C2948.toInt(), 0xFF101A30.toInt())
+                intArrayOf(0xFF302817.toInt(), 0xFF1C1D27.toInt(), 0xFF0D111B.toInt())
             ).apply {
                 cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), 0xFF7569B8.toInt())
+                setStroke(dp(1), 0xFF806B3A.toInt())
             }
             elevation = dp(3).toFloat()
         }
@@ -399,7 +399,7 @@ class MainActivity : Activity() {
             cornerRadius = dp(56)
             minWidth = 0
             minHeight = dp(108)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFFFC95C.toInt())
             rippleColor = android.content.res.ColorStateList.valueOf(0x44FFFFFF)
             insetTop = 0
             insetBottom = 0
@@ -414,6 +414,7 @@ class MainActivity : Activity() {
                     .withEndAction {
                         animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(190L).start()
                     }.start()
+                if (!connected && !connecting) launchNightShootingStarIfNeeded()
                 if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
@@ -4149,7 +4150,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAppSettingsDialog() {
-        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val sheet = android.app.Dialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(12))
@@ -4542,20 +4543,30 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(50)
         ).apply { topMargin = dp(10) })
         sheet.setContentView(sheetContent)
+        sheet.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        sheet.window?.setDimAmount(0.62f)
+        sheet.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         sheet.setOnShowListener {
-            val bottomSheet = sheet.findViewById<android.view.View>(
-                com.google.android.material.R.id.design_bottom_sheet
-            )
-            bottomSheet?.let {
-                it.setBackgroundColor(Color.TRANSPARENT)
-                val behavior = com.google.android.material.bottomsheet.BottomSheetBehavior.from(it)
-                behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
-                behavior.skipCollapsed = true
-                behavior.isDraggable = true
-                behavior.isFitToContents = true
+            sheet.window?.let { dialogWindow ->
+                dialogWindow.setGravity(Gravity.START)
+                dialogWindow.setLayout(
+                    dp(330).coerceAtMost(resources.displayMetrics.widthPixels - dp(28)),
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                dialogWindow.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             }
+            sheetContent.translationX = -sheetContent.width.toFloat()
+            sheetContent.animate().translationX(0f).setDuration(260L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         }
         sheet.show()
+        sheet.window?.let { dialogWindow ->
+            dialogWindow.setGravity(Gravity.START)
+            dialogWindow.setLayout(
+                dp(330).coerceAtMost(resources.displayMetrics.widthPixels - dp(28)),
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
         sheet.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
@@ -4950,6 +4961,65 @@ class MainActivity : Activity() {
         cornerRadius = dp(radius).toFloat()
     }
 
+    /** A short shooting-star accent appears only for nighttime VPN launches. */
+    private fun launchNightShootingStarIfNeeded() {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        if (hour !in 21..23 && hour !in 0..5) return
+        val decor = window.decorView as? ViewGroup ?: return
+        val star = NightShootingStarView(this)
+        decor.addView(star, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        star.play { decor.removeView(star) }
+    }
+
+    private class NightShootingStarView(context: Context) : View(context) {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFD878.toInt()
+            strokeWidth = 3f * resources.displayMetrics.density
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            style = android.graphics.Paint.Style.STROKE
+            setShadowLayer(18f * resources.displayMetrics.density, 0f, 0f, 0xFFFFC95C.toInt())
+        }
+        private var progress = 0f
+        private var animator: android.animation.ValueAnimator? = null
+
+        fun play(onEnd: () -> Unit) {
+            animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 1_050L
+                addUpdateListener {
+                    progress = it.animatedValue as Float
+                    invalidate()
+                }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) = onEnd()
+                })
+                start()
+            }
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            super.onDraw(canvas)
+            if (progress <= 0f || progress >= 1f) return
+            val density = resources.displayMetrics.density
+            val x = width * (0.88f - 0.72f * progress)
+            val y = height * (0.12f + 0.28f * progress)
+            val tail = 52f * density
+            paint.alpha = (255 * (1f - progress * 0.35f)).toInt()
+            canvas.drawLine(x, y, x + tail, y - tail * 0.42f, paint)
+            paint.style = android.graphics.Paint.Style.FILL
+            canvas.drawCircle(x, y, 3.2f * density, paint)
+            paint.style = android.graphics.Paint.Style.STROKE
+            postInvalidateOnAnimation()
+        }
+
+        override fun onDetachedFromWindow() {
+            animator?.cancel()
+            animator = null
+            super.onDetachedFromWindow()
+        }
+    }
+
     /** A restrained breathing glow makes the connected star feel active without distracting. */
     private fun startStarPulse() {
         if (!::connectButton.isInitialized || starPulseAnimator?.isRunning == true) return
@@ -4987,16 +5057,16 @@ class MainActivity : Activity() {
         if (connectionVisualState == state || !::connectionCard.isInitialized) return
         connectionVisualState = state
         val colors = when (state) {
-            "connected" -> intArrayOf(0xFF173F3A.toInt(), 0xFF173044.toInt(), 0xFF101F30.toInt())
-            "connecting" -> intArrayOf(0xFF51402A.toInt(), 0xFF302C38.toInt(), 0xFF171D2B.toInt())
-            "switching" -> intArrayOf(0xFF30345F.toInt(), 0xFF202B4A.toInt(), 0xFF101A30.toInt())
-            else -> intArrayOf(0xFF30295F.toInt(), 0xFF1C2948.toInt(), 0xFF101A30.toInt())
+            "connected" -> intArrayOf(0xFF3A2D13.toInt(), 0xFF242018.toInt(), 0xFF10131B.toInt())
+            "connecting" -> intArrayOf(0xFF4A3518.toInt(), 0xFF30251B.toInt(), 0xFF17131D.toInt())
+            "switching" -> intArrayOf(0xFF34301F.toInt(), 0xFF242431.toInt(), 0xFF10131B.toInt())
+            else -> intArrayOf(0xFF302817.toInt(), 0xFF1C1D27.toInt(), 0xFF0D111B.toInt())
         }
         val stroke = when (state) {
             "connected" -> 0xFF4BAF91.toInt()
             "connecting" -> 0xFFD6A45C.toInt()
-            "switching" -> 0xFF8290E8.toInt()
-            else -> 0xFF7569B8.toInt()
+            "switching" -> 0xFFB49A5B.toInt()
+            else -> 0xFF806B3A.toInt()
         }
         if (::constellationView.isInitialized) constellationView.setActive(state == "connected")
         connectionCard.background = GradientDrawable(
@@ -5007,16 +5077,16 @@ class MainActivity : Activity() {
         }
         if (::connectButton.isInitialized) {
             val starColor = when (state) {
-                "connected" -> Color.WHITE
-                "connecting" -> 0xFFFFE2B3.toInt()
-                "switching" -> 0xFFDDE2FF.toInt()
-                else -> 0xFFB6C0D2.toInt()
+                "connected" -> 0xFF2A1B06.toInt()
+                "connecting" -> 0xFF3A2608.toInt()
+                "switching" -> 0xFF3A2B0D.toInt()
+                else -> 0xFF3A2B0D.toInt()
             }
             val buttonColor = when (state) {
-                "connected" -> 0xFF23866D.toInt()
-                "connecting" -> 0xFF80613A.toInt()
-                "switching" -> 0xFF4B579A.toInt()
-                else -> 0xFF414B60.toInt()
+                "connected" -> 0xFFFFD36E.toInt()
+                "connecting" -> 0xFFFFC45C.toInt()
+                "switching" -> 0xFFE7B95A.toInt()
+                else -> 0xFFFFC95C.toInt()
             }
             connectButton.setTextColor(starColor)
             connectButton.backgroundTintList = android.content.res.ColorStateList.valueOf(buttonColor)
