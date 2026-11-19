@@ -167,12 +167,15 @@ class MainActivity : Activity() {
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
+    private var brandTapCount = 0
+    private var brandTapWindowStartedAt = 0L
     private val monitorTick = object : Runnable {
         override fun run() {
             updateTrafficMonitor()
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
-            monitorHandler.postDelayed(this, 1000L)
+            val interval = if (settingsPrefs.getBoolean("battery_saver_mode", false)) 4_000L else 1_000L
+            monitorHandler.postDelayed(this, interval)
         }
     }
 
@@ -291,6 +294,19 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             includeFontPadding = true
             letterSpacing = .045f
+            contentDescription = "ASTRA VPN"
+            setOnClickListener {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - brandTapWindowStartedAt > 2_500L) {
+                    brandTapWindowStartedAt = now
+                    brandTapCount = 0
+                }
+                brandTapCount++
+                if (brandTapCount >= 7) {
+                    brandTapCount = 0
+                    showSecretOrbit()
+                }
+            }
         }
         val addButton = TextView(this).apply {
             text = "＋ Добавить орбиту"
@@ -3177,11 +3193,15 @@ class MainActivity : Activity() {
             latencyMs.remove(current)
             pingInfo[current] = "Не отвечает · проверка соединения не пройдена"
         }
-        val alternate = BestServerSelector.select(
+        val eligibleProfiles = AutoProtocolFallbackPolicy.preferAlternativeProtocol(
             profiles = profiles.filterNot { it == current },
+            currentProfile = current
+        )
+        val alternate = BestServerSelector.select(
+            profiles = eligibleProfiles,
             latencyMs = latencyMs,
-            recentFailures = recentServerFailureCounts(profiles.filterNot { it == current }),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current })
+            recentFailures = recentServerFailureCounts(eligibleProfiles),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(eligibleProfiles)
         ) ?: run {
             renderProfiles()
             return
@@ -3193,7 +3213,7 @@ class MainActivity : Activity() {
         status.text = "Переключаем сервер…"
         status.setTextColor(AMBER)
         updateConnectionCardAppearance("switching")
-        Toast.makeText(this, "Связь нестабильна. Переключаемся на другой сервер…", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Связь нестабильна. Пробуем другой протокол или сервер…", Toast.LENGTH_LONG).show()
         connectSelectedProfile()
     }
 
@@ -3871,6 +3891,39 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showWhatsNewDialog() {
+        val message = "Astra VPN · обновления проекта\n\n" +
+            "• Автоматический выбор и переключение серверов после повторных ошибок.\n" +
+            "• Поддержка VLESS, Hysteria2 и TUIC.\n" +
+            "• Виджет, быстрые ярлыки и диагностика сети.\n" +
+            "• Проверка доступности YouTube, Telegram и ChatGPT.\n" +
+            "• Статистика трафика, резервные копии и автообновление подписок.\n\n" +
+            "Для обратной связи можно отправить сообщение через Telegram или другое установленное приложение."
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Что нового")
+            .setMessage(message)
+            .setNeutralButton("Отправить отзыв") { _, _ ->
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — отзыв")
+                    putExtra(Intent.EXTRA_TEXT, "Привет! Хочу оставить отзыв или сообщить об ошибке в Astra VPN.\n\nВерсия: 1.0")
+                }
+                runCatching { startActivity(Intent.createChooser(share, "Отправить отзыв")) }
+                    .onFailure { Toast.makeText(this, "Не удалось открыть меню отправки", Toast.LENGTH_SHORT).show() }
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun showSecretOrbit() {
+        window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("✦ Тайная орбита найдена")
+            .setMessage("Седьмая звезда открывает новый маршрут.\n\nСпасибо, что исследуешь Astra.")
+            .setPositiveButton("Продолжить полёт", null)
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3913,6 +3966,30 @@ class MainActivity : Activity() {
         }
         panel.addView(sortGroup)
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
+        val onboardingEntry = TextView(this).apply {
+            text = "✨  Повторить знакомство с Astra"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener {
+                sheet.dismiss()
+                settingsPrefs.edit().putBoolean("onboarding_completed", false).apply()
+                root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding(force = true) }
+            }
+        }
+        panel.addView(onboardingEntry)
+        val whatsNewEntry = TextView(this).apply {
+            text = "📰  Что нового и поддержка"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showWhatsNewDialog() }
+        }
+        panel.addView(whatsNewEntry)
         val monitorEntry = TextView(this).apply {
             text = "📶  Мониторинг сети"
             textSize = 14f
@@ -4023,6 +4100,21 @@ class MainActivity : Activity() {
             setOnClickListener { showAndroidLockdownGuide() }
         }
         panel.addView(lockdownEntry)
+
+        addSectionLabel("✦  ЭКОНОМИЯ ЭНЕРГИИ")
+        val batterySaver = android.widget.Switch(this).apply {
+            text = "Режим экономии батареи"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("battery_saver_mode", false)
+        }
+        panel.addView(batterySaver)
+        panel.addView(TextView(this).apply {
+            text = "Снижает частоту обновления сетевого мониторинга с 1 до 4 секунд. Проверки безопасности туннеля продолжают работать."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(2), 0, dp(8))
+        })
 
         addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
         val autoUpdate = android.widget.Switch(this).apply {
@@ -4155,6 +4247,7 @@ class MainActivity : Activity() {
                     .putBoolean("auto_update", autoUpdate.isChecked)
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
                     .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
+                    .putBoolean("battery_saver_mode", batterySaver.isChecked)
                     .apply()
                 if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
@@ -4386,8 +4479,8 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun showFirstRunOnboarding() {
-        if (settingsPrefs.getBoolean("onboarding_completed", false) || isFinishing || isDestroyed) return
+    private fun showFirstRunOnboarding(force: Boolean = false) {
+        if ((!force && settingsPrefs.getBoolean("onboarding_completed", false)) || isFinishing || isDestroyed) return
         val pages = listOf(
             "Своя орбита. Своя скорость. Своя защита" to "Astra помогает подключаться к VPN-серверам и управлять ими в одном месте.",
             "Выбери свою орбиту" to "Добавь ссылку или подписку. Astra поддерживает VLESS, Hysteria2 и TUIC.",
