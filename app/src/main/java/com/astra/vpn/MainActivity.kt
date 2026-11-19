@@ -3841,36 +3841,33 @@ class MainActivity : Activity() {
 
     private fun showServiceAvailabilityDialog() {
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Доступность сервисов")
-            .setMessage("Проверяем доступ через текущую сеть…")
-            .setPositiveButton("Закрыть", null)
+            .setTitle(R.string.service_check_title)
+            .setMessage(R.string.service_check_loading)
+            .setPositiveButton(android.R.string.cancel, null)
             .create()
         dialog.show()
         AstraServiceChecks.run(this) { results ->
             if (isFinishing || isDestroyed) return@run
             val message = results.joinToString("\n") { result ->
-                val state = if (result.reachable) "Доступен" else "Не отвечает"
+                val state = getString(if (result.reachable) R.string.service_reachable else R.string.service_unreachable)
                 val latency = result.latencyMs?.let { " · $it мс" } ?: ""
                 "${result.service}: $state$latency"
-            } + "\n\nЭто проверка HTTPS-доступности, а не гарантия работы всех функций сервиса."
+            } + "\n\n" + getString(R.string.service_check_caveat)
             dialog.setMessage(message)
         }
     }
 
     private fun showNetworkSecurityDialog() {
         val snapshot = AstraNetworkSecurity.snapshot(this)
-        val vpn = if (snapshot.vpnTransportActive) "Активен" else "Не обнаружен"
-        val internet = if (snapshot.activeNetworkHasInternet) "Есть" else "Не подтверждён"
-        val dns = snapshot.dnsServers.takeIf { it.isNotEmpty() }?.joinToString("\n") ?: "Android не предоставил список DNS"
+        val vpn = getString(if (snapshot.vpnTransportActive) R.string.network_vpn_active else R.string.network_vpn_missing)
+        val internet = getString(if (snapshot.activeNetworkHasInternet) R.string.network_internet_yes else R.string.network_internet_unknown)
+        val dns = snapshot.dnsServers.takeIf { it.isNotEmpty() }?.joinToString("\n") ?: getString(R.string.network_dns_unavailable)
+        val ipv6 = getString(if (snapshot.ipv6DefaultRoutePresent) R.string.network_ipv6_present else R.string.network_ipv6_absent)
         MaterialAlertDialogBuilder(this)
-            .setTitle("Состояние сети")
-            .setMessage(
-                "VPN-транспорт: $vpn\nИнтернет: $internet\nDNS текущей сети:\n$dns\n" +
-                    "Маршрут IPv6 в активной сети: ${if (snapshot.ipv6DefaultRoutePresent) "обнаружен" else "не обнаружен"}\n\n" +
-                    "Это диагностика, а не тест утечек. Kill switch нужно отдельно включить в системных настройках Android: «VPN всегда включён» и «Блокировать соединения без VPN» (если доступно)."
-            )
-            .setNeutralButton("Настройки VPN") { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
-            .setPositiveButton("Понятно", null)
+            .setTitle(R.string.network_status_title)
+            .setMessage(getString(R.string.network_status_message, vpn, internet, dns, ipv6))
+            .setNeutralButton(R.string.network_vpn_settings) { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
+            .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 
