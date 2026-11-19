@@ -1230,14 +1230,14 @@ class MainActivity : Activity() {
             val total = item.totalBytes?.takeIf { it > 0L }
             if (total != null && (item.uploadBytes != null || item.downloadBytes != null)) {
                 val remaining = (total - subscriptionUsedBytes(item)).coerceAtLeast(0L)
-                if (remaining * 100L <= total) {
+                if (remaining <= total / 10L) {
                     val noticeKey = "${key}_traffic_low"
                     if (!prefs.getBoolean(noticeKey, false)) {
                         postSubscriptionNotice(
                             manager,
                             key.hashCode() xor 0x51A7,
                             item.title,
-                            "Осталось около ${(remaining * 100L / total).coerceAtLeast(0L)}% трафика"
+                            "Осталось около ${(remaining.toDouble() / total.toDouble() * 100.0).toInt().coerceIn(0, 100)}% трафика"
                         )
                         prefs.edit().putBoolean(noticeKey, true).apply()
                     }
