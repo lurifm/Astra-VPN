@@ -111,6 +111,7 @@ class MainActivity : Activity() {
     private var pendingConfig: String? = null
     private var connected = false
     private var connecting = false
+    private var disconnecting = false
     private var receiverRegistered = false
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
@@ -227,6 +228,7 @@ class MainActivity : Activity() {
             }
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
+                    disconnecting = false
                     connected = false
                     connecting = true
                     consecutiveHealthFailures = 0
@@ -235,6 +237,7 @@ class MainActivity : Activity() {
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
+                    disconnecting = false
                     connected = true
                     connecting = false
                     tunnelInternetOk = null
@@ -243,6 +246,7 @@ class MainActivity : Activity() {
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
+                    disconnecting = false
                     connected = false
                     connecting = false
                     consecutiveHealthFailures = 0
@@ -251,6 +255,7 @@ class MainActivity : Activity() {
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
+                    disconnecting = false
                     connected = false
                     connecting = false
                     consecutiveHealthFailures = 0
@@ -1769,8 +1774,9 @@ class MainActivity : Activity() {
         }
         if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
         val selected = selectedProfile
-        connectButton.isEnabled = connected || (selected != null && !connecting)
+        connectButton.isEnabled = !disconnecting && (connected || (selected != null && !connecting))
         connectActionLabel.text = when {
+            disconnecting -> "Отключаем…"
             connecting -> "Подключаемся…"
             connected && selected != activeProfile -> "Переключить"
             connected -> "Отключить"
@@ -3045,6 +3051,7 @@ class MainActivity : Activity() {
     private fun stopTunnel() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
+            disconnecting = true
             startService(intent)
             // Keep the last confirmed tunnel state until the service reports that
             // it has actually stopped. Do not briefly show "Подключиться" while
@@ -3054,6 +3061,7 @@ class MainActivity : Activity() {
             status.text = "Отключаемся…"
             status.setTextColor(MUTED)
         } catch (error: Exception) {
+            disconnecting = false
             // Keep the UI honest if Android refuses the stop command.
             status.text = "Не удалось отключить VPN"
             status.setTextColor(RED)
