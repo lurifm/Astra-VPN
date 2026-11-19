@@ -3,6 +3,8 @@ package com.astra.vpn
 import android.content.Intent
 import android.app.NotificationManager
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
@@ -11,6 +13,8 @@ import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.SystemProxyStatus
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
@@ -23,6 +27,42 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var stopping = false
     private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val healthExecutor = Executors.newSingleThreadExecutor()
+    private val healthProbeInFlight = AtomicBoolean(false)
+    private val healthTick = object : Runnable {
+        override fun run() {
+            synchronized(lifecycleLock) {
+                if (stopping || tunDescriptor == null) return
+            }
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            val network = connectivity.activeNetwork
+            val capabilities = network?.let(connectivity::getNetworkCapabilities)
+            if (network != null && capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
+                healthProbeInFlight.compareAndSet(false, true)
+            ) {
+                runCatching {
+                    healthExecutor.execute {
+                        val reachable = runCatching { TunnelHealthChecker.check(network) }.getOrDefault(false)
+                        healthProbeInFlight.set(false)
+                        val result = Intent(ACTION_HEALTH).setPackage(packageName)
+                            .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
+                            .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
+                        sendBroadcast(result)
+                    }
+                }.onFailure { healthProbeInFlight.set(false) }
+            }
+            mainHandler.postDelayed(this, HEALTH_INTERVAL_MS)
+        }
+    }
+
+    private fun startHealthMonitoring() {
+        mainHandler.removeCallbacks(healthTick)
+        mainHandler.postDelayed(healthTick, HEALTH_INTERVAL_MS)
+    }
+
+    private fun stopHealthMonitoring() {
+        mainHandler.removeCallbacks(healthTick)
+    }
     private val tunTimeout = Runnable {
         synchronized(lifecycleLock) {
             if (!stopping && commandServer != null && tunDescriptor == null) {
@@ -150,6 +190,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (commandServer != null || tunDescriptor != null || activeConfig != null) {
             stopTunnel()
         }
+        healthExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -166,6 +207,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             tunDescriptor = descriptor
             mainHandler.removeCallbacks(tunTimeout)
             publishState(STATE_CONNECTED)
+            startHealthMonitoring()
         }
     }
 
@@ -175,6 +217,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
         mainHandler.removeCallbacks(tunTimeout)
+        stopHealthMonitoring()
         val server = commandServer
         commandServer = null
         activeConfig = null
@@ -231,6 +274,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val ACTION_START = "com.astra.vpn.action.START"
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
+        const val ACTION_HEALTH = "com.astra.vpn.action.HEALTH"
+        const val EXTRA_HEALTH_REACHABLE = "com.astra.vpn.extra.HEALTH_REACHABLE"
+        const val EXTRA_HEALTH_CHECKED_AT = "com.astra.vpn.extra.HEALTH_CHECKED_AT"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.CONFIG"
         const val EXTRA_PROFILE_NAME = "com.astra.vpn.extra.PROFILE_NAME"
         const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
@@ -247,5 +293,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1
         private const val TUN_TIMEOUT_MS = 20_000L
+        private const val HEALTH_INTERVAL_MS = 12_000L
     }
 }
