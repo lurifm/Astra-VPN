@@ -23,6 +23,15 @@ class AstraHomeWidgetProvider : AppWidgetProvider() {
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.astra_home_widget)
+            val state = context.getSharedPreferences(AstraVpnService.STATE_PREFS, Context.MODE_PRIVATE)
+                .getString(AstraVpnService.PREF_STATE, AstraVpnService.STATE_DISCONNECTED)
+            val statusLabel = when (state) {
+                AstraVpnService.STATE_CONNECTED -> R.string.widget_status_connected
+                AstraVpnService.STATE_CONNECTING -> R.string.widget_status_connecting
+                AstraVpnService.STATE_ERROR -> R.string.widget_status_error
+                else -> R.string.widget_status_disconnected
+            }
+            views.setTextViewText(R.id.astra_widget_status, context.getString(statusLabel))
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                 ?: Intent(context, MainActivity::class.java)
             launchIntent.action = MainActivity.ACTION_TILE_TOGGLE
