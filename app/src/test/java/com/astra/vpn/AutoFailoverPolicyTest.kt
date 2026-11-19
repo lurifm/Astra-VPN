@@ -5,6 +5,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoFailoverPolicyTest {
+    @Test fun allowsAttemptOnlyWhenNoConnectionTransitionOrOtherFailoverIsActive() {
+        assertTrue(AutoFailoverPolicy.canAttempt(true, false, false, false))
+        assertFalse(AutoFailoverPolicy.canAttempt(false, false, false, false))
+        assertFalse(AutoFailoverPolicy.canAttempt(true, true, false, false))
+        assertFalse(AutoFailoverPolicy.canAttempt(true, false, true, false))
+        assertFalse(AutoFailoverPolicy.canAttempt(true, false, false, true))
+    }
+
     @Test fun doesNotSwitchAfterOneOrTwoFailures() {
         assertFalse(AutoFailoverPolicy.shouldSwitch(1, 0L, 120_000L))
         assertFalse(AutoFailoverPolicy.shouldSwitch(2, 0L, 120_000L))
