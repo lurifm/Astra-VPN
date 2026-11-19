@@ -16,7 +16,8 @@ class SingBoxThroughputTestConfigTest {
             listOf(
                 SingBoxThroughputTestConfig.Target(first, 19081),
                 SingBoxThroughputTestConfig.Target(second, 19082)
-            )
+            ),
+            validateConfig = {}
         )
         val config = JSONObject(result.json)
         val inbounds = config.getJSONArray("inbounds")
