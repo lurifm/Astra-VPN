@@ -16,7 +16,10 @@ internal object SingBoxThroughputTestConfig {
     data class Target(val profileLink: String, val listenPort: Int)
     data class Result(val json: String, val portByOutboundTag: Map<String, Int>)
 
-    fun build(targets: List<Target>): Result {
+    fun build(
+        targets: List<Target>,
+        validateConfig: (String) -> Unit = { Libbox.checkConfig(it) }
+    ): Result {
         require(targets.isNotEmpty()) { "Нет серверов для измерения скорости" }
         require(targets.size <= MAX_TARGETS) { "Слишком много серверов для одного измерения" }
         require(targets.all { it.profileLink.isNotBlank() }) { "Пустая ссылка сервера" }
@@ -69,8 +72,9 @@ internal object SingBoxThroughputTestConfig {
             )
             .toString()
 
-        // Validate against the exact libbox version bundled with the app.
-        Libbox.checkConfig(config)
+        // Production uses the exact bundled libbox validator. Unit tests inject
+        // a no-op because Android's native libbox runtime is unavailable on the JVM.
+        validateConfig(config)
         return Result(config, ports)
     }
 
