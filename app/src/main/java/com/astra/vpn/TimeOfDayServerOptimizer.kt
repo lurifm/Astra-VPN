@@ -28,7 +28,7 @@ internal object TimeOfDayServerOptimizer {
                 val sampleCalendar = Calendar.getInstance(timeZone).apply { timeInMillis = sample.timestampMs }
                 sampleCalendar.get(Calendar.DAY_OF_WEEK) == weekday &&
                     sampleCalendar.get(Calendar.HOUR_OF_DAY) / 3 == hourBucket
-            }.sortedBy { it.timestampMs }.takeLast(MAX_HISTORY_SAMPLES).toList()
+            }.sortedBy { it.timestampMs }.toList().takeLast(MAX_HISTORY_SAMPLES)
 
             // Require three points: at most one is the current measurement just recorded by the caller.
             val adjusted = if (matching.size >= MIN_MATCHING_SAMPLES) {
