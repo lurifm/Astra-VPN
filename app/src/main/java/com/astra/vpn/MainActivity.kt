@@ -2835,6 +2835,12 @@ class MainActivity : Activity() {
         activeLatencySessionId = prefs.getString(KEY_LATENCY_SESSION_ID, null)
         latencyTestInFlight = activeLatencySessionId != null
         val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null)
+        // A reusable cache is not a completion signal for a currently running test.
+        // Only the one-shot pending snapshot may finish a restored session.
+        if (latencyTestInFlight && pending == null) {
+            renderProfiles()
+            return
+        }
         val cached = pending ?: prefs.getString(KEY_LATENCY_LAST_RESULTS, null)
         if (cached == null) {
             if (latencyTestInFlight) renderProfiles()
