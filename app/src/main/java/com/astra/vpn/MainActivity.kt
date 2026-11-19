@@ -3055,6 +3055,9 @@ class MainActivity : Activity() {
     }
 
     private fun stopTunnel() {
+        // Ignore repeated taps from the main button or Quick Settings tile while
+        // the first stop request is still waiting for the service acknowledgement.
+        if (disconnecting) return
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             disconnecting = true
@@ -3065,7 +3068,7 @@ class MainActivity : Activity() {
             connectButton.isEnabled = false
             connectActionLabel.text = "Отключаем…"
             status.text = "Отключаемся…"
-            status.setTextColor(MUTED)
+            status.setTextColor(AMBER)
         } catch (error: Exception) {
             disconnecting = false
             // Keep the UI honest if Android refuses the stop command.
