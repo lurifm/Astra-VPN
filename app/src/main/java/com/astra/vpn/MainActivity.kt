@@ -3178,6 +3178,11 @@ class MainActivity : Activity() {
      */
     private fun applyServiceHealthResult(ok: Boolean) {
         if (!connected || isFinishing || isDestroyed) return
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.activeNetwork
+        if (network == null || connectivity.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+        ) return
         tunnelInternetOk = ok
         if (ok) consecutiveHealthFailures = 0
         else {
