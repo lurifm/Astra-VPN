@@ -3948,7 +3948,7 @@ class MainActivity : Activity() {
         panel.addView(diagnosticsEntry)
 
         val serviceCheckEntry = TextView(this).apply {
-            text = "🌐  Проверить YouTube, Telegram и ChatGPT"
+            text = getString(R.string.service_checks_entry)
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -3959,7 +3959,7 @@ class MainActivity : Activity() {
         panel.addView(serviceCheckEntry)
 
         val networkSecurityEntry = TextView(this).apply {
-            text = "🔐  Состояние VPN и DNS"
+            text = getString(R.string.network_security_entry)
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
