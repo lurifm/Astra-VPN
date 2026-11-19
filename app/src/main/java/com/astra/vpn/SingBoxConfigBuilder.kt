@@ -65,10 +65,7 @@ object SingBoxConfigBuilder {
                         .put("action", "hijack-dns"))
                     if (preferences.routingPreset == AstraNetworkPreferences.RoutingPreset.LOCAL_DIRECT) {
                         put(JSONObject()
-                            .put("domain_suffix", JSONArray().put("ru").put("рф").put("su")
-                                .put("yandex.ru").put("vk.com").put("vk.ru")
-                                .put("mail.ru").put("ok.ru").put("gosuslugi.ru")
-                                .put("nalog.gov.ru").put("sberbank.ru"))
+                            .put("domain_suffix", AstraRoutingPolicy.localDirectSuffixesJson())
                             .put("action", "route")
                             .put("outbound", "direct"))
                     }
