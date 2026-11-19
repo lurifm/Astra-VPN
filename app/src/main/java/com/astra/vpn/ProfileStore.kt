@@ -193,6 +193,140 @@ class ProfileStore(context: Context) {
         summariesCache = null
     }
 
+    /**
+     * Build a portable JSON snapshot. Only profile/subscription data is included;
+     * Android Keystore ciphertext, device keys and transient runtime state are excluded.
+     */
+    fun exportBackupPayload(): ByteArray = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val snapshot = prefs.all
+        val root = org.json.JSONObject().put("schemaVersion", 1)
+        val manualProfiles = org.json.JSONArray()
+        snapshot.entries
+            .filter { it.key.startsWith(PROFILE_PREFIX) }
+            .sortedBy { it.key }
+            .forEach { (_, value) -> manualProfiles.put(decryptStored(value as String)) }
+        root.put("profiles", manualProfiles)
+
+        val subscriptions = org.json.JSONArray()
+        snapshot.entries
+            .filter { it.key.startsWith(SUBSCRIPTION_SOURCE_PREFIX) }
+            .sortedBy { it.key }
+            .forEach { (sourceKey, encryptedSource) ->
+                val id = sourceKey.removePrefix(SUBSCRIPTION_SOURCE_PREFIX)
+                val prefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
+                val links = org.json.JSONArray()
+                snapshot.entries
+                    .filter { it.key.startsWith(prefix) }
+                    .sortedBy { it.key }
+                    .forEach { (_, value) -> links.put(decryptStored(value as String)) }
+                val item = org.json.JSONObject()
+                    .put("sourceUrl", decryptStored(encryptedSource as String))
+                    .put("profiles", links)
+                    .put("metadata", snapshot[SUBSCRIPTION_META_PREFIX + id] as? String ?: "")
+                (snapshot[SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id] as? String
+                    ?: snapshot[SUBSCRIPTION_TITLE_PREFIX + id] as? String)?.let {
+                    item.put("customTitle", it)
+                }
+                (snapshot[SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id] as? String)?.let {
+                    item.put("providerTitle", it)
+                }
+                subscriptions.put(item)
+            }
+        root.put("subscriptions", subscriptions)
+        root.toString().toByteArray(Charsets.UTF_8).also {
+            require(it.size in 1..EncryptedBackupCodec.MAX_PLAINTEXT_BYTES) {
+                "Резервная копия слишком большая"
+            }
+        }
+    }
+
+    /**
+     * Merge standalone profiles and atomically replace subscription groups that
+     * share the same HTTPS source. All links are encrypted before one commit.
+     */
+    fun restoreBackupPayload(payload: ByteArray): Int = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        require(payload.isNotEmpty() && payload.size <= EncryptedBackupCodec.MAX_PLAINTEXT_BYTES) {
+            "Недопустимый размер резервной копии"
+        }
+        val root = org.json.JSONObject(String(payload, Charsets.UTF_8))
+        require(root.optInt("schemaVersion", -1) == 1) { "Версия данных резервной копии не поддерживается" }
+        val profileArray = root.optJSONArray("profiles")
+            ?: throw IllegalArgumentException("В резервной копии отсутствует список серверов")
+        val subscriptionArray = root.optJSONArray("subscriptions")
+            ?: throw IllegalArgumentException("В резервной копии отсутствует список подписок")
+        require(profileArray.length() <= MAX_BACKUP_PROFILES) { "Слишком много серверов в резервной копии" }
+        require(subscriptionArray.length() <= MAX_BACKUP_SUBSCRIPTIONS) { "Слишком много подписок в резервной копии" }
+
+        fun readLinks(array: org.json.JSONArray): List<String> {
+            require(array.length() in 1..MAX_BACKUP_PROFILES) { "Пустая или слишком большая группа серверов" }
+            return (0 until array.length()).map { index ->
+                val link = array.optString(index).trim()
+                require(isSupportedBackupLink(link)) { "В резервной копии найден неподдерживаемый адрес сервера" }
+                link
+            }.distinct()
+        }
+
+        val manualLinks = if (profileArray.length() == 0) emptyList() else
+            (0 until profileArray.length()).map { index ->
+                profileArray.optString(index).trim().also {
+                    require(isSupportedBackupLink(it)) { "В резервной копии найден неподдерживаемый адрес сервера" }
+                }
+            }.distinct()
+        val subscriptions = (0 until subscriptionArray.length()).map { index ->
+            val item = subscriptionArray.optJSONObject(index)
+                ?: throw IllegalArgumentException("Повреждена запись подписки в резервной копии")
+            val source = item.optString("sourceUrl").trim()
+            require(source.startsWith("https://", ignoreCase = true) && android.net.Uri.parse(source).host != null) {
+                "В резервной копии найден некорректный адрес HTTPS-подписки"
+            }
+            val links = readLinks(item.optJSONArray("profiles")
+                ?: throw IllegalArgumentException("В резервной копии у подписки отсутствуют серверы"))
+            val metadata = item.optString("metadata", "")
+            require(metadata.length <= 256) { "Повреждены метаданные подписки" }
+            val customTitle = item.optString("customTitle").takeIf { it.isNotBlank() }?.take(80)
+            val providerTitle = item.optString("providerTitle").takeIf { it.isNotBlank() }?.take(120)
+            Triple(source, links, Triple(metadata, customTitle, providerTitle))
+        }
+        val totalLinks = manualLinks.size + subscriptions.sumOf { it.second.size }
+        require(totalLinks in 1..MAX_BACKUP_PROFILES) { "Резервная копия не содержит серверов или слишком велика" }
+        subscriptions.forEach { (_, _, titles) -> SubscriptionMetadataCodec.decode(titles.first) }
+
+        val existing = all().toSet()
+        val editor = prefs.edit()
+        manualLinks.filterNot { it in existing }.forEach { link ->
+            editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
+        }
+        subscriptions.forEach { (source, links, extra) ->
+            val id = sourceId(source)
+            val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
+            prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
+            links.forEach { link ->
+                editor.putString(profilePrefix + java.util.UUID.randomUUID().toString(), encrypt(link))
+            }
+            editor.putString(SUBSCRIPTION_SOURCE_PREFIX + id, encrypt(source))
+            editor.putString(SUBSCRIPTION_META_PREFIX + id, extra.first)
+            editor.remove(SUBSCRIPTION_TITLE_PREFIX + id)
+            if (extra.second != null) editor.putString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, extra.second)
+            else editor.remove(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id)
+            if (extra.third != null) editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, extra.third)
+            else editor.remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id)
+        }
+        check(editor.commit()) { "Не удалось восстановить резервную копию" }
+        profilesCache = null
+        summariesCache = null
+        totalLinks
+    }
+
+    private fun isSupportedBackupLink(link: String): Boolean {
+        val lower = link.lowercase(java.util.Locale.ROOT)
+        return link.length in 1..16_384 && (
+            lower.startsWith("vless://") ||
+                lower.startsWith("hysteria2://") ||
+                lower.startsWith("hy2://") ||
+                lower.startsWith("tuic://")
+            )
+    }
+
     private fun sourceId(source: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(source.toByteArray(Charsets.UTF_8))
@@ -286,6 +420,8 @@ class ProfileStore(context: Context) {
         private const val SUBSCRIPTION_TITLE_PREFIX = "subscription_title_" // legacy title key
         private const val SUBSCRIPTION_CUSTOM_TITLE_PREFIX = "subscription_custom_title_"
         private const val SUBSCRIPTION_PROVIDER_TITLE_PREFIX = "subscription_provider_title_"
+        private const val MAX_BACKUP_PROFILES = 1000
+        private const val MAX_BACKUP_SUBSCRIPTIONS = 100
         private const val KEY_ALIAS = "astra_profile_key"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
