@@ -525,7 +525,7 @@ class MainActivity : Activity() {
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
-        listHeader.addView(pingCheck, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+        listHeader.addView(pingCheckButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
             leftMargin = dp(5)
         })
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
