@@ -86,6 +86,7 @@ class MainActivity : Activity() {
     private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
     private lateinit var constellationView: ConstellationView
+    private lateinit var starBurstView: StarBurstView
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
     private var starPulseAnimator: android.animation.ValueAnimator? = null
@@ -386,6 +387,12 @@ class MainActivity : Activity() {
             setOnClickListener {
                 // Give immediate visible feedback before asking Android to start/stop VpnService.
                 performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                starBurstView.play()
+                animate().cancel()
+                animate().scaleX(0.88f).scaleY(0.88f).alpha(0.72f).setDuration(90L)
+                    .withEndAction {
+                        animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(190L).start()
+                    }.start()
                 if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
@@ -415,7 +422,15 @@ class MainActivity : Activity() {
             bottomMargin = dp(5)
         })
         connectCard.addView(selectedInfo, matchWidth())
-        connectCard.addView(connectButton, LinearLayout.LayoutParams(dp(108), dp(108)))
+        starBurstView = StarBurstView(this).apply {
+            contentDescription = "Анимация запуска: расширяющееся световое кольцо"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val starButtonFrame = android.widget.FrameLayout(this).apply {
+            addView(starBurstView, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
+            addView(connectButton, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
+        }
+        connectCard.addView(starButtonFrame, LinearLayout.LayoutParams(dp(108), dp(108)))
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val listHeader = LinearLayout(this).apply {
