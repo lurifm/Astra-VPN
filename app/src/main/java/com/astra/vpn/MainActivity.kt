@@ -226,6 +226,8 @@ class MainActivity : Activity() {
                 AstraVpnService.ACTION_STATE -> Unit
                 else -> return
             }
+            // Any authoritative service state supersedes a locally persisted stop request.
+            settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
                     disconnecting = false
@@ -2975,7 +2977,13 @@ class MainActivity : Activity() {
         // A saved flag alone is insufficient: Android may have revoked the
         // tunnel while the Activity was in the background.
         connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        disconnecting = connected && settingsPrefs.getBoolean("vpn_disconnect_requested", false)
+        if (!connected) settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
         when {
+            connected && disconnecting -> {
+                status.text = "Отключаемся…"
+                status.setTextColor(AMBER)
+            }
             connected -> {
                 status.text = "Подключено"
                 status.setTextColor(GREEN)
@@ -3061,6 +3069,8 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             disconnecting = true
+            // Preserve the in-flight action across Activity/process recreation.
+            settingsPrefs.edit().putBoolean("vpn_disconnect_requested", true).apply()
             startService(intent)
             // Keep the last confirmed tunnel state until the service reports that
             // it has actually stopped. Do not briefly show "Подключиться" while
@@ -3074,6 +3084,7 @@ class MainActivity : Activity() {
             updateConnectionCardAppearance("disconnecting")
         } catch (error: Exception) {
             disconnecting = false
+            settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
             // Keep the UI honest if Android refuses the stop command.
             status.text = "Не удалось отключить VPN"
             status.setTextColor(RED)
