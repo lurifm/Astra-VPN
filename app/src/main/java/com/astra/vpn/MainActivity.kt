@@ -3582,6 +3582,81 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showOrbitMapDialog() {
+        val profiles = safeProfiles() ?: return
+        if (profiles.isEmpty()) {
+            Toast.makeText(this, "Сначала добавь серверы в Astra", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val nodes = profiles.take(36).map { profile ->
+            val latency = latencyMs[profile]
+            val quality = when {
+                latency == null -> 0
+                latency <= 80L -> 3
+                latency <= 180L -> 2
+                latency <= 350L -> 1
+                else -> 0
+            }
+            OrbitMapView.Node(
+                label = profileName(profile),
+                quality = quality,
+                selected = profile == selectedProfile
+            )
+        }
+        var chosen = profiles.take(36).indexOf(selectedProfile).coerceAtLeast(0)
+        val map = OrbitMapView(this, nodes) { index ->
+            chosen = index
+            selectedProfile = profiles.take(36)[index]
+            selectedInfo.text = profileSummary(profiles.take(36)[index])
+            Toast.makeText(this, "Выбрана орбита: ${profileName(profiles.take(36)[index])}", Toast.LENGTH_SHORT).show()
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = rounded(BG, 20)
+            addView(map, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
+            ))
+            addView(TextView(this@MainActivity).apply {
+                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: зелёный — быстрее, серый — нет данных."
+                textSize = 12f
+                setTextColor(0xFFD8E0F2.toInt())
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+            })
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("✦ Карта орбит · ${nodes.size} серверов")
+            .setView(content)
+            .setPositiveButton("Выбрать") { _, _ ->
+                val profile = profiles.take(36)[chosen]
+                selectedProfile = profile
+                selectedInfo.text = profileSummary(profile)
+                renderProfiles()
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
+    private fun showUsageAndReliabilityDialog() {
+        val calendar = java.util.Calendar.getInstance()
+        val todayKey = calendar.get(java.util.Calendar.YEAR) * 10000 +
+            (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val forecast = TrafficForecast.estimate(dailyTrafficHistory.entries(), todayKey)
+        val reliability = ReliabilityScore.calculate(connectionHistory.getEntries())
+        val forecastText = forecast?.let {
+            "Средний расход устройства: ${DailyTrafficAccumulator.formatBytes(it.averageDailyBytes)} в сутки. Расчёт по ${it.sampleDays} завершённым дням."
+        } ?: "Для прогноза нужно минимум два завершённых дня истории. Astra собирает статистику, пока работает мониторинг."
+        val reliabilityText = reliability?.let {
+            "Оценка: ${it.score}/100\nУверенность: ${it.confidence}\nСобытий подключений: ${it.sessions}\nОшибок: ${it.failures}\n\nОценка основана только на сохранённых событиях Astra и не является гарантией доступности сервера."
+        } ?: "Пока мало событий для расчёта. Нужно минимум три события подключения или ошибки."
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Прогноз и надёжность")
+            .setMessage("ПРОГНОЗ ТРАФИКА\n$forecastText\n\nНАДЁЖНОСТЬ СОЕДИНЕНИЯ\n$reliabilityText")
+            .setPositiveButton("Понятно", null)
+            .show()
+    }
+
     private fun showConnectionDiagnostics() {
         val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivity.activeNetwork
@@ -3620,6 +3695,26 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         val active = activeProfile
         val latency = selected?.let { pingInfo[it] } ?: "Нет данных"
+        val diagnosticNetwork = capabilities
+        val captivePortal = diagnosticNetwork?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        val dnsCount = network?.let { connectivity.getLinkProperties(it)?.dnsServers?.size } ?: 0
+        val diagnosticAdvice = DiagnosticAdvisor.recommendations(
+            DiagnosticAdvisor.Facts(
+                hasNetwork = network != null,
+                hasInternetCapability = internet,
+                validated = validated,
+                vpnActive = vpnTransport,
+                tunnelInternetOk = tunnelInternetOk,
+                captivePortal = captivePortal,
+                dnsServerCount = dnsCount
+            )
+        )
+        val calendar = java.util.Calendar.getInstance()
+        val todayKey = calendar.get(java.util.Calendar.YEAR) * 10000 +
+            (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val trafficForecast = TrafficForecast.estimate(dailyTrafficHistory.entries(), todayKey)
+        val reliability = ReliabilityScore.calculate(connectionHistory.getEntries())
         @Suppress("DEPRECATION")
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
             .getOrNull() ?: "неизвестно"
@@ -3636,6 +3731,20 @@ class MainActivity : Activity() {
             appendLine("Интернет доступен: ${if (internet) "да" else "нет"}")
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
+            appendLine("Captive portal: ${if (captivePortal) "обнаружен — требуется авторизация" else "не обнаружен"}")
+            appendLine("DNS-серверов в активной сети: $dnsCount")
+            appendLine()
+            appendLine("АВТОМАТИЧЕСКИЕ РЕКОМЕНДАЦИИ")
+            diagnosticAdvice.forEach { appendLine("• $it") }
+            appendLine()
+            appendLine("ПРОГНОЗ ТРАФИКА")
+            appendLine(trafficForecast?.let {
+                "Средний расход: ${DailyTrafficAccumulator.formatBytes(it.averageDailyBytes)} в день (по ${it.sampleDays} завершённым дням)."
+            } ?: "Пока недостаточно истории: нужно минимум 2 завершённых дня.")
+            appendLine("НАДЁЖНОСТЬ")
+            appendLine(reliability?.let {
+                "${it.score}/100 · ${it.confidence} уверенность · ошибок: ${it.failures}, подключений: ${it.sessions}. Это ориентир по локальной истории."
+            } ?: "Недостаточно событий для оценки (нужно минимум 3 события подключения/ошибки).")
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
             appendLine()
             appendLine("ДОСТУПНОСТЬ СЕРВИСОВ")
@@ -4023,6 +4132,33 @@ class MainActivity : Activity() {
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
+
+        val orbitMapEntry = TextView(this).apply {
+            text = "✦  Интерактивная карта орбит"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener {
+                sheet.dismiss()
+                showOrbitMapDialog()
+            }
+        }
+        panel.addView(orbitMapEntry)
+        val insightsEntry = TextView(this).apply {
+            text = "📊  Прогноз трафика и надёжность"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener {
+                sheet.dismiss()
+                showUsageAndReliabilityDialog()
+            }
+        }
+        panel.addView(insightsEntry)
 
         val serviceCheckEntry = TextView(this).apply {
             text = getString(R.string.service_checks_entry)
