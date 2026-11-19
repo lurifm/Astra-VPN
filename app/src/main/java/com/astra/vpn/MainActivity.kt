@@ -97,6 +97,8 @@ class MainActivity : Activity() {
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
+    // Reject late broadcasts from a cancelled or superseded latency-test session.
+    private var activeLatencySessionId: String? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
@@ -186,12 +188,16 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 AstraLatencyTestService.ACTION_RESULTS -> {
+                    if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
                     applyLatencyResults(payload, finished)
+                    if (finished) activeLatencySessionId = null
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
+                    if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
+                    activeLatencySessionId = null
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -2289,6 +2295,7 @@ class MainActivity : Activity() {
         if (!latencyTestInFlight && !selectingFastest) return
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
+        activeLatencySessionId = null
         latencyTestInFlight = false
         pendingFastestSelection = false
         selectingFastest = false
@@ -2358,13 +2365,17 @@ class MainActivity : Activity() {
                     runCatching {
                         val physicalNetwork = networkForLatencyProbe()
                             ?: error("Не найдена физическая сеть для проверки серверов")
+                        val sessionId = generation.toString()
+                        activeLatencySessionId = sessionId
                         AstraLatencyTestService.start(
                             this,
                             testConfig.json,
                             testConfig.profileByOutboundTag.keys,
-                            physicalNetwork
+                            physicalNetwork,
+                            sessionId
                         )
                     }.onFailure {
+                        activeLatencySessionId = null
                         latencyTestInFlight = false
                         pendingFastestSelection = false
                         selectingFastest = false
