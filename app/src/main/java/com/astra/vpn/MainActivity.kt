@@ -261,6 +261,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
+        AstraNoticeChannels.ensureCreated(this)
+        AstraQuickShortcut.publish(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3752,6 +3754,40 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showServiceAvailabilityDialog() {
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Доступность сервисов")
+            .setMessage("Проверяем доступ через текущую сеть…")
+            .setPositiveButton("Закрыть", null)
+            .create()
+        dialog.show()
+        AstraServiceChecks.run(this) { results ->
+            if (isFinishing || isDestroyed) return@run
+            val message = results.joinToString("\\n") { result ->
+                val state = if (result.reachable) "Доступен" else "Не отвечает"
+                val latency = result.latencyMs?.let { " · $it мс" } ?: ""
+                "${result.service}: $state$latency"
+            } + "\\n\\nЭто проверка HTTPS-доступности, а не гарантия работы всех функций сервиса."
+            dialog.setMessage(message)
+        }
+    }
+
+    private fun showNetworkSecurityDialog() {
+        val snapshot = AstraNetworkSecurity.snapshot(this)
+        val vpn = if (snapshot.vpnTransportActive) "Активен" else "Не обнаружен"
+        val internet = if (snapshot.activeNetworkHasInternet) "Есть" else "Не подтверждён"
+        val dns = snapshot.dnsServers.takeIf { it.isNotEmpty() }?.joinToString("\\n") ?: "Android не предоставил список DNS"
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Состояние сети")
+            .setMessage(
+                "VPN-транспорт: $vpn\\nИнтернет: $internet\\nDNS текущей сети:\\n$dns\\n\\n" +
+                    "Это диагностическая информация. Она не доказывает отсутствие DNS/IPv6-утечек."
+            )
+            .setNeutralButton("Настройки VPN") { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
+            .setPositiveButton("Понятно", null)
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3826,6 +3862,28 @@ class MainActivity : Activity() {
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
+
+        val serviceCheckEntry = TextView(this).apply {
+            text = "🌐  Проверить YouTube, Telegram и ChatGPT"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showServiceAvailabilityDialog() }
+        }
+        panel.addView(serviceCheckEntry)
+
+        val networkSecurityEntry = TextView(this).apply {
+            text = "🔐  Состояние VPN и DNS"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showNetworkSecurityDialog() }
+        }
+        panel.addView(networkSecurityEntry)
 
         val historyEntry = TextView(this).apply {
             text = "🕘  История подключений"
