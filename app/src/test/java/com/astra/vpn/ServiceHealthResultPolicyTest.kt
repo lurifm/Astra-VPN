@@ -17,6 +17,11 @@ class ServiceHealthResultPolicyTest {
         assertFalse(ServiceHealthResultPolicy.shouldPublish(false, false))
     }
 
+    @Test fun rejectsResultFromObsoleteProbeGeneration() {
+        assertTrue(ServiceHealthResultPolicy.shouldPublish(true, true, true))
+        assertFalse(ServiceHealthResultPolicy.shouldPublish(true, true, false))
+    }
+
     @Test fun rejectsMissingFutureAndExpiredTimestamps() {
         assertFalse(ServiceHealthResultPolicy.isFresh(0L, 1_000L))
         assertFalse(ServiceHealthResultPolicy.isFresh(-1L, 1_000L))
