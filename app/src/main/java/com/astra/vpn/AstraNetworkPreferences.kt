@@ -3,7 +3,7 @@ package com.astra.vpn
 import android.content.Context
 
 /** User-controlled routing and TUN MTU preferences, validated at the boundary. */
-internal data class AstraNetworkPreferences(
+data class AstraNetworkPreferences(
     val routingPreset: RoutingPreset = RoutingPreset.ALL_VPN,
     val mtu: Int = DEFAULT_MTU
 ) {
