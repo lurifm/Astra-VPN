@@ -1978,10 +1978,11 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
-            val orbitQuality = when (latencyMs[link]) {
-                null -> 0
-                in 1L..100L -> 3
-                in 101L..250L -> 2
+            val measuredOrbitLatency = latencyMs[link]
+            val orbitQuality = when {
+                measuredOrbitLatency == null || measuredOrbitLatency <= 0L -> 0
+                measuredOrbitLatency <= 100L -> 3
+                measuredOrbitLatency <= 250L -> 2
                 else -> 1
             }
             row.addView(OrbitMarkerView(this).apply {
