@@ -56,20 +56,22 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         val reachable = runCatching { TunnelHealthChecker.check(networkForProbe) }.getOrDefault(false)
                         val currentNetwork = connectivity.activeNetwork
                         val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
-                        val serviceActive = synchronized(lifecycleLock) {
-                            !stopping && tunDescriptor != null
-                        }
                         val sameVpnNetwork = currentNetwork == network &&
                             currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                        val sameProbeGeneration = healthProbeGeneration.get() == generation
-                        if (ServiceHealthResultPolicy.shouldPublish(
-                                serviceActive, sameVpnNetwork, sameProbeGeneration
-                            )
-                        ) {
-                            val result = Intent(ACTION_HEALTH).setPackage(packageName)
-                                .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
-                                .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
-                            sendBroadcast(result)
+                        // Serialize the final publication with stopTunnel(): once shutdown
+                        // acquires lifecycleLock, no late health result can be broadcast.
+                        synchronized(lifecycleLock) {
+                            val serviceActive = !stopping && tunDescriptor != null
+                            val sameProbeGeneration = healthProbeGeneration.get() == generation
+                            if (ServiceHealthResultPolicy.shouldPublish(
+                                    serviceActive, sameVpnNetwork, sameProbeGeneration
+                                )
+                            ) {
+                                val result = Intent(ACTION_HEALTH).setPackage(packageName)
+                                    .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
+                                    .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
+                                sendBroadcast(result)
+                            }
                         }
                     } finally {
                         if (healthProbeGeneration.get() == generation) {
@@ -234,6 +236,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // the Activity needs to display after a failed connection attempt.
         if (commandServer != null || tunDescriptor != null || activeConfig != null) {
             stopTunnel()
+        }
+        synchronized(lifecycleLock) {
+            // Also invalidate probes if Android destroys the service after an
+            // unusual partial-start path that did not leave tunnel resources.
+            stopHealthMonitoring()
         }
         healthExecutor.shutdownNow()
         super.onDestroy()
