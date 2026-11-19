@@ -436,7 +436,7 @@ class MainActivity : Activity() {
                 } else {
                     status.text = "Подготавливаем подключение…"
                     status.setTextColor(AMBER)
-                    connectActionLabel.text = "Запускаем…"
+                    connectActionLabel.text = "Подключаемся…"
                     connectSelectedProfile()
                 }
             }
