@@ -433,6 +433,9 @@ class MainActivity : Activity() {
                         animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(190L).start()
                     }.start()
                 if (!connected && !connecting) launchNightShootingStarIfNeeded()
+                if (disconnecting) {
+                    return@setOnClickListener
+                }
                 if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
@@ -5166,12 +5169,14 @@ class MainActivity : Activity() {
             "connected" -> intArrayOf(0xFF3A2D13.toInt(), 0xFF242018.toInt(), 0xFF10131B.toInt())
             "connecting" -> intArrayOf(0xFF4A3518.toInt(), 0xFF30251B.toInt(), 0xFF17131D.toInt())
             "switching" -> intArrayOf(0xFF34301F.toInt(), 0xFF242431.toInt(), 0xFF10131B.toInt())
+            "disconnecting" -> intArrayOf(0xFF3A2B1B.toInt(), 0xFF28221F.toInt(), 0xFF10131B.toInt())
             else -> intArrayOf(0xFF302817.toInt(), 0xFF1C1D27.toInt(), 0xFF0D111B.toInt())
         }
         val stroke = when (state) {
             "connected" -> 0xFF4BAF91.toInt()
             "connecting" -> 0xFFD6A45C.toInt()
             "switching" -> 0xFFB49A5B.toInt()
+            "disconnecting" -> 0xFFD6A45C.toInt()
             else -> 0xFF806B3A.toInt()
         }
         if (::constellationView.isInitialized) constellationView.setActive(state == "connected")
@@ -5186,12 +5191,14 @@ class MainActivity : Activity() {
                 "connected" -> 0xFF2A1B06.toInt()
                 "connecting" -> 0xFF3A2608.toInt()
                 "switching" -> 0xFF3A2B0D.toInt()
+                "disconnecting" -> 0xFF3A2608.toInt()
                 else -> 0xFF3A2B0D.toInt()
             }
             val buttonColor = when (state) {
                 "connected" -> 0xFFFFD36E.toInt()
                 "connecting" -> 0xFFFFC45C.toInt()
                 "switching" -> 0xFFE7B95A.toInt()
+                "disconnecting" -> 0xFFFFC45C.toInt()
                 else -> 0xFFFFC95C.toInt()
             }
             connectButton.setTextColor(starColor)
@@ -5201,6 +5208,7 @@ class MainActivity : Activity() {
                 "connected" -> "Отключить VPN. Звезда активна"
                 "connecting" -> "Подключение VPN. Звезда загорается"
                 "switching" -> "Переключение сервера"
+                "disconnecting" -> "Отключение VPN выполняется"
                 else -> "Подключить VPN. Звезда неактивна"
             }
             if (state == "connected") {
@@ -5224,6 +5232,7 @@ class MainActivity : Activity() {
                 "connected" -> GREEN
                 "connecting" -> AMBER
                 "switching" -> 0xFF9AA8FF.toInt()
+                "disconnecting" -> AMBER
                 else -> 0xFF71809D.toInt()
             }
             connectionIndicator.background = rounded(indicatorColor, 99)
