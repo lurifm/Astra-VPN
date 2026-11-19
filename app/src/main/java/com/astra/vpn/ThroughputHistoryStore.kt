@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -10,8 +11,8 @@ import java.util.Locale
  * Keeps a bounded local history of successful throughput probes.
  * Raw profile links are never stored; each key is a SHA-256 digest.
  */
-internal class ThroughputHistoryStore(context: Context) {
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+internal class ThroughputHistoryStore(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
 
     fun record(profile: String, downloadMbps: Double, now: Long = System.currentTimeMillis()) {
         if (profile.isBlank() || now <= 0L || !downloadMbps.isFinite() ||
