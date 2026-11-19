@@ -23,7 +23,7 @@ internal object AstraServiceChecks {
 
     fun run(context: Context, callback: (List<Result>) -> Unit) {
         val appContext = context.applicationContext
-        Executors.newSingleThreadExecutor().execute {
+        Thread {
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
             val network: Network? = connectivity.activeNetwork
             val results = endpoints.map { (name, endpoint) ->
@@ -44,6 +44,6 @@ internal object AstraServiceChecks {
                 Result(name, ok, if (ok) (System.nanoTime() - started) / 1_000_000L else null)
             }
             android.os.Handler(android.os.Looper.getMainLooper()).post { callback(results) }
-        }
+        }.start()
     }
 }
