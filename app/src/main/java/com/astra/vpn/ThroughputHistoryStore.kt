@@ -40,7 +40,7 @@ internal class ThroughputHistoryStore(private val prefs: SharedPreferences) {
 
     fun samples(profile: String, now: Long = System.currentTimeMillis()): List<ThroughputStabilityScorer.Sample> {
         if (profile.isBlank() || now <= 0L) return emptyList()
-        synchronized(LOCK) { read(storageKey(profile), now) }
+        return synchronized(LOCK) { read(storageKey(profile), now) }
     }
 
     fun medianMbps(profile: String, now: Long = System.currentTimeMillis()): Double? =
