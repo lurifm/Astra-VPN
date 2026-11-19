@@ -198,8 +198,8 @@ class MainActivity : Activity() {
                     tilePendingStart = false
                     urlTestProfileMap.values.forEach { profile ->
                         // A broken test engine/channel is not evidence that the proxy is offline.
-                        // Preserve successful measurements and label only unknown results as a test error.
-                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "ошибка проверки"
+                        // Keep unknown results neutral; the toast below explains the test failure.
+                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
                     }
                     val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR)
                         ?: "Проверка прервана. Сохранены уже полученные результаты."
