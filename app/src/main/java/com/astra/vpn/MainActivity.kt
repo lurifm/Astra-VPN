@@ -2883,6 +2883,7 @@ class MainActivity : Activity() {
                 .remove(KEY_LATENCY_PENDING_RESULTS)
                 .remove(KEY_LATENCY_SESSION_ID)
                 .apply()
+            activeLatencySessionId = null
             latencyTestInFlight = false
         }
         // Render each successful measurement immediately instead of waiting for
