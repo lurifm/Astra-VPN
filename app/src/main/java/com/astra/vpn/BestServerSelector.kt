@@ -23,9 +23,18 @@ internal object BestServerSelector {
         localHour: Int = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
         preferredProtocols: Map<TimeOfDayServerPolicy.Window, Set<String>> = emptyMap()
     ): String? {
-        val fastestSpeed = throughputMbps.values
-            .filter { it.isFinite() && it > 0.0 }
-            .maxOrNull()
+        // A stale high-speed sample must not distort the penalty applied to
+        // fresh candidates. When timestamp metadata is supplied, only fresh
+        // throughput samples participate in the reference maximum.
+        val fastestSpeed = throughputMbps.entries
+            .filter { (profile, speed) ->
+                speed.isFinite() && speed > 0.0 &&
+                    (throughputTimestamps.isEmpty() ||
+                        throughputTimestamps[profile]?.let {
+                            ServerSelectionFreshness.usableThroughput(it, nowMs)
+                        } == true)
+            }
+            .maxOfOrNull { it.value }
         return profiles.asSequence()
             .mapNotNull { profile ->
                 val latency = latencyMs[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
