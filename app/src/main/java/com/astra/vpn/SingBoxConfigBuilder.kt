@@ -11,7 +11,7 @@ import org.json.JSONObject
  */
 object SingBoxConfigBuilder {
 
-    fun build(serverLink: String): String {
+    fun build(serverLink: String, options: SingBoxAdvancedOptions = SingBoxAdvancedOptions()): String {
         val uri = Uri.parse(serverLink.trim())
         val scheme = uri.scheme?.lowercase()
             ?: error("У ссылки сервера отсутствует протокол")
@@ -26,6 +26,13 @@ object SingBoxConfigBuilder {
             "tuic" -> buildTuic(uri, server, port)
             else -> error("Пока не поддерживается запуск протокола: $scheme")
         }.put("tag", "proxy")
+        if (options.shouldEnableMultiplex(scheme)) {
+            outbound.put("multiplex", JSONObject()
+                .put("enabled", true)
+                .put("protocol", "smux")
+                .put("max_connections", 4)
+                .put("min_streams", 4))
+        }
 
         val outbounds = JSONArray()
             .put(outbound)
@@ -47,21 +54,31 @@ object SingBoxConfigBuilder {
                     .put(JSONObject()
                         .put("type", "local")
                         .put("tag", "dns-direct")))
-                .put("final", "dns-remote"))
+                .put("final", "dns-remote")
+                .put("independent_cache", options.dnsCacheEnabled))
             .put("inbounds", JSONArray().put(JSONObject()
                 .put("type", "tun")
                 .put("tag", "tun-in")
                 .put("address", JSONArray().put("172.19.0.1/30").put("fdfe:dcba:9876::1/126"))
-                .put("mtu", 1400)
+                .put("mtu", options.safeMtu)
                 .put("auto_route", true)
                 .put("stack", "system")))
             .put("outbounds", outbounds)
             .put("route", JSONObject()
                 .put("auto_detect_interface", true)
                 .put("final", "proxy")
-                .put("rules", JSONArray().put(JSONObject()
-                    .put("protocol", "dns")
-                    .put("action", "hijack-dns"))))
+                .put("rules", JSONArray()
+                    .put(JSONObject()
+                        .put("protocol", "dns")
+                        .put("action", "hijack-dns"))
+                    .apply {
+                        val directSuffixes = options.directDomainSuffixes()
+                        if (directSuffixes.isNotEmpty()) {
+                            put(JSONObject()
+                                .put("domain_suffix", JSONArray(directSuffixes))
+                                .put("outbound", "direct"))
+                        }
+                    }))
         val json = config.toString()
         // Validate against the exact sing-box core bundled in this APK before starting the VPN.
         Libbox.checkConfig(json)
