@@ -1,9 +1,9 @@
 package com.astra.vpn
 
 /**
- * Selects reachable servers using measured latency and recent recorded failures.
- * Historical penalties are capped and deliberately small; live latency remains
- * the dominant signal. The protocol preference is only a tie-breaker.
+ * Selects reachable servers using measured latency, optional real throughput,
+ * and recent recorded failures. Throughput is a bounded secondary signal:
+ * it can break close latency results but cannot hide a severely slower ping.
  */
 internal object BestServerSelector {
     private const val UDP_PREFERENCE_MS = 12L
@@ -14,7 +14,8 @@ internal object BestServerSelector {
         profiles: List<String>,
         latencyMs: Map<String, Long>,
         recentFailures: Map<String, Int> = emptyMap(),
-        latencyStabilityPenaltyMs: Map<String, Long> = emptyMap()
+        latencyStabilityPenaltyMs: Map<String, Long> = emptyMap(),
+        throughputMbps: Map<String, Double> = emptyMap()
     ): String? {
         return profiles.asSequence()
             .mapNotNull { profile ->
@@ -31,7 +32,14 @@ internal object BestServerSelector {
                     .coerceAtMost(MAX_FAILURE_PENALTY_MS)
                 val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
                     .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
-                val score = addPenalty(addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty), jitterPenalty)
+                val throughputPenalty = ThroughputMeasurement.scorePenaltyMs(throughputMbps[profile])
+                val score = addPenalty(
+                    addPenalty(
+                        addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty),
+                        jitterPenalty
+                    ),
+                    throughputPenalty
+                )
                 Triple(profile, latency, score)
             }
             .minWithOrNull(compareBy<Triple<String, Long, Long>> { it.third }.thenBy { it.second })
