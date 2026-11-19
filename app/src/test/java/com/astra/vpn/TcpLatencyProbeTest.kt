@@ -24,6 +24,14 @@ class TcpLatencyProbeTest {
     }
 
     @Test
+    fun medianAveragesLargeValuesWithoutOverflow() {
+        assertEquals(
+            Long.MAX_VALUE - 1L,
+            TcpLatencyProbe.median(listOf(Long.MAX_VALUE - 2L, Long.MAX_VALUE))
+        )
+    }
+
+    @Test
     fun medianRejectsAnEmptyMeasurementSet() {
         assertThrows(IllegalArgumentException::class.java) {
             TcpLatencyProbe.median(emptyList())

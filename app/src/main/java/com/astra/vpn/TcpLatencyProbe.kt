@@ -56,8 +56,11 @@ object TcpLatencyProbe {
         require(values.isNotEmpty()) { "At least one measurement is required" }
         val sorted = values.sorted()
         val middle = sorted.size / 2
-        return if (sorted.size % 2 == 1) sorted[middle]
-        else (sorted[middle - 1] + sorted[middle]) / 2
+        if (sorted.size % 2 == 1) return sorted[middle]
+        val lower = sorted[middle - 1]
+        val upper = sorted[middle]
+        // Avoid overflow when two large, valid measurements are averaged.
+        return lower + (upper - lower) / 2L
     }
 
     private fun elapsedMillis(startedNanos: Long): Long =
