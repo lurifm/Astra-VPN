@@ -568,6 +568,7 @@ class MainActivity : Activity() {
         }
         serverSearch = EditText(this).apply {
             hint = "Поиск сервера…"
+            contentDescription = "Поиск серверов по названию, протоколу или ссылке"
             setSingleLine(true)
             textSize = 14f
             setTextColor(Color.WHITE)
@@ -590,6 +591,7 @@ class MainActivity : Activity() {
             })
         }
         countryFilter = Spinner(this).apply {
+            contentDescription = "Фильтр серверов по стране"
             setPadding(dp(8), 0, dp(6), 0)
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF172238.toInt(), 0xFF111A2A.toInt())).apply {
                 cornerRadius = dp(15).toFloat()
