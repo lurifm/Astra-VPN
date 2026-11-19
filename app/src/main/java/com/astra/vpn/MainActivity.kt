@@ -198,6 +198,8 @@ class MainActivity : Activity() {
                 AstraLatencyTestService.ACTION_ERROR -> {
                     if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
                     activeLatencySessionId = null
+                    getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                        .remove(KEY_LATENCY_SESSION_ID).apply()
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
@@ -2296,6 +2298,8 @@ class MainActivity : Activity() {
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
+        getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+            .remove(KEY_LATENCY_SESSION_ID).apply()
         latencyTestInFlight = false
         pendingFastestSelection = false
         selectingFastest = false
@@ -2367,6 +2371,8 @@ class MainActivity : Activity() {
                             ?: error("Не найдена физическая сеть для проверки серверов")
                         val sessionId = generation.toString()
                         activeLatencySessionId = sessionId
+                        getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                            .putString(KEY_LATENCY_SESSION_ID, sessionId).apply()
                         AstraLatencyTestService.start(
                             this,
                             testConfig.json,
@@ -2376,6 +2382,8 @@ class MainActivity : Activity() {
                         )
                     }.onFailure {
                         activeLatencySessionId = null
+                        getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                            .remove(KEY_LATENCY_SESSION_ID).apply()
                         latencyTestInFlight = false
                         pendingFastestSelection = false
                         selectingFastest = false
@@ -2822,8 +2830,16 @@ class MainActivity : Activity() {
                 }
             }
         }
+        // The foreground latency service can outlive this Activity. Restore its
+        // session token so broadcasts from the still-running test are not discarded.
+        activeLatencySessionId = prefs.getString(KEY_LATENCY_SESSION_ID, null)
+        latencyTestInFlight = activeLatencySessionId != null
         val pending = prefs.getString(KEY_LATENCY_PENDING_RESULTS, null)
-        val cached = pending ?: prefs.getString(KEY_LATENCY_LAST_RESULTS, null) ?: return
+        val cached = pending ?: prefs.getString(KEY_LATENCY_LAST_RESULTS, null)
+        if (cached == null) {
+            if (latencyTestInFlight) renderProfiles()
+            return
+        }
         if (pending != null) {
             prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
         }
@@ -2856,6 +2872,7 @@ class MainActivity : Activity() {
         if (finished) {
             getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                 .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_SESSION_ID)
                 .apply()
             latencyTestInFlight = false
         }
@@ -5250,6 +5267,7 @@ class MainActivity : Activity() {
         private const val REQUEST_PHONE_STATE_PERMISSION = 7003
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
+        private const val KEY_LATENCY_SESSION_ID = "active_session_id"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
         private const val BG = 0xFF080B14.toInt()
