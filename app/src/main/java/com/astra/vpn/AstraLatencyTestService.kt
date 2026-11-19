@@ -227,6 +227,21 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun publishFailure(message: String) {
+        // Preserve partial measurements if the Activity was recreated and misses
+        // this terminal error broadcast. Never turn an engine failure into
+        // evidence that every proxy is offline.
+        if (expectedTags.isNotEmpty()) {
+            val snapshot = synchronized(latestResults) {
+                expectedTags.associateWith { latestResults[it] }
+            }
+            val json = JSONObject()
+            snapshot.forEach { (tag, delay) -> json.put(tag, delay ?: JSONObject.NULL) }
+            getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_PENDING_RESULTS, json.toString())
+                .putString(KEY_LAST_RESULTS, json.toString())
+                .remove(KEY_ACTIVE_SESSION_ID)
+                .apply()
+        }
         sendBroadcast(Intent(ACTION_ERROR).setPackage(packageName)
             .putExtra(EXTRA_ERROR, message)
             .putExtra(EXTRA_SESSION, sessionId))
@@ -238,6 +253,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handler.removeCallbacks(completionDebounce)
         runCatching { client?.disconnect() }
         client = null
+        getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_ACTIVE_SESSION_ID).apply()
         val currentServer = server
         server = null
         if (currentServer != null) {
@@ -277,6 +294,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
         private const val KEY_LAST_RESULTS = "last_results"
+        private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         // Hard upper bound for a full server batch; unfinished nodes remain "no data".
