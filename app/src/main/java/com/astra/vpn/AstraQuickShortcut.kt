@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
