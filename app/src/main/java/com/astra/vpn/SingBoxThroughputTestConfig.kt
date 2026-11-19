@@ -83,7 +83,7 @@ internal object SingBoxThroughputTestConfig {
         return Result(config, ports)
     }
 
-    private fun outboundTag(link: String): String {
+    internal fun outboundTag(link: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(link.toByteArray(Charsets.UTF_8))
         val suffix = digest.take(8).joinToString("") { "%02x".format(it) }
