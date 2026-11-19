@@ -1785,6 +1785,7 @@ class MainActivity : Activity() {
         // Make the primary action communicate its current meaning at a glance:
         // blue to connect, amber while starting, and a restrained coral to disconnect.
         val actionColor = when {
+            disconnecting -> AMBER
             connecting -> AMBER
             connected && selected == activeProfile -> 0xFFB85F78.toInt()
             else -> ACCENT
@@ -1792,12 +1793,14 @@ class MainActivity : Activity() {
         connectButton.backgroundTintList =
             android.content.res.ColorStateList.valueOf(actionColor)
         updateConnectionCardAppearance(when {
+            disconnecting -> "disconnecting"
             connecting -> "connecting"
             connected && selected == activeProfile -> "connected"
             connected -> "switching"
             else -> "idle"
         })
         connectButton.contentDescription = when {
+            disconnecting -> "Отключение VPN выполняется"
             connecting -> "Подключение VPN выполняется"
             connected && selected == activeProfile -> "Отключить VPN"
             connected -> "Переключить VPN на выбранный сервер"
