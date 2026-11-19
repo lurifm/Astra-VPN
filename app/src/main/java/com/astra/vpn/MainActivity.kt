@@ -176,6 +176,7 @@ class MainActivity : Activity() {
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
+    private val diagnosticsRequestGuard = DiagnosticsRequestGuard()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
@@ -3628,6 +3629,7 @@ class MainActivity : Activity() {
     }
 
     private fun showConnectionDiagnostics() {
+        val requestToken = diagnosticsRequestGuard.begin()
         val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivity.activeNetwork
         val activeCapabilities = network?.let { connectivity.getNetworkCapabilities(it) }
@@ -3725,6 +3727,7 @@ class MainActivity : Activity() {
             .setPositiveButton("Поделиться", null)
             .setNegativeButton("Закрыть", null)
             .show()
+        dialog.setOnDismissListener { diagnosticsRequestGuard.invalidate(requestToken) }
         dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
             val share = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
@@ -3757,7 +3760,10 @@ class MainActivity : Activity() {
                     }
                 }.getOrDefault(false)
                 runOnUiThread {
-                    if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !dialog.isShowing ||
+                        !diagnosticsRequestGuard.isCurrent(requestToken) ||
+                        connectivity.activeNetwork != network
+                    ) return@runOnUiThread
                     val serviceStates = results.associate { result ->
                         val probe = when {
                             result.httpCode == null -> ServiceAvailability.Probe(0, 0)
