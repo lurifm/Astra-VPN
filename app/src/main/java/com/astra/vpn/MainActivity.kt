@@ -3863,8 +3863,9 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Состояние сети")
             .setMessage(
-                "VPN-транспорт: $vpn\nИнтернет: $internet\nDNS текущей сети:\n$dns\n\n" +
-                    "Это диагностическая информация. Она не доказывает отсутствие DNS/IPv6-утечек."
+                "VPN-транспорт: $vpn\nИнтернет: $internet\nDNS текущей сети:\n$dns\n" +
+                    "Маршрут IPv6 в активной сети: ${if (snapshot.ipv6DefaultRoutePresent) "обнаружен" else "не обнаружен"}\n\n" +
+                    "Это диагностика, а не тест утечек. Kill switch нужно отдельно включить в системных настройках Android: «VPN всегда включён» и «Блокировать соединения без VPN» (если доступно)."
             )
             .setNeutralButton("Настройки VPN") { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
             .setPositiveButton("Понятно", null)
