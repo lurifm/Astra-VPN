@@ -3044,8 +3044,11 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             startService(intent)
-            connected = false
-            connecting = false
+            // Keep the last confirmed tunnel state until the service reports that
+            // it has actually stopped. Do not briefly show "Подключиться" while
+            // Android is still tearing down the active VPN.
+            connectButton.isEnabled = false
+            connectActionLabel.text = "Отключаем…"
             status.text = "Отключаемся…"
             status.setTextColor(MUTED)
         } catch (error: Exception) {
@@ -3053,9 +3056,8 @@ class MainActivity : Activity() {
             status.text = "Не удалось отключить VPN"
             status.setTextColor(RED)
             Toast.makeText(this, "Android не позволил остановить VPN. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+            renderProfiles()
         }
-        updateProtectionLabels()
-        renderProfiles()
     }
 
     private fun underlyingNetworkCapabilities(): NetworkCapabilities? {
