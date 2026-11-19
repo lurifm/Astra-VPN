@@ -15,4 +15,19 @@
     <string name="widget_status_connecting">Connecting…</string>
     <string name="widget_status_disconnected">Disconnected</string>
     <string name="widget_status_error">Connection error</string>
+    <string name="service_check_title">Service availability</string>
+    <string name="service_check_loading">Checking access through the current network…</string>
+    <string name="service_reachable">Available</string>
+    <string name="service_unreachable">Not responding</string>
+    <string name="service_check_caveat">This checks HTTPS reachability; it does not guarantee that every service feature works.</string>
+    <string name="network_status_title">Network status</string>
+    <string name="network_status_message">VPN transport: %1$s\nInternet: %2$s\nCurrent network DNS:\n%3$s\nIPv6 route on active network: %4$s\n\nThis is a diagnostic, not a leak test. Enable Android's system VPN options separately: “Always-on VPN” and “Block connections without VPN” (if available).</string>
+    <string name="network_vpn_active">Active</string>
+    <string name="network_vpn_missing">Not detected</string>
+    <string name="network_internet_yes">Available</string>
+    <string name="network_internet_unknown">Not confirmed</string>
+    <string name="network_dns_unavailable">Android did not provide a DNS server list</string>
+    <string name="network_ipv6_present">detected</string>
+    <string name="network_ipv6_absent">not detected</string>
+    <string name="network_vpn_settings">VPN settings</string>
 </resources>
