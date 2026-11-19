@@ -2007,7 +2007,7 @@ class MainActivity : Activity() {
             }
             row.addView(OrbitMarkerView(this).apply {
                 quality = orbitQuality
-                selected = isSelected || isActiveServer
+                isSelected = isSelected || isActiveServer
                 contentDescription = when (orbitQuality) {
                     3 -> "Орбита со звёздным качеством связи"
                     2 -> "Орбита с хорошим качеством связи"
