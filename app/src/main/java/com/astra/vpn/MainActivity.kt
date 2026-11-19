@@ -4555,9 +4555,11 @@ class MainActivity : Activity() {
                 )
                 dialogWindow.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             }
-            sheetContent.translationX = -sheetContent.width.toFloat()
-            sheetContent.animate().translationX(0f).setDuration(260L)
-                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            sheetContent.post {
+                sheetContent.translationX = -sheetContent.width.toFloat()
+                sheetContent.animate().translationX(0f).setDuration(260L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
         }
         sheet.show()
         sheet.window?.let { dialogWindow ->
