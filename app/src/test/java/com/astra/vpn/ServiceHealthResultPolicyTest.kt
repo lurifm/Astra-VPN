@@ -22,6 +22,20 @@ class ServiceHealthResultPolicyTest {
         assertFalse(ServiceHealthResultPolicy.shouldPublish(true, true, false))
     }
 
+    @Test fun publicationRequiresAllThreeLifecycleConditions() {
+        for (serviceActive in listOf(false, true)) {
+            for (sameVpnNetwork in listOf(false, true)) {
+                for (sameGeneration in listOf(false, true)) {
+                    assertTrue(
+                        ServiceHealthResultPolicy.shouldPublish(
+                            serviceActive, sameVpnNetwork, sameGeneration
+                        ) == (serviceActive && sameVpnNetwork && sameGeneration)
+                    )
+                }
+            }
+        }
+    }
+
     @Test fun rejectsMissingFutureAndExpiredTimestamps() {
         assertFalse(ServiceHealthResultPolicy.isFresh(0L, 1_000L))
         assertFalse(ServiceHealthResultPolicy.isFresh(-1L, 1_000L))
