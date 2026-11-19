@@ -15,4 +15,19 @@
     <string name="widget_status_connecting">Подключение…</string>
     <string name="widget_status_disconnected">Отключено</string>
     <string name="widget_status_error">Ошибка подключения</string>
+    <string name="service_check_title">Доступность сервисов</string>
+    <string name="service_check_loading">Проверяем доступ через текущую сеть…</string>
+    <string name="service_reachable">Доступен</string>
+    <string name="service_unreachable">Не отвечает</string>
+    <string name="service_check_caveat">Это проверка HTTPS-доступности, а не гарантия работы всех функций сервиса.</string>
+    <string name="network_status_title">Состояние сети</string>
+    <string name="network_status_message">VPN-транспорт: %1$s\nИнтернет: %2$s\nDNS текущей сети:\n%3$s\nМаршрут IPv6 в активной сети: %4$s\n\nЭто диагностика, а не тест утечек. Kill switch нужно отдельно включить в системных настройках Android: «VPN всегда включён» и «Блокировать соединения без VPN» (если доступно).</string>
+    <string name="network_vpn_active">Активен</string>
+    <string name="network_vpn_missing">Не обнаружен</string>
+    <string name="network_internet_yes">Есть</string>
+    <string name="network_internet_unknown">Не подтверждён</string>
+    <string name="network_dns_unavailable">Android не предоставил список DNS</string>
+    <string name="network_ipv6_present">обнаружен</string>
+    <string name="network_ipv6_absent">не обнаружен</string>
+    <string name="network_vpn_settings">Настройки VPN</string>
 </resources>
