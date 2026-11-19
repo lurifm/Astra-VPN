@@ -3069,6 +3069,9 @@ class MainActivity : Activity() {
             connectActionLabel.text = "Отключаем…"
             status.text = "Отключаемся…"
             status.setTextColor(AMBER)
+            // Apply the complete card/button/indicator state immediately; waiting
+            // for the service broadcast would leave the hero card looking connected.
+            updateConnectionCardAppearance("disconnecting")
         } catch (error: Exception) {
             disconnecting = false
             // Keep the UI honest if Android refuses the stop command.
