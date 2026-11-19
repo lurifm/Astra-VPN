@@ -3119,15 +3119,26 @@ class MainActivity : Activity() {
         if (!connected || connecting || throughputFailoverInProgress || activeProfile != current) return
         val profiles = safeProfiles() ?: return
         val alternatives = profiles.filterNot { it == current }
+        val now = System.currentTimeMillis()
+        val reachable = alternatives.filter { profile ->
+            latencyMs[profile]?.let { it > 0L } == true &&
+                latencyObservedAt[profile]?.let { ServerSelectionFreshness.usableLatency(it, now) } == true
+        }.toSet()
+        val fallbackCandidates = ProtocolFallbackPolicy.candidates(current, alternatives, reachable)
+        val activeProtocol = current.substringBefore("://").lowercase()
+        val differentProtocol = fallbackCandidates.filter {
+            it.substringBefore("://").lowercase() != activeProtocol
+        }
+        val selectionPool = differentProtocol.ifEmpty { fallbackCandidates }
         val alternate = BestServerSelector.select(
-            profiles = alternatives,
+            profiles = selectionPool,
             latencyMs = latencyMs,
-            recentFailures = recentServerFailureCounts(alternatives),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(alternatives),
-            throughputMbps = throughputScores(alternatives),
+            recentFailures = recentServerFailureCounts(selectionPool),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(selectionPool),
+            throughputMbps = throughputScores(selectionPool),
             latencyTimestamps = latencyObservedAt,
             throughputTimestamps = throughputObservedAt,
-            nowMs = System.currentTimeMillis(),
+            nowMs = now,
             localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
             preferredProtocols = timeProtocolPreferences()
         )
