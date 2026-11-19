@@ -21,7 +21,7 @@
     <string name="service_unreachable">Not responding</string>
     <string name="service_check_caveat">This checks HTTPS reachability; it does not guarantee that every service feature works.</string>
     <string name="network_status_title">Network status</string>
-    <string name="network_status_message">VPN transport: %1$s\nInternet: %2$s\nCurrent network DNS:\n%3$s\nIPv6 route on active network: %4$s\n\nThis is a diagnostic, not a leak test. Enable Android's system VPN options separately: “Always-on VPN” and “Block connections without VPN” (if available).</string>
+    <string name="network_status_message">VPN transport: %1$s\nInternet: %2$s\nCurrent network DNS:\n%3$s\nIPv6 route on active network: %4$s\n\nThis is a diagnostic, not a leak test. Enable Android\'s system VPN options separately: “Always-on VPN” and “Block connections without VPN” (if available).</string>
     <string name="network_vpn_active">Active</string>
     <string name="network_vpn_missing">Not detected</string>
     <string name="network_internet_yes">Available</string>
