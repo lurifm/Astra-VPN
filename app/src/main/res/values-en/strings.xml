@@ -5,4 +5,6 @@
     <string name="subscription_alerts_description">Warnings about expiry dates and remaining traffic</string>
     <string name="shortcut_open">Open Astra</string>
     <string name="shortcut_open_long">Open Astra VPN</string>
+    <string name="shortcut_connect">Connect</string>
+    <string name="shortcut_connect_long">Connect Astra VPN to the best server</string>
 </resources>
