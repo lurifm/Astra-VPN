@@ -89,7 +89,7 @@ internal class ConstellationView(context: Context) : View(context) {
 internal class OrbitMarkerView(context: Context) : View(context) {
     var quality: Int = 0
         set(value) { field = value.coerceIn(0, 3); invalidate() }
-    var selected: Boolean = false
+    var isChosen: Boolean = false
         set(value) { field = value; invalidate() }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -105,7 +105,7 @@ internal class OrbitMarkerView(context: Context) : View(context) {
             1 -> Color.rgb(255, 198, 109)
             else -> Color.rgb(123, 139, 165)
         }
-        if (selected) {
+        if (isChosen) {
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.2f * d
             paint.color = Color.argb(130, 126, 190, 255)
