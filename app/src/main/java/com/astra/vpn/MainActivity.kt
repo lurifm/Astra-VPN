@@ -109,6 +109,7 @@ class MainActivity : Activity() {
     private var receiverRegistered = false
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
+    private val throughputHistory by lazy { ThroughputHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
@@ -2619,7 +2620,8 @@ class MainActivity : Activity() {
                 profiles = urlTestProfileMap.values.toList(),
                 latencyMs = latencyMs,
                 recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList()),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList())
+                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList()),
+                throughputMbps = throughputScores(urlTestProfileMap.values.toList())
             )
             if (fastest != null) {
                 selectedProfile = fastest
@@ -3026,7 +3028,8 @@ class MainActivity : Activity() {
             profiles = profiles.filterNot { it == current },
             latencyMs = latencyMs,
             recentFailures = recentServerFailureCounts(profiles.filterNot { it == current }),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current })
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current }),
+            throughputMbps = throughputScores(profiles.filterNot { it == current })
         ) ?: run {
             renderProfiles()
             return
@@ -4149,6 +4152,13 @@ class MainActivity : Activity() {
         return profiles.mapNotNull { profile ->
             val penalty = LatencyStabilityScorer.penaltyMs(latencyHistory.samples(profile, now), now)
             if (penalty > 0L) profile to penalty else null
+        }.toMap()
+    }
+
+    private fun throughputScores(profiles: List<String>): Map<String, Double> {
+        val now = System.currentTimeMillis()
+        return profiles.mapNotNull { profile ->
+            throughputHistory.medianMbps(profile, now)?.let { profile to it }
         }.toMap()
     }
 
