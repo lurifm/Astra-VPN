@@ -711,6 +711,7 @@ class MainActivity : Activity() {
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
+        Handler(Looper.getMainLooper()).post { maybeShowOnboarding() }
         // Accept server links shared from browsers, messengers and file viewers.
         // The user still confirms the import explicitly in Astra's own sheet.
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
@@ -1851,7 +1852,7 @@ class MainActivity : Activity() {
                     } else if (connected && link != activeProfile) {
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this)) }.getOrElse {
                             Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
@@ -2218,7 +2219,7 @@ class MainActivity : Activity() {
     private fun connectSelectedProfile() {
         if (connecting) return
         val link = selectedProfile ?: return
-        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+        val config = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this)) }.getOrElse {
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
             MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
@@ -3637,7 +3638,7 @@ class MainActivity : Activity() {
                 val results = ServiceReachabilityChecker.checkAll(network)
                 val securityAudit = active?.let { profile ->
                     runCatching {
-                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile))
+                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile, AstraNetworkPreferences.load(this)))
                     }.getOrNull()
                 }
                 val dnsResolutionOk = runCatching {
@@ -3879,6 +3880,59 @@ class MainActivity : Activity() {
             })
         }
         panel.addView(sortGroup)
+        addSectionLabel("✦  МАРШРУТИЗАЦИЯ И СЕТЬ")
+        val routingGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val networkPrefs = AstraNetworkPreferences.load(this)
+        listOf(
+            AstraNetworkPreferences.RoutingPreset.ALL_VPN to "Весь трафик через VPN",
+            AstraNetworkPreferences.RoutingPreset.LOCAL_DIRECT to "Российские домены напрямую, остальное через VPN"
+        ).forEach { (preset, label) ->
+            routingGroup.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = preset.name
+                text = label
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                isChecked = networkPrefs.routingPreset == preset
+            })
+        }
+        panel.addView(routingGroup)
+        val mtuLabel = TextView(this).apply {
+            textSize = 13f
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        val mtuSlider = android.widget.SeekBar(this).apply {
+            max = AstraNetworkPreferences.MAX_MTU - AstraNetworkPreferences.MIN_MTU
+            progress = networkPrefs.mtu - AstraNetworkPreferences.MIN_MTU
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    mtuLabel.text = "MTU туннеля: ${AstraNetworkPreferences.MIN_MTU + progress}"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) = Unit
+            })
+        }
+        mtuLabel.text = "MTU туннеля: ${networkPrefs.mtu}"
+        panel.addView(mtuLabel)
+        panel.addView(mtuSlider)
+        panel.addView(TextView(this).apply {
+            text = "Диапазон 1280–1500. Если соединение нестабильно, верни значение 1400. Изменения применятся при следующем подключении."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(8))
+        })
+        val shareProfileEntry = TextView(this).apply {
+            text = "▦  Поделиться выбранным сервером (ссылка / QR)"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { shareSelectedProfile() }
+        }
+        panel.addView(shareProfileEntry)
+
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
             text = "📶  Мониторинг сети"
@@ -4087,9 +4141,20 @@ class MainActivity : Activity() {
                 settingsPrefs.edit()
                     .putString("sort_mode", mode)
                     .putBoolean("auto_update", autoUpdate.isChecked)
+                    .putString("routing_preset", routingGroup.findViewById<RadioButton>(routingGroup.checkedRadioButtonId)?.tag as? String ?: AstraNetworkPreferences.RoutingPreset.ALL_VPN.name)
+                    .putInt("tun_mtu", AstraNetworkPreferences.MIN_MTU + mtuSlider.progress)
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
                     .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
                     .apply()
+                AstraNetworkPreferences(
+                    routingPreset = runCatching {
+                        AstraNetworkPreferences.RoutingPreset.valueOf(
+                            routingGroup.findViewById<RadioButton>(routingGroup.checkedRadioButtonId)?.tag as? String
+                                ?: AstraNetworkPreferences.RoutingPreset.ALL_VPN.name
+                        )
+                    }.getOrDefault(AstraNetworkPreferences.RoutingPreset.ALL_VPN),
+                    mtu = AstraNetworkPreferences.MIN_MTU + mtuSlider.progress
+                ).save(this@MainActivity)
                 if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
@@ -4118,6 +4183,89 @@ class MainActivity : Activity() {
         sheet.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
+
+    private fun maybeShowOnboarding() {
+        if (settingsPrefs.getBoolean("onboarding_completed", false) || isFinishing || isDestroyed) return
+        var index = 0
+        fun showSlide() {
+            val slide = OnboardingSlides.all[index]
+            val dialog = MaterialAlertDialogBuilder(this)
+                .setTitle(slide.title)
+                .setMessage(slide.body)
+                .setCancelable(false)
+                .setNegativeButton(if (index == 0) "Пропустить" else "Назад") { _, _ ->
+                    if (index == 0) {
+                        settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                    } else {
+                        index--
+                        showSlide()
+                    }
+                }
+                .setPositiveButton(if (index == OnboardingSlides.all.lastIndex) "Начать" else "Далее", null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val next = OnboardingSlides.next(index)
+                    if (next == null) {
+                        settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                        dialog.dismiss()
+                    } else {
+                        index = next
+                        dialog.dismiss()
+                        showSlide()
+                    }
+                }
+            }
+            dialog.show()
+        }
+        showSlide()
+    }
+
+    private fun shareSelectedProfile() {
+        val link = selectedProfile?.takeIf { it.isNotBlank() }
+        if (link == null) {
+            Toast.makeText(this, "Сначала выбери сервер", Toast.LENGTH_SHORT).show()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Поделиться сервером?")
+            .setMessage("Ссылка содержит данные доступа к серверу. Отправляй её только доверенному человеку. Получатель сможет импортировать профиль в Astra VPN.")
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Показать QR") { _, _ -> showProfileQr(link) }
+            .setPositiveButton("Поделиться ссылкой") { _, _ ->
+                startActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link),
+                    "Поделиться сервером"
+                ))
+            }
+            .show()
+    }
+
+    private fun showProfileQr(link: String) {
+        runCatching { ProfileShareQr.create(link) }
+            .onSuccess { bitmap ->
+                val image = android.widget.ImageView(this).apply {
+                    setImageBitmap(bitmap)
+                    adjustViewBounds = true
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                }
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("QR-код сервера")
+                    .setMessage("QR-код содержит секретную ссылку доступа. Не публикуй его открыто.")
+                    .setView(image)
+                    .setPositiveButton("Готово", null)
+                    .setNeutralButton("Поделиться ссылкой") { _, _ ->
+                        startActivity(Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link),
+                            "Поделиться сервером"
+                        ))
+                    }
+                    .show()
+            }
+            .onFailure {
+                Toast.makeText(this, "Не удалось создать QR-код. Ссылка слишком длинная или некорректная.", Toast.LENGTH_LONG).show()
+            }
+    }
 
     private data class InstalledApp(
         val packageName: String,
