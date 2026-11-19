@@ -3763,11 +3763,11 @@ class MainActivity : Activity() {
         dialog.show()
         AstraServiceChecks.run(this) { results ->
             if (isFinishing || isDestroyed) return@run
-            val message = results.joinToString("\\n") { result ->
+            val message = results.joinToString("\n") { result ->
                 val state = if (result.reachable) "Доступен" else "Не отвечает"
                 val latency = result.latencyMs?.let { " · $it мс" } ?: ""
                 "${result.service}: $state$latency"
-            } + "\\n\\nЭто проверка HTTPS-доступности, а не гарантия работы всех функций сервиса."
+            } + "\n\nЭто проверка HTTPS-доступности, а не гарантия работы всех функций сервиса."
             dialog.setMessage(message)
         }
     }
@@ -3776,11 +3776,11 @@ class MainActivity : Activity() {
         val snapshot = AstraNetworkSecurity.snapshot(this)
         val vpn = if (snapshot.vpnTransportActive) "Активен" else "Не обнаружен"
         val internet = if (snapshot.activeNetworkHasInternet) "Есть" else "Не подтверждён"
-        val dns = snapshot.dnsServers.takeIf { it.isNotEmpty() }?.joinToString("\\n") ?: "Android не предоставил список DNS"
+        val dns = snapshot.dnsServers.takeIf { it.isNotEmpty() }?.joinToString("\n") ?: "Android не предоставил список DNS"
         MaterialAlertDialogBuilder(this)
             .setTitle("Состояние сети")
             .setMessage(
-                "VPN-транспорт: $vpn\\nИнтернет: $internet\\nDNS текущей сети:\\n$dns\\n\\n" +
+                "VPN-транспорт: $vpn\nИнтернет: $internet\nDNS текущей сети:\n$dns\n\n" +
                     "Это диагностическая информация. Она не доказывает отсутствие DNS/IPv6-утечек."
             )
             .setNeutralButton("Настройки VPN") { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
