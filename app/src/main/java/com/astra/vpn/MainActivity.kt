@@ -143,6 +143,7 @@ class MainActivity : Activity() {
     private lateinit var monitorProtection: TextView
     private lateinit var monitorVpnCountry: TextView
     private lateinit var monitorNetwork: TextView
+    private lateinit var monitorPortalSignIn: MaterialButton
     private lateinit var monitorOperator: TextView
     private lateinit var monitorDownload: TextView
     private lateinit var monitorUpload: TextView
@@ -678,6 +679,13 @@ class MainActivity : Activity() {
         }
         monitorDetails.addView(monitorVpnCountry)
         monitorDetails.addView(monitorNetwork)
+        monitorPortalSignIn = MaterialButton(this).apply {
+            text = "Открыть страницу входа в сеть"
+            isAllCaps = false
+            visibility = View.GONE
+            setOnClickListener { openCaptivePortalSignIn() }
+        }
+        monitorDetails.addView(monitorPortalSignIn, matchWidth())
         monitorDetails.addView(monitorOperator)
         monitorDetails.addView(TextView(this).apply {
             text = "Скорость всего устройства · последние 60 секунд\n*Трафик за день с момента первого замера; возможна неполная статистика"
@@ -2839,13 +2847,35 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
+    private fun openCaptivePortalSignIn() {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.allNetworks.firstOrNull { candidate ->
+            connectivity.getNetworkCapabilities(candidate)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        }
+        if (network == null) {
+            Toast.makeText(this, "Страница входа уже недоступна или сеть изменилась", Toast.LENGTH_SHORT).show()
+            monitorPortalSignIn.visibility = View.GONE
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            runCatching { connectivity.startCaptivePortalApp(network) }
+                .onFailure { Toast.makeText(this, "Android не смог открыть страницу авторизации", Toast.LENGTH_LONG).show() }
+        } else {
+            runCatching { startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
+                .onFailure { Toast.makeText(this, "Открой настройки Wi-Fi и заверши авторизацию", Toast.LENGTH_LONG).show() }
+        }
+    }
+
     private fun updateNetworkLabel() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastNetworkLabelAt != 0L && now - lastNetworkLabelAt < 5_000L) return
         lastNetworkLabelAt = now
         val caps = underlyingNetworkCapabilities()
         val telephony = getSystemService(TelephonyManager::class.java)
-        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true) {
+        val captivePortal = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        monitorPortalSignIn.visibility = if (captivePortal) View.VISIBLE else View.GONE
+        if (captivePortal) {
             monitorNetwork.text = "Сеть: требуется вход через браузер (captive portal)"
             monitorOperator.text = "Оператор: —"
             return
