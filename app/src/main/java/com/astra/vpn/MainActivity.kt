@@ -111,6 +111,15 @@ class MainActivity : Activity() {
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
     private val throughputMbps = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val throughputMonitorExecutor = Executors.newSingleThreadExecutor()
+    private val throughputProbeInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val throughputDropPolicy = ThroughputDropFailoverPolicy()
+    private val tunnelThroughputWarmup = mutableListOf<Double>()
+    private var tunnelThroughputNetwork: android.net.Network? = null
+    private var tunnelThroughputProfile: String? = null
+    private var tunnelThroughputBaselineMbps: Double? = null
+    private var lastTunnelThroughputProbeAt = 0L
+    private var throughputFailoverInProgress = false
     @Volatile private var throughputProfileMap: Map<String, String> = emptyMap()
     private var throughputTestInFlight = false
     private var refreshingSubscriptions = false
@@ -174,6 +183,7 @@ class MainActivity : Activity() {
             updateTrafficMonitor()
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
+            scheduleTunnelThroughputProbe()
             monitorHandler.postDelayed(this, 1000L)
         }
     }
@@ -229,6 +239,7 @@ class MainActivity : Activity() {
                     connecting = true
                     consecutiveHealthFailures = 0
                     lastHealthCheckAt = 0L
+                    resetTunnelThroughputBaseline()
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
                 }
@@ -237,6 +248,8 @@ class MainActivity : Activity() {
                     connecting = false
                     tunnelInternetOk = null
                     lastHealthCheckAt = 0L
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Подключено"
                     status.setTextColor(GREEN)
                 }
@@ -245,6 +258,8 @@ class MainActivity : Activity() {
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = null
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
                 }
@@ -253,6 +268,8 @@ class MainActivity : Activity() {
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = false
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
                     // AstraVpnService sends a user-safe explanation in EXTRA_ERROR.
@@ -2945,6 +2962,105 @@ class MainActivity : Activity() {
         }
     }
 
+
+    /**
+     * Periodically samples a small fixed payload through the active Android VPN
+     * Network. TrafficStats is deliberately not used because it is device-wide.
+     */
+    private fun scheduleTunnelThroughputProbe() {
+        if (!connected || connecting || throughputFailoverInProgress || isFinishing || isDestroyed) return
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.activeNetwork ?: return
+        val capabilities = connectivity.getNetworkCapabilities(network)
+        if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) return
+        val profile = activeProfile ?: selectedProfile ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTunnelThroughputProbeAt < TUNNEL_THROUGHPUT_INTERVAL_MS) return
+        if (!throughputProbeInFlight.compareAndSet(false, true)) return
+
+        if (tunnelThroughputNetwork != network || tunnelThroughputProfile != profile) {
+            resetTunnelThroughputBaseline()
+            tunnelThroughputNetwork = network
+            tunnelThroughputProfile = profile
+        }
+        lastTunnelThroughputProbeAt = now
+        try {
+            throughputMonitorExecutor.execute {
+                val measured = VpnTunnelThroughputProbe.measure(network)
+                runOnUiThread {
+                    throughputProbeInFlight.set(false)
+                    if (isFinishing || isDestroyed || !connected || activeProfile != profile) return@runOnUiThread
+                    val currentNetwork = connectivity.activeNetwork
+                    val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
+                    if (currentNetwork != network ||
+                        currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                    ) {
+                        resetTunnelThroughputBaseline()
+                        return@runOnUiThread
+                    }
+                    if (measured == null || !measured.isFinite() || measured <= 0.0) {
+                        throughputDropPolicy.reset()
+                        return@runOnUiThread
+                    }
+                    val baseline = tunnelThroughputBaselineMbps
+                    if (baseline == null) {
+                        tunnelThroughputWarmup += measured
+                        if (tunnelThroughputWarmup.size >= TUNNEL_THROUGHPUT_BASELINE_SAMPLES) {
+                            tunnelThroughputBaselineMbps = tunnelThroughputWarmup.sorted()
+                                .let { values -> values[values.size / 2] }
+                            tunnelThroughputWarmup.clear()
+                        }
+                        return@runOnUiThread
+                    }
+                    if (throughputDropPolicy.shouldFailover(
+                            baselineMbps = baseline,
+                            currentMbps = measured,
+                            nowMs = android.os.SystemClock.elapsedRealtime()
+                        )
+                    ) {
+                        switchAfterThroughputDrop(profile)
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            throughputProbeInFlight.set(false)
+        }
+    }
+
+    private fun switchAfterThroughputDrop(current: String) {
+        if (!connected || connecting || throughputFailoverInProgress || activeProfile != current) return
+        val profiles = safeProfiles() ?: return
+        val alternatives = profiles.filterNot { it == current }
+        val alternate = BestServerSelector.select(
+            profiles = alternatives,
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(alternatives),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(alternatives),
+            throughputMbps = throughputScores(alternatives)
+        )
+        if (alternate == null) {
+            Toast.makeText(this, "Скорость упала, но резервного сервера нет", Toast.LENGTH_LONG).show()
+            return
+        }
+        throughputFailoverInProgress = true
+        selectedProfile = alternate
+        selectedInfo.text = profileSummary(alternate)
+        status.text = "Скорость упала · переключаем сервер…"
+        status.setTextColor(AMBER)
+        updateConnectionCardAppearance("switching")
+        Toast.makeText(this, "Скорость VPN упала более чем на 50%. Переключаем сервер…", Toast.LENGTH_LONG).show()
+        connectSelectedProfile()
+    }
+
+    private fun resetTunnelThroughputBaseline() {
+        tunnelThroughputWarmup.clear()
+        tunnelThroughputBaselineMbps = null
+        tunnelThroughputNetwork = null
+        tunnelThroughputProfile = null
+        lastTunnelThroughputProbeAt = 0L
+        throughputDropPolicy.reset()
+    }
+
     /**
      * Checks real HTTPS reachability through Android's active VPN route.
      * A created VpnService/TUN alone does not prove that the selected proxy can
@@ -4432,10 +4548,13 @@ class MainActivity : Activity() {
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        throughputMonitorExecutor.shutdownNow()
         super.onDestroy()
     }
 
     companion object {
+        private const val TUNNEL_THROUGHPUT_INTERVAL_MS = 15_000L
+        private const val TUNNEL_THROUGHPUT_BASELINE_SAMPLES = 3
         const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_EXPORT_BACKUP = 7005
