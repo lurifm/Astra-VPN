@@ -11,4 +11,8 @@
     <string name="network_security_entry">🔐  VPN and DNS status</string>
     <string name="widget_title">Astra VPN</string>
     <string name="widget_connect">Connect / disconnect</string>
+    <string name="widget_status_connected">Connected</string>
+    <string name="widget_status_connecting">Connecting…</string>
+    <string name="widget_status_disconnected">Disconnected</string>
+    <string name="widget_status_error">Connection error</string>
 </resources>
