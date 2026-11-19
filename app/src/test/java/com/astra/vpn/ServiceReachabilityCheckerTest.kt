@@ -10,8 +10,11 @@ class ServiceReachabilityCheckerTest {
         assertTrue(ServiceReachabilityChecker.Result("test", 302, 12L, null).reachable)
         assertTrue(ServiceReachabilityChecker.Result("test", 503, 12L, null).reachable)
         assertFalse(ServiceReachabilityChecker.Result("test", 503, 12L, null).serviceAvailable)
+        assertTrue(ServiceReachabilityChecker.Result("test", 503, 12L, null).display().contains("сервер ответил"))
+        assertFalse(ServiceReachabilityChecker.Result("test", 503, 12L, null).display().contains("доступен"))
         assertTrue(ServiceReachabilityChecker.Result("test", 403, 12L, null).reachable)
         assertFalse(ServiceReachabilityChecker.Result("test", 403, 12L, null).serviceAvailable)
+        assertTrue(ServiceReachabilityChecker.Result("test", 403, 12L, null).display().contains("сервер ответил"))
         assertFalse(ServiceReachabilityChecker.Result("test", null, null, "IOException").reachable)
     }
 

@@ -11,13 +11,10 @@ import java.util.concurrent.TimeUnit
 object ServiceReachabilityChecker {
     data class Target(val name: String, val url: String)
     data class Result(val name: String, val httpCode: Int?, val latencyMs: Long?, val error: String?) {
-        /** Any valid HTTP response proves the host and TLS endpoint were reached. */
-        val reachable: Boolean get() = httpCode in 100..599
-        /** HTTP success/redirect is distinct from basic network reachability. */
-        val serviceAvailable: Boolean get() = httpCode?.let(::isSuccessfulHttpCode) == true
+        val reachable: Boolean get() = httpCode?.let(::isSuccessfulHttpCode) == true
         fun display(): String = when {
-            serviceAvailable -> "$name: доступен · HTTP $httpCode · $latencyMs мс"
-            httpCode != null -> "$name: сервер ответил · HTTP $httpCode · $latencyMs мс"
+            reachable -> "$name: доступен · HTTP $httpCode · $latencyMs мс"
+            httpCode != null -> "$name: ответ HTTP $httpCode · $latencyMs мс"
             else -> "$name: ошибка соединения (${error ?: "неизвестная ошибка"})"
         }
     }
