@@ -87,6 +87,7 @@ class MainActivity : Activity() {
     private lateinit var connectionCard: LinearLayout
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
+    private var starPulseAnimator: android.animation.ValueAnimator? = null
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -3924,6 +3925,38 @@ class MainActivity : Activity() {
         cornerRadius = dp(radius).toFloat()
     }
 
+    /** A restrained breathing glow makes the connected star feel active without distracting. */
+    private fun startStarPulse() {
+        if (!::connectButton.isInitialized || starPulseAnimator?.isRunning == true) return
+        starPulseAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1_700L
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            addUpdateListener { animator ->
+                if (!::connectButton.isInitialized || connectionVisualState != "connected") {
+                    cancel()
+                    return@addUpdateListener
+                }
+                val progress = animator.animatedValue as Float
+                val scale = 1f + 0.025f * progress
+                connectButton.scaleX = scale
+                connectButton.scaleY = scale
+                connectButton.elevation = dp(10 + (3 * progress).toInt()).toFloat()
+            }
+            start()
+        }
+    }
+
+    private fun stopStarPulse() {
+        starPulseAnimator?.cancel()
+        starPulseAnimator = null
+        if (::connectButton.isInitialized) {
+            connectButton.scaleX = 1f
+            connectButton.scaleY = 1f
+            connectButton.elevation = dp(4).toFloat()
+        }
+    }
+
     /** Updates the hero card only when its connection state changes. */
     private fun updateConnectionCardAppearance(state: String) {
         if (connectionVisualState == state || !::connectionCard.isInitialized) return
@@ -3973,10 +4006,15 @@ class MainActivity : Activity() {
                 connectButton.scaleX = 0.94f
                 connectButton.scaleY = 0.94f
                 connectButton.animate().scaleX(1.07f).scaleY(1.07f).setDuration(220L)
-                    .withEndAction { connectButton.animate().scaleX(1f).scaleY(1f).setDuration(360L).start() }.start()
-            } else if (state == "disconnected") {
+                    .withEndAction {
+                        connectButton.animate().scaleX(1f).scaleY(1f).setDuration(360L)
+                            .withEndAction { startStarPulse() }
+                            .start()
+                    }.start()
+            } else {
+                stopStarPulse()
                 connectButton.animate().cancel()
-                connectButton.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
+                connectButton.animate().scaleX(1f).scaleY(1f).translationZ(0f).setDuration(180L).start()
             }
         }
         if (::connectionIndicator.isInitialized) {
@@ -4023,6 +4061,7 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun onDestroy() {
+        stopStarPulse()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
