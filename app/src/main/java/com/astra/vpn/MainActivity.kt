@@ -204,6 +204,9 @@ class MainActivity : Activity() {
                     pendingFastestSelection = false
                     selectingFastest = false
                     tilePendingStart = false
+                    // Recover measurements that the service persisted before this error;
+                    // the Activity may have been recreated and missed earlier partial broadcasts.
+                    restorePendingLatencyResult()
                     urlTestProfileMap.values.forEach { profile ->
                         // A broken test engine/channel is not evidence that the proxy is offline.
                         // Keep unknown results neutral; the toast below explains the test failure.
