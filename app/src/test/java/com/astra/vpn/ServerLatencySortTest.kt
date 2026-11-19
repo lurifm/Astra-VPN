@@ -16,6 +16,17 @@ class ServerLatencySortTest {
     }
 
     @Test
+    fun zeroAndNegativeLatencyValuesAreTreatedAsUnavailable() {
+        val result = ServerLatencySort.sort(
+            profiles = listOf("negative", "slow", "zero", "fast"),
+            mode = "ping",
+            latencyMs = mapOf("negative" to -1L, "slow" to 180L, "zero" to 0L, "fast" to 42L),
+            favorites = setOf("negative", "zero")
+        )
+        assertEquals(listOf("fast", "slow", "negative", "zero"), result)
+    }
+
+    @Test
     fun favoritesOnlyBreakTiesAtSameMeasuredLatency() {
         val result = ServerLatencySort.sort(
             profiles = listOf("normal", "favorite", "slower"),

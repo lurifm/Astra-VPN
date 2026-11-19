@@ -15,7 +15,7 @@ object ServerLatencySort {
         locale: Locale = Locale.getDefault()
     ): List<String> = when (mode) {
         "ping" -> profiles.sortedWith(
-            compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }
+            compareBy<String> { latencyMs[it]?.takeIf { value -> value > 0L } ?: Long.MAX_VALUE }
                 .thenByDescending { it in favorites }
         )
         "alphabet" -> profiles.sortedBy { it.lowercase(locale) }
