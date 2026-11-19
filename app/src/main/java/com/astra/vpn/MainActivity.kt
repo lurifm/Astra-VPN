@@ -108,6 +108,7 @@ class MainActivity : Activity() {
     private var connecting = false
     private var receiverRegistered = false
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
+    private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private var refreshingSubscriptions = false
     private var sortMode = "original"
     private var subscriptionsExpanded = false
@@ -2399,6 +2400,7 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
+                if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
                 latencyMs.remove(profile)
@@ -2414,7 +2416,8 @@ class MainActivity : Activity() {
             val fastest = BestServerSelector.select(
                 profiles = urlTestProfileMap.values.toList(),
                 latencyMs = latencyMs,
-                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList())
+                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList()),
+                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList())
             )
             if (fastest != null) {
                 selectedProfile = fastest
@@ -2820,7 +2823,8 @@ class MainActivity : Activity() {
         val alternate = BestServerSelector.select(
             profiles = profiles.filterNot { it == current },
             latencyMs = latencyMs,
-            recentFailures = recentServerFailureCounts(profiles.filterNot { it == current })
+            recentFailures = recentServerFailureCounts(profiles.filterNot { it == current }),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current })
         ) ?: run {
             renderProfiles()
             return
@@ -3914,6 +3918,14 @@ class MainActivity : Activity() {
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
         refreshSubscriptions(showResult = false)
+    }
+
+    private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
+        val now = System.currentTimeMillis()
+        return profiles.mapNotNull { profile ->
+            val penalty = LatencyStabilityScorer.penaltyMs(latencyHistory.samples(profile, now), now)
+            if (penalty > 0L) profile to penalty else null
+        }.toMap()
     }
 
     private fun recentServerFailureCounts(profiles: List<String>): Map<String, Int> {

@@ -13,7 +13,8 @@ internal object BestServerSelector {
     fun select(
         profiles: List<String>,
         latencyMs: Map<String, Long>,
-        recentFailures: Map<String, Int> = emptyMap()
+        recentFailures: Map<String, Int> = emptyMap(),
+        latencyStabilityPenaltyMs: Map<String, Long> = emptyMap()
     ): String? {
         return profiles.asSequence()
             .mapNotNull { profile ->
@@ -28,7 +29,9 @@ internal object BestServerSelector {
                 val failures = recentFailures[profile]?.coerceAtLeast(0) ?: 0
                 val stabilityPenalty = (failures.toLong() * FAILURE_PENALTY_MS)
                     .coerceAtMost(MAX_FAILURE_PENALTY_MS)
-                val score = addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty)
+                val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
+                    .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
+                val score = addPenalty(addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty), jitterPenalty)
                 Triple(profile, latency, score)
             }
             .minWithOrNull(compareBy<Triple<String, Long, Long>> { it.third }.thenBy { it.second })
