@@ -110,6 +110,7 @@ class MainActivity : Activity() {
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private var refreshingSubscriptions = false
+    private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
     private var subscriptionsExpanded = false
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
@@ -2226,6 +2227,196 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun handleBackupExportResult(uri: Uri?) {
+        val bytes = pendingBackupBytes
+        pendingBackupBytes = null
+        if (uri == null || bytes == null) {
+            bytes?.fill(0)
+            return
+        }
+        importExecutor.execute {
+            val result = runCatching {
+                contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
+                    ?: error("Не удалось открыть файл для записи")
+            }
+            bytes.fill(0)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess {
+                    Toast.makeText(this, "Зашифрованная резервная копия сохранена", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Не удалось сохранить копию")
+                        .setMessage("Проверь доступ к выбранному месту и свободное пространство.")
+                        .setPositiveButton("ОК", null).show()
+                }
+            }
+        }
+    }
+
+    private fun handleBackupImportFile(uri: Uri?) {
+        if (uri == null) return
+        importExecutor.execute {
+            val result = runCatching {
+                val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                    val output = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= EncryptedBackupCodec.MAX_PLAINTEXT_BYTES + 128) {
+                            "Файл резервной копии слишком большой"
+                        }
+                        output.write(buffer, 0, count)
+                    }
+                    output.toByteArray()
+                } ?: error("Не удалось открыть файл резервной копии")
+                require(bytes.isNotEmpty()) { "Файл резервной копии пуст" }
+                bytes
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { bytes -> showBackupPasswordDialog(forExport = false, backupBytes = bytes) }
+                    .onFailure { error ->
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Не удалось прочитать копию")
+                            .setMessage(error.message ?: "Проверь выбранный файл.")
+                            .setPositiveButton("ОК", null).show()
+                    }
+            }
+        }
+    }
+
+    private fun showBackupPasswordDialog(forExport: Boolean, backupBytes: ByteArray? = null) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+        }
+        val passwordInput = EditText(this).apply {
+            hint = "Пароль (не менее 12 символов)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+        }
+        panel.addView(passwordInput, matchWidth())
+        val confirmationInput = if (forExport) EditText(this).apply {
+            hint = "Повтори пароль"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+        } else null
+        confirmationInput?.let { panel.addView(it, matchWidth()) }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (forExport) "Защитить резервную копию" else "Открыть резервную копию")
+            .setMessage(
+                if (forExport) "Придумай пароль от 12 символов. Он понадобится при восстановлении на любом устройстве. Astra не сохраняет и не отправляет пароль."
+                else "Введи пароль, которым была защищена копия. Без него восстановить профили невозможно."
+            )
+            .setView(panel)
+            .setPositiveButton(if (forExport) "Продолжить" else "Расшифровать", null)
+            .setNegativeButton("Отмена") { _, _ -> backupBytes?.fill(0) }
+            .show()
+            .also { dialog ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val password = passwordInput.text.toString()
+                    if (password.length !in 12..256) {
+                        passwordInput.error = "Нужно от 12 до 256 символов"
+                        return@setOnClickListener
+                    }
+                    if (forExport && confirmationInput?.text?.toString() != password) {
+                        confirmationInput?.error = "Пароли не совпадают"
+                        return@setOnClickListener
+                    }
+                    val passwordChars = password.toCharArray()
+                    passwordInput.text?.clear()
+                    confirmationInput?.text?.clear()
+                    dialog.dismiss()
+                    if (forExport) {
+                        importExecutor.execute {
+                            val result = runCatching {
+                                val payload = profileStore.exportBackupPayload()
+                                try {
+                                    EncryptedBackupCodec.encrypt(payload, passwordChars)
+                                } finally {
+                                    payload.fill(0)
+                                }
+                            }
+                            passwordChars.fill('\u0000')
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
+                                result.onSuccess { encrypted ->
+                                    pendingBackupBytes?.fill(0)
+                                    pendingBackupBytes = encrypted
+                                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "application/octet-stream"
+                                        putExtra(Intent.EXTRA_TITLE, "Astra-VPN-backup.astrabak")
+                                    }
+                                    runCatching { startActivityForResult(intent, REQUEST_EXPORT_BACKUP) }
+                                        .onFailure {
+                                            pendingBackupBytes?.fill(0)
+                                            pendingBackupBytes = null
+                                            Toast.makeText(this, "Не удалось открыть сохранение файла", Toast.LENGTH_LONG).show()
+                                        }
+                                }.onFailure { error ->
+                                    MaterialAlertDialogBuilder(this)
+                                        .setTitle("Не удалось создать копию")
+                                        .setMessage(error.message ?: "Проверь сохранённые профили.")
+                                        .setPositiveButton("ОК", null).show()
+                                }
+                            }
+                        }
+                    } else {
+                        val encrypted = backupBytes ?: return@setOnClickListener
+                        importExecutor.execute {
+                            val result = runCatching {
+                                val payload = EncryptedBackupCodec.decrypt(encrypted, passwordChars)
+                                try {
+                                    profileStore.restoreBackupPayload(payload)
+                                } finally {
+                                    payload.fill(0)
+                                }
+                            }
+                            passwordChars.fill('\u0000')
+                            encrypted.fill(0)
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
+                                result.onSuccess { count ->
+                                    renderProfiles()
+                                    checkAllLatencies()
+                                    Toast.makeText(this, "Восстановлено серверов: $count", Toast.LENGTH_LONG).show()
+                                }.onFailure { error ->
+                                    MaterialAlertDialogBuilder(this)
+                                        .setTitle("Не удалось восстановить копию")
+                                        .setMessage(error.message ?: "Неверный пароль или повреждённый файл.")
+                                        .setPositiveButton("ОК", null).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
+    private fun startBackupImport() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, "Выбери резервную копию Astra")
+        }
+        runCatching { startActivityForResult(intent, REQUEST_IMPORT_BACKUP) }
+            .onFailure { Toast.makeText(this, "Не удалось открыть выбор файла", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun startBackupExport() {
+        showBackupPasswordDialog(forExport = true)
+    }
+
     @Deprecated("Deprecated in Android API, retained for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -2238,6 +2429,10 @@ class MainActivity : Activity() {
                 renderProfiles()
                 updateProtectionLabels()
             }
+        } else if (requestCode == REQUEST_EXPORT_BACKUP) {
+            handleBackupExportResult(if (resultCode == RESULT_OK) data?.data else null)
+        } else if (requestCode == REQUEST_IMPORT_BACKUP && resultCode == RESULT_OK) {
+            handleBackupImportFile(data?.data)
         } else if (requestCode == REQUEST_IMPORT_FILE && resultCode == RESULT_OK) {
             val uris = buildList {
                 data?.clipData?.let { clip ->
@@ -3568,6 +3763,28 @@ class MainActivity : Activity() {
         }
         panel.addView(appRoutingEntry)
 
+        addSectionLabel("✦  РЕЗЕРВНАЯ КОПИЯ")
+        val backupExportEntry = TextView(this).apply {
+            text = "📤  Экспортировать серверы и подписки"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { startBackupExport() }
+        }
+        panel.addView(backupExportEntry)
+        val backupImportEntry = TextView(this).apply {
+            text = "📥  Восстановить из резервной копии"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { startBackupImport() }
+        }
+        panel.addView(backupImportEntry)
+
         addSectionLabel("✦  ЗАЩИТА СОЕДИНЕНИЯ")
         val lockdownEntry = TextView(this).apply {
             text = "🛡️  Системная блокировка без VPN"
@@ -4116,6 +4333,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         stopStarPulse()
+        pendingBackupBytes?.fill(0)
+        pendingBackupBytes = null
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
@@ -4135,6 +4354,8 @@ class MainActivity : Activity() {
     companion object {
         const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
+        private const val REQUEST_EXPORT_BACKUP = 7005
+        private const val REQUEST_IMPORT_BACKUP = 7006
         private const val REQUEST_VPN_PERMISSION = 7001
         private const val REQUEST_NOTIFICATION_PERMISSION = 7002
         private const val REQUEST_PHONE_STATE_PERMISSION = 7003
