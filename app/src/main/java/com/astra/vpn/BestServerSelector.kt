@@ -1,21 +1,26 @@
 package com.astra.vpn
 
 /**
- * Selects reachable servers using measured latency and recent recorded failures.
- * Historical penalties are capped and deliberately small; live latency remains
- * the dominant signal. The protocol preference is only a tie-breaker.
+ * Selects reachable servers using measured latency, throughput and recent
+ * stability history. Latency remains dominant; throughput is a bounded
+ * secondary signal so a much slower ping cannot win on bandwidth alone.
  */
 internal object BestServerSelector {
     private const val UDP_PREFERENCE_MS = 12L
     private const val FAILURE_PENALTY_MS = 18L
     private const val MAX_FAILURE_PENALTY_MS = 90L
+    private const val MAX_THROUGHPUT_PENALTY_MS = 40L
 
     fun select(
         profiles: List<String>,
         latencyMs: Map<String, Long>,
         recentFailures: Map<String, Int> = emptyMap(),
-        latencyStabilityPenaltyMs: Map<String, Long> = emptyMap()
+        latencyStabilityPenaltyMs: Map<String, Long> = emptyMap(),
+        throughputMbps: Map<String, Double> = emptyMap()
     ): String? {
+        val fastestSpeed = throughputMbps.values
+            .filter { it.isFinite() && it > 0.0 }
+            .maxOrNull()
         return profiles.asSequence()
             .mapNotNull { profile ->
                 val latency = latencyMs[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
@@ -31,7 +36,16 @@ internal object BestServerSelector {
                     .coerceAtMost(MAX_FAILURE_PENALTY_MS)
                 val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
                     .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
-                val score = addPenalty(addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty), jitterPenalty)
+                val speed = throughputMbps[profile]?.takeIf { it.isFinite() && it > 0.0 }
+                val speedPenalty = if (speed != null && fastestSpeed != null && fastestSpeed > 0.0) {
+                    (((fastestSpeed - speed) / fastestSpeed) * MAX_THROUGHPUT_PENALTY_MS)
+                        .toLong()
+                        .coerceIn(0L, MAX_THROUGHPUT_PENALTY_MS)
+                } else 0L
+                val score = addPenalty(
+                    addPenalty(addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty), jitterPenalty),
+                    speedPenalty
+                )
                 Triple(profile, latency, score)
             }
             .minWithOrNull(compareBy<Triple<String, Long, Long>> { it.third }.thenBy { it.second })
