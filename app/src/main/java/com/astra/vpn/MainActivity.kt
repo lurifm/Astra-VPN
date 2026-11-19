@@ -2310,6 +2310,7 @@ class MainActivity : Activity() {
         if (profiles == null) {
             pendingFastestSelection = false
             selectingFastest = false
+            tilePendingStart = false
             return
         }
         if (latencyTestInFlight) {
@@ -2323,6 +2324,7 @@ class MainActivity : Activity() {
         if (profiles.isEmpty()) {
             pendingFastestSelection = false
             selectingFastest = false
+            tilePendingStart = false
             renderProfiles()
             return
         }
@@ -2366,6 +2368,7 @@ class MainActivity : Activity() {
                         latencyTestInFlight = false
                         pendingFastestSelection = false
                         selectingFastest = false
+                        tilePendingStart = false
                         profiles.forEach { profile ->
                             latencyMs.remove(profile)
                             pingInfo[profile] = "н/д"
@@ -2377,6 +2380,7 @@ class MainActivity : Activity() {
                     latencyTestInFlight = false
                     pendingFastestSelection = false
                     selectingFastest = false
+                    tilePendingStart = false
                     profiles.forEach { profile ->
                         latencyMs.remove(profile)
                         pingInfo[profile] = "н/д"
