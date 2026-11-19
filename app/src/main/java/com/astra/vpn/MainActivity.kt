@@ -4053,29 +4053,41 @@ class MainActivity : Activity() {
 
         addSectionLabel("✦  УМНЫЙ ВЫБОР СЕРВЕРА")
         fun addTimeProtocolPreference(label: String, window: TimeOfDayServerPolicy.Window) {
-            val key = "time_protocol_${window.name}"
-            val options = arrayOf("Без предпочтения", "VLESS", "Hysteria2", "TUIC")
-            val protocols = arrayOf("", "vless", "hysteria2", "tuic")
+            val options = arrayOf("VLESS", "Hysteria2", "TUIC")
+            val protocols = arrayOf("vless", "hysteria2", "tuic")
             val row = TextView(this).apply {
                 textSize = 13f
                 setTextColor(LIGHT_ACCENT)
                 setPadding(dp(8), dp(10), dp(8), dp(10))
                 background = rounded(0xFF172238.toInt(), 12)
+                fun selectedProtocols(): Set<String> =
+                    timeProtocolPreferences()[window].orEmpty()
                 fun refresh() {
-                    val current = settingsPrefs.getString(key, "").orEmpty()
-                    val name = options[protocols.indexOf(current).takeIf { it >= 0 } ?: 0]
-                    text = "$label · $name"
+                    val selected = selectedProtocols()
+                    val names = protocols.mapIndexedNotNull { index, protocol ->
+                        options[index].takeIf { protocol in selected }
+                    }
+                    text = "$label · " + names.joinToString(", ").ifBlank { "Без предпочтения" }
                 }
                 refresh()
                 setOnClickListener {
-                    val current = settingsPrefs.getString(key, "").orEmpty()
-                    val selected = protocols.indexOf(current).coerceAtLeast(0)
+                    val current = selectedProtocols()
+                    val checked = BooleanArray(protocols.size) { protocols[it] in current }
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(label)
-                        .setSingleChoiceItems(options, selected) { dialog, which ->
-                            settingsPrefs.edit().putString(key, protocols[which]).apply()
+                        .setMultiChoiceItems(options, checked) { _, which, isChecked ->
+                            checked[which] = isChecked
+                        }
+                        .setPositiveButton("Сохранить") { _, _ ->
+                            val updated = timeProtocolPreferences().toMutableMap()
+                            val selected = protocols.indices
+                                .filter { checked[it] }
+                                .map { protocols[it] }
+                                .toSet()
+                            if (selected.isEmpty()) updated.remove(window)
+                            else updated[window] = selected
+                            TimeOfDayProtocolPreferences.save(settingsPrefs, updated)
                             refresh()
-                            dialog.dismiss()
                         }
                         .setNegativeButton("Отмена", null)
                         .show()
@@ -4687,12 +4699,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun timeProtocolPreferences(): Map<TimeOfDayServerPolicy.Window, Set<String>> =
-        TimeOfDayServerPolicy.Window.values().mapNotNull { window ->
+    private fun timeProtocolPreferences(): Map<TimeOfDayServerPolicy.Window, Set<String>> {
+        val stored = TimeOfDayProtocolPreferences.load(settingsPrefs)
+        if (stored.isNotEmpty()) return stored
+
+        // Migrate the earlier single-choice settings format without losing a
+        // user's existing selection when upgrading to multi-protocol storage.
+        val legacy = TimeOfDayServerPolicy.Window.values().mapNotNull { window ->
             settingsPrefs.getString("time_protocol_${window.name}", null)
-                ?.takeIf { it.isNotBlank() }
-                ?.let { window to setOf(it.lowercase(java.util.Locale.ROOT)) }
+                ?.let(TimeOfDayProtocolPreferences::normalizeProtocol)
+                ?.let { window to setOf(it) }
         }.toMap()
+        if (legacy.isNotEmpty()) TimeOfDayProtocolPreferences.save(settingsPrefs, legacy)
+        return legacy
+    }
 
     private fun throughputScores(profiles: List<String>): Map<String, Double> {
         val now = System.currentTimeMillis()
