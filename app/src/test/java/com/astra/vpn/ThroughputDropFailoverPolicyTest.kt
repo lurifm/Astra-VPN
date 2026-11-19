@@ -7,7 +7,8 @@ import org.junit.Test
 class ThroughputDropFailoverPolicyTest {
     @Test fun requiresFiftyPercentDropForTenSeconds() {
         val p = ThroughputDropFailoverPolicy()
-        assertFalse(p.shouldFailover(100.0, 60.0, 1_000L))
+        assertFalse(p.shouldFailover(100.0, 60.0, 500L))
+        assertFalse(p.shouldFailover(100.0, 50.0, 1_000L))
         assertFalse(p.shouldFailover(100.0, 50.0, 10_999L))
         assertTrue(p.shouldFailover(100.0, 49.0, 11_000L))
     }
