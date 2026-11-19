@@ -3747,14 +3747,17 @@ class MainActivity : Activity() {
             diagnosticsProbeTaskToken = requestToken
             diagnosticsProbeTask = diagnosticsProbeExecutor.submit {
                 val results = ServiceReachabilityChecker.checkAll(network)
+                if (Thread.currentThread().isInterrupted || !diagnosticsRequestGuard.isCurrent(requestToken)) return@submit
                 val securityAudit = active?.let { profile ->
                     runCatching {
                         TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile, AstraNetworkPreferences.load(this@MainActivity)))
                     }.getOrNull()
                 }
+                if (Thread.currentThread().isInterrupted || !diagnosticsRequestGuard.isCurrent(requestToken)) return@submit
                 val dnsResolutionOk = runCatching {
                     network.getAllByName("example.com").isNotEmpty()
                 }.getOrDefault(false)
+                if (Thread.currentThread().isInterrupted || !diagnosticsRequestGuard.isCurrent(requestToken)) return@submit
                 val ipv6Reachable = runCatching {
                     val connection = network.openConnection(URL("https://api64.ipify.org")) as HttpsURLConnection
                     try {
@@ -3767,6 +3770,7 @@ class MainActivity : Activity() {
                         connection.disconnect()
                     }
                 }.getOrDefault(false)
+                if (Thread.currentThread().isInterrupted || !diagnosticsRequestGuard.isCurrent(requestToken)) return@submit
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !dialog.isShowing ||
                         !diagnosticsRequestGuard.isCurrent(requestToken) ||
