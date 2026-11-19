@@ -31,6 +31,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val stopped = AtomicBoolean(false)
+    // Startup is asynchronous; server may still be null when a duplicate START arrives.
+    private val startAccepted = AtomicBoolean(false)
     @Volatile private var server: CommandServer? = null
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
@@ -44,7 +46,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             finish()
             return START_NOT_STICKY
         }
-        if (server != null) return START_NOT_STICKY
+        if (!startAccepted.compareAndSet(false, true)) return START_NOT_STICKY
         sessionId = intent?.getStringExtra(EXTRA_SESSION)
 
         val config = intent?.getStringExtra(EXTRA_CONFIG)
