@@ -2858,13 +2858,10 @@ class MainActivity : Activity() {
             monitorPortalSignIn.visibility = View.GONE
             return
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            runCatching { connectivity.startCaptivePortalApp(network) }
-                .onFailure { Toast.makeText(this, "Android не смог открыть страницу авторизации", Toast.LENGTH_LONG).show() }
-        } else {
-            runCatching { startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
-                .onFailure { Toast.makeText(this, "Открой настройки Wi-Fi и заверши авторизацию", Toast.LENGTH_LONG).show() }
-        }
+        // Use only public SDK APIs: open Wi-Fi settings and let Android/OEM
+        // surface its captive-portal sign-in notification or app.
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
+            .onFailure { Toast.makeText(this, "Открой настройки Wi-Fi и заверши авторизацию", Toast.LENGTH_LONG).show() }
     }
 
     private fun updateNetworkLabel() {
