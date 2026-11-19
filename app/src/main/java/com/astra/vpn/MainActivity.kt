@@ -3194,7 +3194,7 @@ class MainActivity : Activity() {
     }
 
     private fun maybeAutoFailover() {
-        if (!connected || connecting || selectingFastest) return
+        if (!AutoFailoverPolicy.canAttempt(connected, connecting, selectingFastest, throughputFailoverInProgress)) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
