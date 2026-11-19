@@ -41,9 +41,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val connectivity = getSystemService(ConnectivityManager::class.java)
             val network = connectivity.activeNetwork
             val capabilities = network?.let(connectivity::getNetworkCapabilities)
-            if (network != null && capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
-                healthProbeInFlight.compareAndSet(false, true)
-            ) {
+            synchronized(lifecycleLock) {
+                val isVpnNetwork = network != null &&
+                    capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                if (HealthMonitorLifecyclePolicy.shouldStartProbe(
+                        stopping, tunDescriptor != null, isVpnNetwork, healthProbeInFlight.get()
+                    ) && healthProbeInFlight.compareAndSet(false, true)
+                ) {
                 val generation = healthProbeGeneration.incrementAndGet()
                 val task = FutureTask<Unit> {
                     try {
@@ -76,6 +80,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                             healthProbeInFlight.set(false)
                         }
                     }
+                }
             }
             synchronized(lifecycleLock) {
                 if (HealthMonitorLifecyclePolicy.shouldScheduleTick(stopping, tunDescriptor != null)) {
