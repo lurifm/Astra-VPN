@@ -195,9 +195,9 @@ class MainActivity : Activity() {
                     pendingFastestSelection = false
                     selectingFastest = false
                     urlTestProfileMap.values.forEach { profile ->
-                        // Keep successful partial measurements if the isolated test
-                        // service fails later; only unmeasured nodes are unavailable.
-                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+                        // A broken test engine/channel is not evidence that the proxy is offline.
+                        // Preserve successful measurements and label only unknown results as a test error.
+                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "ошибка проверки"
                     }
                     val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR)
                         ?: "Проверка прервана. Сохранены уже полученные результаты."
@@ -2785,8 +2785,9 @@ class MainActivity : Activity() {
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
+                // A failed URL-test means "no measurement", not proof that the server is dead.
                 latencyMs.remove(profile)
-                pingInfo[profile] = "н/д"
+                pingInfo[profile] = "нет ответа на тест"
             }
         }
         // URL-test broadcasts partial snapshots as individual nodes finish.
@@ -2817,7 +2818,7 @@ class MainActivity : Activity() {
                 }
             } else {
                 tilePendingStart = false
-                Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Не удалось получить результаты проверки. Это не означает, что серверы не работают.", Toast.LENGTH_LONG).show()
             }
         }
         // Coalesce bursts of partial latency results into one list rebuild.
