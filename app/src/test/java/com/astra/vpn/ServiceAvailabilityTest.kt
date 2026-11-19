@@ -18,7 +18,7 @@ class ServiceAvailabilityTest {
 
     @Test fun summarizesMixedAndUnknownServiceResults() {
         assertEquals(
-            "Частично доступно: Telegram",
+            "Недоступно: Telegram",
             ServiceAvailability.summary(
                 mapOf(
                     "YouTube" to ServiceAvailability.State.AVAILABLE,
