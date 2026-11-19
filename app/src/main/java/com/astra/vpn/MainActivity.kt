@@ -184,7 +184,10 @@ class MainActivity : Activity() {
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
             scheduleTunnelThroughputProbe()
-            monitorHandler.postDelayed(this, 1000L)
+            val powerSave = runCatching {
+                getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+            }.getOrDefault(false)
+            monitorHandler.postDelayed(this, BatteryAwarePollingPolicy.interval(powerSave))
         }
     }
 
@@ -1985,6 +1988,21 @@ class MainActivity : Activity() {
             }
             details.addView(protocolText)
             details.addView(meta)
+            val stabilitySamples = latencyHistory.samples(link).map { it.latencyMs } + listOfNotNull(latencyMs[link])
+            val stability = if (stabilitySamples.size >= 3) ServerStabilityRating.score(stabilitySamples) else null
+            if (stability != null) {
+                details.addView(TextView(this).apply {
+                    text = "Стабильность: $stability/100"
+                    textSize = 10f
+                    setTextColor(when {
+                        stability >= 80 -> GREEN
+                        stability >= 55 -> AMBER
+                        else -> RED
+                    })
+                    contentDescription = "Оценка стабильности сервера: $stability из 100, по последним измерениям задержки"
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }
             val favoriteButton = TextView(this).apply {
                 text = if (link in favorites) "★" else "☆"
                 textSize = 22f
@@ -2818,6 +2836,20 @@ class MainActivity : Activity() {
         lastNetworkLabelAt = now
         val caps = underlyingNetworkCapabilities()
         val telephony = getSystemService(TelephonyManager::class.java)
+        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true) {
+            monitorNetwork.text = "Сеть: требуется вход через браузер (captive portal)"
+            monitorOperator.text = "Оператор: —"
+            return
+        }
+        val portalState = CaptivePortalState.from(
+            hasNetwork = caps != null,
+            captivePortal = false,
+            internet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+            validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        )
+        if (portalState == CaptivePortalState.NO_INTERNET) {
+            monitorNetwork.text = "Сеть подключена, но интернет не подтверждён"
+        }
         when {
             caps == null -> {
                 monitorNetwork.text = "Сеть: не определена"
@@ -2879,9 +2911,21 @@ class MainActivity : Activity() {
             .putLong("uploaded", totals.uploadedBytes)
             .putString("week", dailyTrafficHistory.encode())
             .apply()
+        val nowCalendar = java.util.Calendar.getInstance()
+        val startOfDay = (nowCalendar.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val forecast = TrafficForecast.projectedDailyBytes(
+            consumedBytes = totals.downloadedBytes + totals.uploadedBytes,
+            elapsedDayMs = (System.currentTimeMillis() - startOfDay).coerceAtLeast(1L)
+        )
         monitorDailyTraffic.text = "Сегодня*  ↓ " +
             DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
-            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes) +
+            (forecast?.let { "\nПрогноз за сутки: ${DailyTrafficAccumulator.formatBytes(it)}" } ?: "")
         val weekly = dailyTrafficHistory.total()
         monitorWeeklyTraffic.text = "За 7 дней*  ↓ " +
             DailyTrafficAccumulator.formatBytes(weekly.downloadedBytes) +
