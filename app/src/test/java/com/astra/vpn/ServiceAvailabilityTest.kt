@@ -15,4 +15,18 @@ class ServiceAvailabilityTest {
     fun rejectsImpossibleProbeCounts() {
         ServiceAvailability.Probe(3, 2)
     }
+
+    @Test fun summarizesMixedAndUnknownServiceResults() {
+        assertEquals(
+            "Частично доступно: Telegram",
+            ServiceAvailability.summary(
+                mapOf(
+                    "YouTube" to ServiceAvailability.State.AVAILABLE,
+                    "Telegram" to ServiceAvailability.State.UNAVAILABLE,
+                    "ChatGPT" to ServiceAvailability.State.UNKNOWN
+                )
+            )
+        )
+        assertEquals("Нет данных", ServiceAvailability.summary(mapOf("YouTube" to ServiceAvailability.State.UNKNOWN)))
+    }
 }
