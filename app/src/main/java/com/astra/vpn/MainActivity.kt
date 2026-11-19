@@ -91,6 +91,7 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val latencyObservedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
@@ -111,6 +112,7 @@ class MainActivity : Activity() {
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
     private val throughputMbps = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val throughputObservedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val throughputMonitorExecutor = Executors.newSingleThreadExecutor()
     private val throughputProbeInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val throughputDropPolicy = ThroughputDropFailoverPolicy()
@@ -2675,10 +2677,12 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
+                latencyObservedAt[profile] = System.currentTimeMillis()
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
                 latencyMs.remove(profile)
+                latencyObservedAt.remove(profile)
                 pingInfo[profile] = "н/д"
             }
         }
@@ -3120,7 +3124,12 @@ class MainActivity : Activity() {
             latencyMs = latencyMs,
             recentFailures = recentServerFailureCounts(alternatives),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(alternatives),
-            throughputMbps = throughputScores(alternatives)
+            throughputMbps = throughputScores(alternatives),
+            latencyTimestamps = latencyObservedAt,
+            throughputTimestamps = throughputObservedAt,
+            nowMs = System.currentTimeMillis(),
+            localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+            preferredProtocols = timeProtocolPreferences()
         )
         if (alternate == null) {
             Toast.makeText(this, "Скорость упала, но резервного сервера нет", Toast.LENGTH_LONG).show()
@@ -4019,6 +4028,49 @@ class MainActivity : Activity() {
         }
         panel.addView(shareProfileEntry)
 
+        addSectionLabel("✦  УМНЫЙ ВЫБОР СЕРВЕРА")
+        fun addTimeProtocolPreference(label: String, window: TimeOfDayServerPolicy.Window) {
+            val key = "time_protocol_${window.name}"
+            val options = arrayOf("Без предпочтения", "VLESS", "Hysteria2", "TUIC")
+            val protocols = arrayOf("", "vless", "hysteria2", "tuic")
+            val row = TextView(this).apply {
+                textSize = 13f
+                setTextColor(LIGHT_ACCENT)
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+                background = rounded(0xFF172238.toInt(), 12)
+                fun refresh() {
+                    val current = settingsPrefs.getString(key, "").orEmpty()
+                    val name = options[protocols.indexOf(current).takeIf { it >= 0 } ?: 0]
+                    text = "$label · $name"
+                }
+                refresh()
+                setOnClickListener {
+                    val current = settingsPrefs.getString(key, "").orEmpty()
+                    val selected = protocols.indexOf(current).coerceAtLeast(0)
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(label)
+                        .setSingleChoiceItems(options, selected) { dialog, which ->
+                            settingsPrefs.edit().putString(key, protocols[which]).apply()
+                            refresh()
+                            dialog.dismiss()
+                        }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            }
+            panel.addView(row)
+        }
+        addTimeProtocolPreference("Утро (06–10)", TimeOfDayServerPolicy.Window.MORNING)
+        addTimeProtocolPreference("День (11–16)", TimeOfDayServerPolicy.Window.DAY)
+        addTimeProtocolPreference("Вечер (17–22)", TimeOfDayServerPolicy.Window.EVENING)
+        addTimeProtocolPreference("Ночь (23–05)", TimeOfDayServerPolicy.Window.NIGHT)
+        panel.addView(TextView(this).apply {
+            text = "Предпочтение протокола даёт небольшой бонус при близком ping и не перебивает заметно более быстрый сервер."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(2), dp(4), dp(8))
+        })
+
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
             text = "📶  Мониторинг сети"
@@ -4566,6 +4618,7 @@ class MainActivity : Activity() {
             val speed = values.optDouble(tag, Double.NaN)
             if (!speed.isFinite() || speed <= 0.0) return@forEach
             throughputMbps[profile] = speed
+            throughputObservedAt[profile] = System.currentTimeMillis()
             if (finished) throughputHistory.record(profile, speed)
         }
         if (finished) {
@@ -4588,7 +4641,12 @@ class MainActivity : Activity() {
             latencyMs = latencyMs,
             recentFailures = recentServerFailureCounts(profiles),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles),
-            throughputMbps = throughputScores(profiles)
+            throughputMbps = throughputScores(profiles),
+            latencyTimestamps = latencyObservedAt,
+            throughputTimestamps = throughputObservedAt,
+            nowMs = System.currentTimeMillis(),
+            localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+            preferredProtocols = timeProtocolPreferences()
         )
         if (fastest != null) {
             selectedProfile = fastest
@@ -4605,6 +4663,13 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
         }
     }
+
+    private fun timeProtocolPreferences(): Map<TimeOfDayServerPolicy.Window, Set<String>> =
+        TimeOfDayServerPolicy.Window.values().mapNotNull { window ->
+            settingsPrefs.getString("time_protocol_${window.name}", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { window to setOf(it.lowercase(java.util.Locale.ROOT)) }
+        }.toMap()
 
     private fun throughputScores(profiles: List<String>): Map<String, Double> {
         val now = System.currentTimeMillis()
