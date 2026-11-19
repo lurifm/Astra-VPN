@@ -29,7 +29,7 @@ internal object EncryptedBackupCodec {
     private const val MIN_PASSWORD_CHARS = 12
     private const val MAX_PASSWORD_CHARS = 256
     const val MAX_PLAINTEXT_BYTES = 4 * 1024 * 1024
-    private const val HEADER_BYTES = 9 + SALT_BYTES + IV_BYTES
+    private const val HEADER_BYTES = 9 + 1 + SALT_BYTES + IV_BYTES
     private const val GCM_TAG_BYTES = TAG_BITS / 8
     private val random = SecureRandom()
 
