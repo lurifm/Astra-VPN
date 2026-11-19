@@ -2,6 +2,7 @@ package com.astra.vpn
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ServiceReachabilityCheckerTest {
@@ -10,6 +11,15 @@ class ServiceReachabilityCheckerTest {
         assertTrue(ServiceReachabilityChecker.Result("test", 302, 12L, null).reachable)
         assertFalse(ServiceReachabilityChecker.Result("test", 503, 12L, null).reachable)
         assertFalse(ServiceReachabilityChecker.Result("test", null, null, "IOException").reachable)
+    }
+
+    @Test fun targetCatalogIsUniqueAndUsesHttps() {
+        assertEquals(3, ServiceReachabilityChecker.targets.size)
+        assertEquals(
+            ServiceReachabilityChecker.targets.size,
+            ServiceReachabilityChecker.targets.map { it.name }.toSet().size
+        )
+        assertTrue(ServiceReachabilityChecker.targets.all { it.url.startsWith("https://") })
     }
 
     @Test fun missingErrorUsesReadableFallback() {
