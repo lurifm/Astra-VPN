@@ -63,11 +63,11 @@
 
 ## Последняя интеграция
 
-- Основной коммит: `5559f4bb77ebf24ea57b2ab4b3cf4e50255e773b`.
-- В основную ветку объединены smart server scoring, failover guardrails, Quick Settings tile, статистика и улучшения UI.
-- GitHub Actions run #469: [открыть проверку](https://github.com/lurifm/Astra-VPN/actions/runs/44477056110).
-- В этой проверке unit-тесты завершились успешно; на момент последнего обновления выполнялась сборка debug APK. Артефакт `AstraVPN-debug` был опубликован, но итоговый статус всего workflow следует перепроверить перед релизом.
-- Предыдущая проверка PR-ветки завершилась успешно: [Android CI #468](https://github.com/lurifm/Astra-VPN/actions/runs/44388879891).
+- Последний основной коммит: `098211ead805914b1a1ac8279bc6ce6d50c4feb4`.
+- В `main` объединены smart server scoring, защита от частого failover, Quick Settings tile, статистика, пульсация звезды в подключённом состоянии и затухающая по давности оценка ошибок серверов.
+- GitHub Actions #474 для новой логики надёжности завершился успешно: [открыть проверку](https://github.com/lurifm/Astra-VPN/actions/runs/44477923554). Unit-тесты прошли, debug APK собран и проверен, артефакт `AstraVPN-debug` опубликован.
+- GitHub Actions #473 для предыдущего основного коммита также завершился успешно: [открыть проверку](https://github.com/lurifm/Astra-VPN/actions/runs/44477639347).
+- Проверки веток с документацией и анимацией завершились успешно: [#470](https://github.com/lurifm/Astra-VPN/actions/runs/44477360584) и [#471](https://github.com/lurifm/Astra-VPN/actions/runs/44477489374).
 
 ## Обязательные испытания перед пользовательским релизом
 
