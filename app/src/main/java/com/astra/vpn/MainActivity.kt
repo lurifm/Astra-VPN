@@ -3977,7 +3977,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 sheet.dismiss()
                 settingsPrefs.edit().putBoolean("onboarding_completed", false).apply()
-                root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding(force = true) }
+                window.decorView.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding(force = true) }
             }
         }
         panel.addView(onboardingEntry)
