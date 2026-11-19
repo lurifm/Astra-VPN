@@ -1852,7 +1852,7 @@ class MainActivity : Activity() {
                     } else if (connected && link != activeProfile) {
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this)) }.getOrElse {
+                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this@MainActivity)) }.getOrElse {
                             Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
@@ -2219,7 +2219,7 @@ class MainActivity : Activity() {
     private fun connectSelectedProfile() {
         if (connecting) return
         val link = selectedProfile ?: return
-        val config = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this)) }.getOrElse {
+        val config = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this@MainActivity)) }.getOrElse {
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
             MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
@@ -3638,7 +3638,7 @@ class MainActivity : Activity() {
                 val results = ServiceReachabilityChecker.checkAll(network)
                 val securityAudit = active?.let { profile ->
                     runCatching {
-                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile, AstraNetworkPreferences.load(this)))
+                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile, AstraNetworkPreferences.load(this@MainActivity)))
                     }.getOrNull()
                 }
                 val dnsResolutionOk = runCatching {
@@ -3882,7 +3882,7 @@ class MainActivity : Activity() {
         panel.addView(sortGroup)
         addSectionLabel("✦  МАРШРУТИЗАЦИЯ И СЕТЬ")
         val routingGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-        val networkPrefs = AstraNetworkPreferences.load(this)
+        val networkPrefs = AstraNetworkPreferences.load(this@MainActivity)
         listOf(
             AstraNetworkPreferences.RoutingPreset.ALL_VPN to "Весь трафик через VPN",
             AstraNetworkPreferences.RoutingPreset.LOCAL_DIRECT to "Российские домены напрямую, остальное через VPN"
