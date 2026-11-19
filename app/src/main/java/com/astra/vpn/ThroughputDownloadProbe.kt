@@ -11,7 +11,7 @@ import javax.net.ssl.HttpsURLConnection
  */
 internal object ThroughputDownloadProbe {
     const val ENDPOINT = "https://speed.cloudflare.com/__down"
-    const val DEFAULT_BYTES = 4L * 1024L * 1024L
+    const val DEFAULT_BYTES = 1L * 1024L * 1024L
     const val MIN_BYTES = ThroughputMeasurement.DEFAULT_MIN_BYTES
     const val MAX_BYTES = ThroughputMeasurement.DEFAULT_MAX_BYTES
     private const val CONNECT_TIMEOUT_MS = 5_000
