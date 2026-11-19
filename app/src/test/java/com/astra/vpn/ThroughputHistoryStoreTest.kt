@@ -1,20 +1,16 @@
 package com.astra.vpn
 
-import android.content.Context
 import android.content.SharedPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito
 
 class ThroughputHistoryStoreTest {
     @Test
     fun rejectsInvalidSamplesAndStoresValidHistoryWithoutRawProfileKey() {
-        val context = Mockito.mock(Context::class.java)
         val prefs = InMemoryPreferences()
-        Mockito.``when``(context.getSharedPreferences("astra_throughput_history", Context.MODE_PRIVATE)).thenReturn(prefs)
-        val store = ThroughputHistoryStore(context)
+        val store = ThroughputHistoryStore(prefs)
         val profile = "vless://secret@example.com:443?uuid=private"
 
         store.record(profile, Double.NaN, now = 10_000L)
@@ -27,11 +23,9 @@ class ThroughputHistoryStoreTest {
     }
 
     @Test
-    fun ignoresDuplicateTooSoonAndStaleSamples() {
-        val context = Mockito.mock(Context::class.java)
+    fun ignoresDuplicateTooSoonAndExpiresOldSamples() {
         val prefs = InMemoryPreferences()
-        Mockito.``when``(context.getSharedPreferences("astra_throughput_history", Context.MODE_PRIVATE)).thenReturn(prefs)
-        val store = ThroughputHistoryStore(context)
+        val store = ThroughputHistoryStore(prefs)
         val profile = "tuic://secret@example.org"
 
         store.record(profile, 20.0, now = 10_000L)
@@ -45,13 +39,13 @@ class ThroughputHistoryStoreTest {
     private class InMemoryPreferences : SharedPreferences {
         val values = linkedMapOf<String, String>()
         override fun getAll(): Map<String, *> = values
-        override fun getString(key: String?, defValue: String?): String? = values[key] ?: defValue
+        override fun getString(key: String?, defValue: String?): String? = key?.let { values[it] } ?: defValue
         override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? = defValues
         override fun getInt(key: String?, defValue: Int): Int = defValue
         override fun getLong(key: String?, defValue: Long): Long = defValue
         override fun getFloat(key: String?, defValue: Float): Float = defValue
         override fun getBoolean(key: String?, defValue: Boolean): Boolean = defValue
-        override fun contains(key: String?): Boolean = values.containsKey(key)
+        override fun contains(key: String?): Boolean = key != null && values.containsKey(key)
         override fun edit(): SharedPreferences.Editor = Editor(values)
         override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
         override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
@@ -59,7 +53,9 @@ class ThroughputHistoryStoreTest {
 
     private class Editor(private val values: MutableMap<String, String>) : SharedPreferences.Editor {
         private val pending = linkedMapOf<String, String>()
-        override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply { if (key != null && value != null) pending[key] = value }
+        override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply {
+            if (key != null && value != null) pending[key] = value
+        }
         override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = this
         override fun putInt(key: String?, value: Int): SharedPreferences.Editor = this
         override fun putLong(key: String?, value: Long): SharedPreferences.Editor = this
@@ -67,7 +63,7 @@ class ThroughputHistoryStoreTest {
         override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = this
         override fun remove(key: String?): SharedPreferences.Editor = apply { if (key != null) values.remove(key) }
         override fun clear(): SharedPreferences.Editor = apply { values.clear() }
-        override fun commit(): Boolean = apply { values.putAll(pending) }.let { true }
+        override fun commit(): Boolean { apply(); return true }
         override fun apply() { values.putAll(pending) }
     }
 }
