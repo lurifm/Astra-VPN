@@ -2,6 +2,9 @@ package com.astra.vpn
 
 import android.net.Network
 import java.net.URL
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.HttpsURLConnection
 
 /** End-to-end checks for popular services, routed through the supplied network. */
@@ -49,5 +52,32 @@ object ServiceReachabilityChecker {
         }
     }
 
-    fun checkAll(network: Network): List<Result> = targets.map { check(network, it) }
+    /**
+     * Run independent endpoints concurrently so a slow/unreachable service
+     * does not make the diagnostics screen wait through three serial timeouts.
+     * Each connection still has bounded connect/read timeouts; the batch also
+     * has a global deadline and returns an explicit timeout result if needed.
+     */
+    fun checkAll(network: Network): List<Result> {
+        if (targets.isEmpty()) return emptyList()
+        val executor = Executors.newFixedThreadPool(targets.size.coerceAtMost(3))
+        return try {
+            val tasks = targets.map { target -> Callable { check(network, target) } }
+            val futures = executor.invokeAll(tasks, 6, TimeUnit.SECONDS)
+            futures.mapIndexed { index, future ->
+                if (future.isCancelled) {
+                    Result(targets[index].name, null, null, "TimeoutException")
+                } else {
+                    runCatching { future.get() }.getOrElse {
+                        Result(targets[index].name, null, null, it.javaClass.simpleName)
+                    }
+                }
+            }
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            targets.map { Result(it.name, null, null, "InterruptedException") }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 }
