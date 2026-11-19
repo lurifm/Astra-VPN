@@ -19,8 +19,11 @@ internal object TimeOfDayServerPolicy {
         hour: Int,
         preferredProtocols: Map<Window, Set<String>>
     ): Int {
-        val protocol = profile.substringBefore("://").lowercase()
-        return if (protocol in preferredProtocols[window(hour)].orEmpty()) 8 else 0
+        val protocol = profile.substringBefore("://").lowercase(java.util.Locale.ROOT)
+            .let { if (it == "hy2") "hysteria2" else it }
+        val configured = preferredProtocols[window(hour)].orEmpty()
+            .map { it.lowercase(java.util.Locale.ROOT).let { value -> if (value == "hy2") "hysteria2" else value } }
+        return if (protocol in configured) 8 else 0
     }
 
     fun localHour(now: Long, timeZone: TimeZone = TimeZone.getDefault()): Int =
