@@ -29,8 +29,8 @@ internal object AstraServiceChecks {
             val results = endpoints.map { (name, endpoint) ->
                 val started = System.nanoTime()
                 val ok = runCatching {
-                    val connection = (network?.openConnection(URL(endpoint))
-                        ?: URL(endpoint).openConnection()) as HttpURLConnection
+                    val activeNetwork = network ?: throw IllegalStateException("Нет активной сети для проверки")
+                    val connection = activeNetwork.openConnection(URL(endpoint)) as HttpURLConnection
                     connection.connectTimeout = 5_000
                     connection.readTimeout = 5_000
                     connection.instanceFollowRedirects = true
