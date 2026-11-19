@@ -1769,10 +1769,10 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         connectButton.isEnabled = connected || (selected != null && !connecting)
         connectActionLabel.text = when {
-            connected && selected != activeProfile -> "Прыжок"
-            connected -> "Посадка"
             connecting -> "Подключаемся…"
-            else -> "Запуск"
+            connected && selected != activeProfile -> "Переключить"
+            connected -> "Отключить"
+            else -> "Подключиться"
         }
         // Make the primary action communicate its current meaning at a glance:
         // blue to connect, amber while starting, and a restrained coral to disconnect.
