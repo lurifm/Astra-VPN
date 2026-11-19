@@ -10,6 +10,13 @@ class ServiceHealthResultPolicyTest {
         assertTrue(ServiceHealthResultPolicy.isFresh(10_000L, 40_000L))
     }
 
+    @Test fun publishesOnlyWhileSameVpnNetworkAndServiceAreActive() {
+        assertTrue(ServiceHealthResultPolicy.shouldPublish(true, true))
+        assertFalse(ServiceHealthResultPolicy.shouldPublish(false, true))
+        assertFalse(ServiceHealthResultPolicy.shouldPublish(true, false))
+        assertFalse(ServiceHealthResultPolicy.shouldPublish(false, false))
+    }
+
     @Test fun rejectsMissingFutureAndExpiredTimestamps() {
         assertFalse(ServiceHealthResultPolicy.isFresh(0L, 1_000L))
         assertFalse(ServiceHealthResultPolicy.isFresh(-1L, 1_000L))
