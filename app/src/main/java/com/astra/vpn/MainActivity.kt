@@ -685,6 +685,9 @@ class MainActivity : Activity() {
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
+        if (!settingsPrefs.getBoolean("onboarding_completed", false)) {
+            root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding() }
+        }
         // Accept server links shared from browsers, messengers and file viewers.
         // The user still confirms the import explicitly in Astra's own sheet.
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
@@ -3763,6 +3766,17 @@ class MainActivity : Activity() {
         }
         panel.addView(monitorEntry)
 
+        val speedTestEntry = TextView(this).apply {
+            text = "🚀  Тест скорости и внешнего IP"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { runCombinedSpeedAndIpTest() }
+        }
+        panel.addView(speedTestEntry)
+
         val diagnosticsEntry = TextView(this).apply {
             text = "🩺  Диагностика соединения"
             textSize = 14f
@@ -4057,6 +4071,44 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
             )
         }
+        val presetsEntry = TextView(this).apply {
+            text = "✦  Готовые пресеты маршрутизации"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xFF202B43.toInt(), 13)
+            setOnClickListener {
+                val presets = arrayOf("Весь трафик через VPN", "Только мессенджеры", "Только браузеры")
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle("Быстрый пресет")
+                    .setItems(presets) { _, which ->
+                        val packages = when (which) {
+                            1 -> apps.map { it.packageName }.filter { name ->
+                                val n = name.lowercase(java.util.Locale.ROOT)
+                                n.contains("telegram") || n.contains("whatsapp") || n.contains("signal") || n.contains("viber")
+                            }.toSet()
+                            2 -> apps.map { it.packageName }.filter { name ->
+                                val n = name.lowercase(java.util.Locale.ROOT)
+                                n.contains("browser") || n.contains("chrome") || n.contains("firefox") ||
+                                    n.contains("brave") || n.contains("opera") || n.contains("edge")
+                            }.toSet()
+                            else -> emptySet()
+                        }
+                        val includeOnly = which != 0
+                        if (includeOnly && packages.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "Подходящие приложения не найдены. Выбери их вручную.", Toast.LENGTH_LONG).show()
+                            return@setItems
+                        }
+                        checks.forEach { (packageName, check) -> check.isChecked = packageName in packages }
+                        modeGroup.findViewWithTag<RadioButton>(if (includeOnly) "include" else "exclude")
+                            ?.let { modeGroup.check(it.id) }
+                        Toast.makeText(this@MainActivity, "Пресет выбран. Нажми «Сохранить» для применения.", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+        }
         val appSearch = EditText(this).apply {
             hint = "Найти приложение…"
             textSize = 14f
@@ -4152,6 +4204,115 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+    }
+
+    private fun showFirstRunOnboarding() {
+        if (settingsPrefs.getBoolean("onboarding_completed", false) || isFinishing || isDestroyed) return
+        val pages = listOf(
+            "Своя орбита. Своя скорость. Своя защита" to "Astra помогает подключаться к VPN-серверам и управлять ими в одном месте.",
+            "Выбери свою орбиту" to "Добавь ссылку или подписку. Astra поддерживает VLESS, Hysteria2 и TUIC.",
+            "Запуск — одним нажатием" to "Выбери сервер и нажми на звезду. Для лучшего результата сначала проверь задержку серверов."
+        )
+        var page = 0
+        lateinit var dialog: AlertDialog
+        fun renderPage() {
+            val item = pages[page]
+            val content = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(18), dp(12), dp(18), dp(12))
+                background = rounded(BG, 20)
+                addView(TextView(this@MainActivity).apply {
+                    text = "✦"; textSize = 48f; gravity = Gravity.CENTER; setTextColor(LIGHT_ACCENT)
+                }, matchWidth())
+                addView(TextView(this@MainActivity).apply {
+                    text = item.first; textSize = 19f; typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER; setTextColor(Color.WHITE); setPadding(0, dp(8), 0, dp(10))
+                }, matchWidth())
+                addView(TextView(this@MainActivity).apply {
+                    text = item.second; textSize = 14f; gravity = Gravity.CENTER
+                    setTextColor(0xFFD0D9EC.toInt()); setPadding(dp(8), 0, dp(8), dp(12))
+                }, matchWidth())
+                addView(TextView(this@MainActivity).apply {
+                    text = (page + 1).toString() + " / 3"; textSize = 11f
+                    gravity = Gravity.CENTER; setTextColor(MUTED)
+                }, matchWidth())
+            }
+            dialog.setView(content)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.text = if (page == pages.lastIndex) "Начать" else "Далее"
+        }
+        dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Знакомство с Astra")
+            .setView(TextView(this))
+            .setPositiveButton("Далее", null)
+            .setNegativeButton("Пропустить") { _, _ ->
+                settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (page < pages.lastIndex) {
+                    page++
+                    renderPage()
+                } else {
+                    settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                    dialog.dismiss()
+                }
+            }
+            renderPage()
+        }
+        dialog.show()
+    }
+
+    private fun runCombinedSpeedAndIpTest() {
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Тест скорости и IP")
+            .setMessage("Проверяем внешний IP и измеряем загрузку тестового файла…")
+            .setNegativeButton("Закрыть", null)
+            .create()
+        dialog.show()
+        diagnosticsExecutor.execute {
+            val report = runCatching {
+                val ipConnection = (URL("https://api.ipify.org").openConnection() as HttpsURLConnection).apply {
+                    connectTimeout = 7000; readTimeout = 7000; requestMethod = "GET"
+                }
+                val ip = try { ipConnection.inputStream.bufferedReader().use { it.readText().trim() } }
+                    finally { ipConnection.disconnect() }
+                require(ip.isNotBlank() && ip.length <= 64) { "Не удалось определить внешний IP" }
+                val testBytes = 3_000_000L
+                val speedConnection = (URL("https://speed.cloudflare.com/__down?bytes=" + testBytes)
+                    .openConnection() as HttpsURLConnection).apply {
+                    connectTimeout = 8000; readTimeout = 15000; requestMethod = "GET"
+                    setRequestProperty("Cache-Control", "no-cache")
+                }
+                val started = System.nanoTime()
+                var received = 0L
+                try {
+                    speedConnection.inputStream.use { input ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (received < testBytes) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            received += count
+                        }
+                    }
+                } finally { speedConnection.disconnect() }
+                require(received > 0) { "Тестовый сервер не передал данные" }
+                val seconds = (System.nanoTime() - started).coerceAtLeast(1L) / 1_000_000_000.0
+                val mbps = received * 8.0 / seconds / 1_000_000.0
+                val route = if (connected) "через активный VPN" else "через текущее подключение без подтверждённого VPN"
+                "Внешний IP: " + ip + "\nЗагрузка: " + String.format(java.util.Locale.US, "%.2f", mbps) +
+                    " Мбит/с\nПолучено: " + (received / 1_000_000) + " МБ\nМаршрут: " + route +
+                    "\n\nРезультат зависит от сети и тестового узла."
+            }.getOrElse { error ->
+                "Тест не завершён: " + (error.message ?: "ошибка сети") + ". Проверь подключение и повтори попытку."
+            }
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && dialog.isShowing) {
+                    dialog.setMessage(report)
+                    dialog.setButton(AlertDialog.BUTTON_POSITIVE, "Готово") { _, _ -> dialog.dismiss() }
+                }
+            }
+        }
     }
 
     private fun maybeAutoUpdateSubscriptions(onOpen: Boolean) {
