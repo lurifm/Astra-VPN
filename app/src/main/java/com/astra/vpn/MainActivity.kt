@@ -81,6 +81,7 @@ class MainActivity : Activity() {
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
     private lateinit var serverCountLabel: TextView
+    private lateinit var pingCheckButton: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
     private lateinit var connectActionLabel: TextView
@@ -484,7 +485,7 @@ class MainActivity : Activity() {
             )
             setOnClickListener { refreshSubscriptions() }
         }
-        val pingCheck = TextView(this).apply {
+        pingCheckButton = TextView(this).apply {
             text = "◷ Пинг"
             contentDescription = "Вручную проверить задержку всех серверов"
             textSize = 12f
@@ -500,7 +501,9 @@ class MainActivity : Activity() {
                 null,
                 null
             )
-            setOnClickListener { checkAllLatencies() }
+            setOnClickListener {
+                if (latencyTestInFlight) cancelLatencyCheck() else checkAllLatencies()
+            }
         }
         val refresh = TextView(this).apply {
             text = "✦ Прыжок"
@@ -1527,6 +1530,10 @@ class MainActivity : Activity() {
         return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
     }
     private fun renderProfiles() {
+        if (::pingCheckButton.isInitialized) {
+            pingCheckButton.text = if (latencyTestInFlight) "× Отмена" else "◷ Пинг"
+            pingCheckButton.contentDescription = if (latencyTestInFlight) "Отменить проверку задержки серверов" else "Вручную проверить задержку всех серверов"
+        }
         val profiles = safeProfiles() ?: return
         val summaries = safeSubscriptionSummaries() ?: return
         val previousScrollY = if (::profileScroll.isInitialized) profileScroll.scrollY else 0
@@ -2275,6 +2282,24 @@ class MainActivity : Activity() {
         ms <= 100L -> GREEN
         ms <= 250L -> AMBER
         else -> RED
+    }
+
+    private fun cancelLatencyCheck() {
+        if (!latencyTestInFlight && !selectingFastest) return
+        // Invalidate config preparation callbacks so a cancelled test cannot start later.
+        latencyCheckGeneration.incrementAndGet()
+        latencyTestInFlight = false
+        pendingFastestSelection = false
+        selectingFastest = false
+        runCatching {
+            startService(Intent(this, AstraLatencyTestService::class.java)
+                .setAction(AstraLatencyTestService.ACTION_STOP))
+        }
+        safeProfiles().orEmpty().forEach { profile ->
+            if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+        }
+        renderProfiles()
+        Toast.makeText(this, "Проверка серверов отменена", Toast.LENGTH_SHORT).show()
     }
 
     private fun checkAllLatencies() {
