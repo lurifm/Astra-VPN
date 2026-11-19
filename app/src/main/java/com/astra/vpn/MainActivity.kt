@@ -2277,7 +2277,10 @@ class MainActivity : Activity() {
                 bytes
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (isFinishing || isDestroyed) {
+                    result.getOrNull()?.fill(0)
+                    return@runOnUiThread
+                }
                 result.onSuccess { bytes -> showBackupPasswordDialog(forExport = false, backupBytes = bytes) }
                     .onFailure { error ->
                         MaterialAlertDialogBuilder(this)
@@ -2311,7 +2314,8 @@ class MainActivity : Activity() {
         } else null
         confirmationInput?.let { panel.addView(it, matchWidth()) }
 
-        MaterialAlertDialogBuilder(this)
+        var backupBytesTransferred = false
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(if (forExport) "Защитить резервную копию" else "Открыть резервную копию")
             .setMessage(
                 if (forExport) "Придумай пароль от 12 символов. Он понадобится при восстановлении на любом устройстве. Astra не сохраняет и не отправляет пароль."
@@ -2321,8 +2325,11 @@ class MainActivity : Activity() {
             .setPositiveButton(if (forExport) "Продолжить" else "Расшифровать", null)
             .setNegativeButton("Отмена") { _, _ -> backupBytes?.fill(0) }
             .show()
-            .also { dialog ->
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        dialog.setOnCancelListener { backupBytes?.fill(0) }
+        dialog.setOnDismissListener {
+            if (!backupBytesTransferred) backupBytes?.fill(0)
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val password = passwordInput.text.toString()
                     if (password.length !in 12..256) {
                         passwordInput.error = "Нужно от 12 до 256 символов"
@@ -2373,6 +2380,7 @@ class MainActivity : Activity() {
                         }
                     } else {
                         val encrypted = backupBytes ?: return@setOnClickListener
+                        backupBytesTransferred = true
                         importExecutor.execute {
                             val result = runCatching {
                                 val payload = EncryptedBackupCodec.decrypt(encrypted, passwordChars)
@@ -2400,7 +2408,6 @@ class MainActivity : Activity() {
                         }
                     }
                 }
-            }
     }
 
     private fun startBackupImport() {
