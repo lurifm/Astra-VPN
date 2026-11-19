@@ -16,6 +16,7 @@ import io.nekohasekai.libbox.SystemProxyStatus
 import java.util.concurrent.Executors
 import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
@@ -30,6 +31,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val healthExecutor = Executors.newSingleThreadExecutor()
     private val healthProbeInFlight = AtomicBoolean(false)
+    private val healthProbeGeneration = AtomicLong(0L)
     @Volatile private var healthProbeTask: FutureTask<Unit>? = null
     private val healthTick = object : Runnable {
         override fun run() {
@@ -42,6 +44,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             if (network != null && capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
                 healthProbeInFlight.compareAndSet(false, true)
             ) {
+                val generation = healthProbeGeneration.incrementAndGet()
                 val task = FutureTask<Unit> {
                     try {
                         val reachable = runCatching { TunnelHealthChecker.check(network) }.getOrDefault(false)
@@ -59,15 +62,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                             sendBroadcast(result)
                         }
                     } finally {
-                        healthProbeInFlight.set(false)
-                        healthProbeTask = null
+                        if (healthProbeGeneration.get() == generation) {
+                            healthProbeInFlight.set(false)
+                            healthProbeTask = null
+                        }
                     }
                 }
                 healthProbeTask = task
                 runCatching { healthExecutor.execute(task) }
                     .onFailure {
-                        healthProbeTask = null
-                        healthProbeInFlight.set(false)
+                        if (healthProbeGeneration.get() == generation) {
+                            healthProbeTask = null
+                            healthProbeInFlight.set(false)
+                        }
                     }
             }
             mainHandler.postDelayed(this, HEALTH_INTERVAL_MS)
@@ -81,6 +88,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
     private fun stopHealthMonitoring() {
         mainHandler.removeCallbacks(healthTick)
+        healthProbeGeneration.incrementAndGet()
         healthProbeTask?.cancel(true)
         healthProbeTask = null
         healthProbeInFlight.set(false)
