@@ -164,6 +164,7 @@ class MainActivity : Activity() {
     @Volatile private var tunnelInternetOk: Boolean? = null
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
+    private val speedDropPolicy = SpeedDropFailoverPolicy()
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
@@ -2786,11 +2787,15 @@ class MainActivity : Activity() {
         if (pendingFastestSelection && finished) {
             pendingFastestSelection = false
             selectingFastest = false
+            val fastestCandidates = urlTestProfileMap.values.toList()
+            val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
+                fastestCandidates, latencyMs, { profile -> latencyHistory.samples(profile) }
+            )
             val fastest = BestServerSelector.select(
-                profiles = urlTestProfileMap.values.toList(),
-                latencyMs = latencyMs,
-                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList()),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList())
+                profiles = fastestCandidates,
+                latencyMs = timeAdjustedLatencies,
+                recentFailures = recentServerFailureCounts(fastestCandidates),
+                latencyStabilityPenaltyMs = latencyStabilityPenalties(fastestCandidates)
             )
             if (fastest != null) {
                 selectedProfile = fastest
@@ -3043,6 +3048,32 @@ class MainActivity : Activity() {
             }
     }
 
+    private fun maybeAutoSpeedFailover() {
+        if (!connected || connecting || selectingFastest || !settingsPrefs.getBoolean("auto_speed_failover", true)) return
+        val current = activeProfile ?: selectedProfile
+        val profiles = safeProfiles() ?: return
+        val candidates = profiles.filterNot { it == current }
+        val adjusted = TimeOfDayServerOptimizer.adjustedLatencies(
+            candidates, latencyMs, { profile -> latencyHistory.samples(profile) }
+        )
+        val alternate = BestServerSelector.select(
+            profiles = candidates,
+            latencyMs = adjusted,
+            recentFailures = recentServerFailureCounts(candidates),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates)
+        )
+        if (alternate == null) {
+            Toast.makeText(this, "Скорость заметно снизилась, но нет измеренного резервного сервера. Проверь орбиты.", Toast.LENGTH_LONG).show()
+            return
+        }
+        selectedProfile = alternate
+        selectedInfo.text = profileSummary(alternate)
+        status.text = "Скорость снизилась · меняем орбиту…"
+        status.setTextColor(AMBER)
+        Toast.makeText(this, "Скорость упала более чем на 50%. Переключаемся на " + profileName(alternate), Toast.LENGTH_LONG).show()
+        connectSelectedProfile()
+    }
+
     private fun updateTrafficMonitor() {
         // Android exposes aggregate device counters without special usage-access
         // permission. These include background apps, so label them as device-wide.
@@ -3059,6 +3090,9 @@ class MainActivity : Activity() {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
             val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
+            if (speedDropPolicy.update(down.toDouble(), android.os.SystemClock.elapsedRealtime(), connected)) {
+                maybeAutoSpeedFailover()
+            }
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
             monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
             speedGraph.addSample(down, up)
@@ -3197,9 +3231,12 @@ class MainActivity : Activity() {
             profiles = profiles.filterNot { it == current },
             currentProfile = current
         )
+        val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
+            eligibleProfiles, latencyMs, { profile -> latencyHistory.samples(profile) }
+        )
         val alternate = BestServerSelector.select(
             profiles = eligibleProfiles,
-            latencyMs = latencyMs,
+            latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(eligibleProfiles),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(eligibleProfiles)
         ) ?: run {
@@ -3580,6 +3617,51 @@ class MainActivity : Activity() {
         if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
         }
+    }
+
+    private fun showFamilyQrDialog() {
+        val profile = selectedProfile
+        if (profile.isNullOrBlank()) {
+            Toast.makeText(this, "Сначала выбери сервер", Toast.LENGTH_SHORT).show()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Семейный доступ по QR")
+            .setMessage("QR-код содержит ссылку сервера вместе с параметрами доступа. Любой человек, который отсканирует или получит изображение, сможет использовать эти данные. Передавай код только доверенным членам семьи. Продолжить?")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Показать QR") { _, _ ->
+                runCatching { ProfileQrCode.create(profile) }
+                    .onSuccess { bitmap ->
+                        val image = android.widget.ImageView(this).apply {
+                            setImageBitmap(bitmap)
+                            adjustViewBounds = true
+                            setPadding(dp(12), dp(12), dp(12), dp(12))
+                            contentDescription = "QR-код доступа к выбранному серверу"
+                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Отсканируй на втором устройстве")
+                            .setView(image)
+                            .setMessage("На втором устройстве открой Astra VPN и используй сканер импорта. Не публикуй этот QR-код.")
+                            .setPositiveButton("Готово", null)
+                            .show()
+                    }
+                    .onFailure {
+                        Toast.makeText(this, "Не удалось создать QR-код. Возможно, ссылка слишком длинная.", Toast.LENGTH_LONG).show()
+                    }
+            }
+            .show()
+    }
+
+    private fun showProtectionStreakDialog() {
+        val connectedDays = connectionHistory.getEntries()
+            .filter { it.state == "connected" }
+            .map { it.timestamp }
+        val streak = ProtectionStreak.calculate(connectedDays)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Дни под защитой")
+            .setMessage("Текущая серия: " + streak.currentStreak + " дн.\nВсего дней с подключением: " + streak.totalProtectedDays + ".\n\nСчётчик строится по локальной истории успешных подключений Astra. Он не означает, что VPN был включён непрерывно весь день.")
+            .setPositiveButton("Отлично", null)
+            .show()
     }
 
     private fun showOrbitMapDialog() {
@@ -4159,6 +4241,37 @@ class MainActivity : Activity() {
             }
         }
         panel.addView(insightsEntry)
+
+        val familyQrEntry = TextView(this).apply {
+            text = "👨‍👩‍👧  Семейный доступ по QR"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showFamilyQrDialog() }
+        }
+        panel.addView(familyQrEntry)
+        val streakEntry = TextView(this).apply {
+            text = "🛡  Дни под защитой"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showProtectionStreakDialog() }
+        }
+        panel.addView(streakEntry)
+        val speedFailoverEntry = CheckBox(this).apply {
+            text = "Автопереключение при падении скорости"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("auto_speed_failover", true)
+            setOnCheckedChangeListener { _, checked ->
+                settingsPrefs.edit().putBoolean("auto_speed_failover", checked).apply()
+            }
+        }
+        panel.addView(speedFailoverEntry)
 
         val serviceCheckEntry = TextView(this).apply {
             text = getString(R.string.service_checks_entry)
