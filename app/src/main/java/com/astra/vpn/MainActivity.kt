@@ -289,7 +289,7 @@ class MainActivity : Activity() {
             letterSpacing = .045f
         }
         val addButton = TextView(this).apply {
-            text = "＋ Добавить"
+            text = "＋ Добавить орбиту"
             contentDescription = "Добавить сервер или подписку"
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
@@ -448,7 +448,7 @@ class MainActivity : Activity() {
             setOnClickListener { refreshSubscriptions() }
         }
         val refresh = TextView(this).apply {
-            text = "⚡ Быстрый"
+            text = "✦ Прыжок"
             contentDescription = "Найти сервер с наименьшей измеренной задержкой"
             textSize = 12f
             setTextColor(LIGHT_ACCENT)
@@ -2649,7 +2649,7 @@ class MainActivity : Activity() {
             )
             if (fastest != null) {
                 selectedProfile = fastest
-                status.text = "Выбран быстрый сервер"
+                status.text = "Выбрана быстрая орбита"
                 status.setTextColor(GREEN)
                 selectedInfo.text = profileSummary(fastest)
                 Toast.makeText(this, "Выбрана орбита: " + profileName(fastest), Toast.LENGTH_LONG).show()
