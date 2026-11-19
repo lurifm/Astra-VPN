@@ -442,7 +442,7 @@ class MainActivity : Activity() {
             }
         }
         connectActionLabel = TextView(this).apply {
-            text = "Запуск"
+            text = "Подключиться"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
