@@ -7,7 +7,7 @@ package com.astra.vpn
  * Russian domains. Multiplexing is only emitted for VLESS; other supported
  * transports keep their protocol-native stream handling.
  */
-internal data class SingBoxAdvancedOptions(
+data class SingBoxAdvancedOptions(
     val mtu: Int = DEFAULT_MTU,
     val multiplexEnabled: Boolean = false,
     val routeRussianDomainsDirect: Boolean = false,
