@@ -42,16 +42,18 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val network = connectivity.activeNetwork
             val capabilities = network?.let(connectivity::getNetworkCapabilities)
             synchronized(lifecycleLock) {
-                val isVpnNetwork = network != null &&
+                val probeNetwork = network
+                val isVpnNetwork = probeNetwork != null &&
                     capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
                 if (HealthMonitorLifecyclePolicy.shouldStartProbe(
                         stopping, tunDescriptor != null, isVpnNetwork, healthProbeInFlight.get()
                     ) && healthProbeInFlight.compareAndSet(false, true)
                 ) {
+                val networkForProbe = requireNotNull(probeNetwork)
                 val generation = healthProbeGeneration.incrementAndGet()
                 val task = FutureTask<Unit> {
                     try {
-                        val reachable = runCatching { TunnelHealthChecker.check(network) }.getOrDefault(false)
+                        val reachable = runCatching { TunnelHealthChecker.check(networkForProbe) }.getOrDefault(false)
                         val currentNetwork = connectivity.activeNetwork
                         val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
                         val serviceActive = synchronized(lifecycleLock) {
