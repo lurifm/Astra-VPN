@@ -2725,7 +2725,10 @@ class MainActivity : Activity() {
     override fun onStop() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
-        monitorHandler.removeCallbacks(monitorTick)
+        // Keep the lightweight VPN monitor alive while the foreground VPN
+        // service is connected. This lets health/throughput checks continue
+        // after the Activity is backgrounded; Android Doze may still defer them.
+        if (!connected) monitorHandler.removeCallbacks(monitorTick)
         // Keep the receiver registered while this Activity instance is alive.
         // A latency test can finish while the app is backgrounded; unregistering
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
