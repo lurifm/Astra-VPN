@@ -2062,7 +2062,7 @@ class MainActivity : Activity() {
                 text = when {
                     measuredLatency != null && isFastestProfile -> "✦  ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
-                    latency == "н/д" -> "●  Не отвечает"
+                    latency == "н/д" -> "○  PING  нет данных"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
                     else -> "○  PING  не проверен"
                 }
@@ -2071,14 +2071,14 @@ class MainActivity : Activity() {
                 val tone = if (isFastestProfile && measuredLatency != null) GREEN
                     else measuredLatency?.let { latencyColor(it) }
                     ?: when (latency) {
-                        "н/д" -> RED
+                        "н/д" -> AMBER
                         "Проверяем…" -> AMBER
                         else -> MUTED
                     }
                 setTextColor(tone)
                 val pillColor = when {
                     measuredLatency != null -> 0x1A55D69A
-                    latency == "н/д" -> 0x1AFF7777
+                    latency == "н/д" -> 0x1AFFC66D
                     latency == "Проверяем…" -> 0x1AFFC66D
                     else -> 0x1A9AA6BF
                 }
@@ -2086,7 +2086,7 @@ class MainActivity : Activity() {
                 contentDescription = when {
                     measuredLatency != null && isFastestProfile -> "Самый быстрый измеренный сервер: $measuredLatency миллисекунд"
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
-                    latency == "н/д" -> "Сервер не ответил на проверку"
+                    latency == "н/д" -> "Нет достоверных данных о задержке сервера; это не означает, что сервер недоступен"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
                 }
@@ -2280,8 +2280,8 @@ class MainActivity : Activity() {
 
     private fun latencyColor(ms: Long): Int = when {
         ms <= 100L -> GREEN
-        ms <= 250L -> AMBER
-        else -> RED
+        // High latency is degraded quality, not proof of server failure.
+        else -> AMBER
     }
 
     private fun cancelLatencyCheck() {
@@ -2834,7 +2834,7 @@ class MainActivity : Activity() {
             } else if (finished) {
                 // A failed URL-test means "no measurement", not proof that the server is dead.
                 latencyMs.remove(profile)
-                pingInfo[profile] = "нет ответа на тест"
+                pingInfo[profile] = "н/д"
             }
         }
         // URL-test broadcasts partial snapshots as individual nodes finish.
