@@ -110,6 +110,9 @@ class MainActivity : Activity() {
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
+    private val throughputMbps = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    @Volatile private var throughputProfileMap: Map<String, String> = emptyMap()
+    private var throughputTestInFlight = false
     private var refreshingSubscriptions = false
     private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
@@ -182,6 +185,20 @@ class MainActivity : Activity() {
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
                     applyLatencyResults(payload, finished)
+                    return
+                }
+                AstraThroughputTestService.ACTION_RESULTS -> {
+                    val payload = intent.getStringExtra(AstraThroughputTestService.EXTRA_RESULTS) ?: return
+                    val finished = intent.getBooleanExtra(AstraThroughputTestService.EXTRA_FINAL, false)
+                    applyThroughputResults(payload, finished)
+                    return
+                }
+                AstraThroughputTestService.ACTION_ERROR -> {
+                    throughputTestInFlight = false
+                    val message = intent.getStringExtra(AstraThroughputTestService.EXTRA_ERROR)
+                        ?: "Измерение скорости прервано"
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    if (pendingFastestSelection) completeFastestSelection()
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
@@ -2518,6 +2535,8 @@ class MainActivity : Activity() {
                 addAction(AstraVpnService.ACTION_STATE)
                 addAction(AstraLatencyTestService.ACTION_RESULTS)
                 addAction(AstraLatencyTestService.ACTION_ERROR)
+                addAction(AstraThroughputTestService.ACTION_RESULTS)
+                addAction(AstraThroughputTestService.ACTION_ERROR)
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
@@ -2613,30 +2632,8 @@ class MainActivity : Activity() {
         // URL-test broadcasts partial snapshots as individual nodes finish.
         // Do not pick the "fastest" server from an incomplete subset: a slower
         // node may still return a valid result before the final snapshot.
-        if (pendingFastestSelection && finished) {
-            pendingFastestSelection = false
-            selectingFastest = false
-            val fastest = BestServerSelector.select(
-                profiles = urlTestProfileMap.values.toList(),
-                latencyMs = latencyMs,
-                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList()),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList()),
-                throughputMbps = throughputScores(urlTestProfileMap.values.toList())
-            )
-            if (fastest != null) {
-                selectedProfile = fastest
-                status.text = "Выбран быстрый сервер"
-                status.setTextColor(GREEN)
-                selectedInfo.text = profileSummary(fastest)
-                Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
-                if (tilePendingStart) {
-                    tilePendingStart = false
-                    connectSelectedProfile()
-                }
-            } else {
-                tilePendingStart = false
-                Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
-            }
+        if (pendingFastestSelection && finished && !throughputTestInFlight) {
+            if (!startThroughputForFastestSelection()) completeFastestSelection()
         }
         // Coalesce bursts of partial latency results into one list rebuild.
         // This keeps ping badges responsive without repeatedly recreating every
@@ -4153,6 +4150,62 @@ class MainActivity : Activity() {
             val penalty = LatencyStabilityScorer.penaltyMs(latencyHistory.samples(profile, now), now)
             if (penalty > 0L) profile to penalty else null
         }.toMap()
+    }
+
+    private fun startThroughputForFastestSelection(): Boolean {
+        val profiles = urlTestProfileMap.values.distinct()
+        val network = networkForLatencyProbe() ?: return false
+        if (profiles.isEmpty()) return false
+        throughputProfileMap = profiles.associateBy { SingBoxThroughputTestConfig.outboundTag(it) }
+        throughputTestInFlight = ThroughputTestLauncher.start(this, profiles, network)
+        return throughputTestInFlight
+    }
+
+    private fun applyThroughputResults(payload: String, finished: Boolean) {
+        val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        throughputProfileMap.forEach { (tag, profile) ->
+            if (!values.has(tag) || values.isNull(tag)) return@forEach
+            val speed = values.optDouble(tag, Double.NaN)
+            if (!speed.isFinite() || speed <= 0.0) return@forEach
+            throughputMbps[profile] = speed
+            if (finished) throughputHistory.record(profile, speed)
+        }
+        if (finished) {
+            throughputTestInFlight = false
+            if (pendingFastestSelection) completeFastestSelection()
+        }
+        if (!isFinishing && !isDestroyed) {
+            searchRenderHandler.removeCallbacks(searchRenderTask)
+            searchRenderHandler.postDelayed(searchRenderTask, 90L)
+        }
+    }
+
+    private fun completeFastestSelection() {
+        pendingFastestSelection = false
+        throughputTestInFlight = false
+        selectingFastest = false
+        val profiles = urlTestProfileMap.values.toList()
+        val fastest = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(profiles),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles),
+            throughputMbps = throughputScores(profiles)
+        )
+        if (fastest != null) {
+            selectedProfile = fastest
+            status.text = "Выбран быстрый сервер"
+            status.setTextColor(GREEN)
+            selectedInfo.text = profileSummary(fastest)
+            Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+            if (tilePendingStart) {
+                tilePendingStart = false
+                connectSelectedProfile()
+            }
+        } else {
+            tilePendingStart = false
+            Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun throughputScores(profiles: List<String>): Map<String, Double> {
