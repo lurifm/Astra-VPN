@@ -3603,7 +3603,7 @@ class MainActivity : Activity() {
                 selected = profile == selectedProfile
             )
         }
-        var chosen = profiles.take(36).indexOf(selectedProfile).coerceAtLeast(0)
+        var chosen = (selectedProfile?.let { profiles.take(36).indexOf(it) } ?: -1).coerceAtLeast(0)
         val map = OrbitMapView(this, nodes) { index ->
             chosen = index
             selectedProfile = profiles.take(36)[index]
