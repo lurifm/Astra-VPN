@@ -16,7 +16,12 @@ internal object BestServerSelector {
         latencyMs: Map<String, Long>,
         recentFailures: Map<String, Int> = emptyMap(),
         latencyStabilityPenaltyMs: Map<String, Long> = emptyMap(),
-        throughputMbps: Map<String, Double> = emptyMap()
+        throughputMbps: Map<String, Double> = emptyMap(),
+        latencyTimestamps: Map<String, Long> = emptyMap(),
+        throughputTimestamps: Map<String, Long> = emptyMap(),
+        nowMs: Long = System.currentTimeMillis(),
+        localHour: Int = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+        preferredProtocols: Map<TimeOfDayServerPolicy.Window, Set<String>> = emptyMap()
     ): String? {
         val fastestSpeed = throughputMbps.values
             .filter { it.isFinite() && it > 0.0 }
@@ -24,6 +29,10 @@ internal object BestServerSelector {
         return profiles.asSequence()
             .mapNotNull { profile ->
                 val latency = latencyMs[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
+                val latencyTimestamp = latencyTimestamps[profile]
+                if (latencyTimestamps.isNotEmpty() &&
+                    (latencyTimestamp == null || !ServerSelectionFreshness.usableLatency(latencyTimestamp, nowMs))
+                ) return@mapNotNull null
                 val normalized = profile.trim().lowercase()
                 val protocolPenalty = when {
                     normalized.startsWith("hysteria2://") || normalized.startsWith("hy2://") ||
@@ -36,16 +45,21 @@ internal object BestServerSelector {
                     .coerceAtMost(MAX_FAILURE_PENALTY_MS)
                 val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
                     .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
-                val speed = throughputMbps[profile]?.takeIf { it.isFinite() && it > 0.0 }
+                val speedTimestamp = throughputTimestamps[profile]
+                val speedIsFresh = throughputTimestamps.isEmpty() ||
+                    (speedTimestamp != null && ServerSelectionFreshness.usableThroughput(speedTimestamp, nowMs))
+                val speed = throughputMbps[profile]?.takeIf { it.isFinite() && it > 0.0 && speedIsFresh }
                 val speedPenalty = if (speed != null && fastestSpeed != null && fastestSpeed > 0.0) {
                     (((fastestSpeed - speed) / fastestSpeed) * MAX_THROUGHPUT_PENALTY_MS)
                         .toLong()
                         .coerceIn(0L, MAX_THROUGHPUT_PENALTY_MS)
                 } else 0L
-                val score = addPenalty(
+                val baseScore = addPenalty(
                     addPenalty(addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty), jitterPenalty),
                     speedPenalty
                 )
+                val timeBonus = TimeOfDayServerPolicy.preferredScoreBonus(profile, localHour, preferredProtocols)
+                val score = (baseScore - timeBonus.toLong()).coerceAtLeast(0L)
                 Triple(profile, latency, score)
             }
             .minWithOrNull(compareBy<Triple<String, Long, Long>> { it.third }.thenBy { it.second })
