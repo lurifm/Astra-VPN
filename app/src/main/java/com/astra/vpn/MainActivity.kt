@@ -483,6 +483,24 @@ class MainActivity : Activity() {
             )
             setOnClickListener { refreshSubscriptions() }
         }
+        val pingCheck = TextView(this).apply {
+            text = "◷ Пинг"
+            contentDescription = "Вручную проверить задержку всех серверов"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            setPadding(dp(9), 0, dp(9), 0)
+            isClickable = true
+            isFocusable = true
+            background = rounded(0x1A9AA6BF, 12)
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                null,
+                null
+            )
+            setOnClickListener { checkAllLatencies() }
+        }
         val refresh = TextView(this).apply {
             text = "✦ Прыжок"
             contentDescription = "Найти сервер с наименьшей измеренной задержкой"
@@ -503,8 +521,11 @@ class MainActivity : Activity() {
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
+        listHeader.addView(pingCheck, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            leftMargin = dp(5)
+        })
         listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            leftMargin = dp(6)
+            leftMargin = dp(5)
         })
 
         val filterRow = LinearLayout(this).apply {
