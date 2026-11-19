@@ -38,5 +38,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Android's local-test android.jar contains non-functional org.json stubs.
     // Use the real JSON implementation for JVM tests that exercise config builders.
-    testImplementation("org.json:json:20250517")
+    testImplementation("org.json:json:20240303")
 }
