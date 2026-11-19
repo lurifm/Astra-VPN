@@ -2230,7 +2230,10 @@ class MainActivity : Activity() {
     private fun handleBackupExportResult(uri: Uri?) {
         val bytes = pendingBackupBytes
         pendingBackupBytes = null
-        if (uri == null || bytes == null) return
+        if (uri == null || bytes == null) {
+            bytes?.fill(0)
+            return
+        }
         importExecutor.execute {
             val result = runCatching {
                 contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
@@ -4330,6 +4333,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         stopStarPulse()
+        pendingBackupBytes?.fill(0)
+        pendingBackupBytes = null
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
