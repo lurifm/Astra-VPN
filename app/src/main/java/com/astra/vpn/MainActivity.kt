@@ -133,7 +133,10 @@ class MainActivity : Activity() {
     private val autoUpdateTick = object : Runnable {
         override fun run() {
             maybeAutoUpdateSubscriptions(false)
-            autoUpdateHandler.postDelayed(this, 60_000L)
+            val powerSave = runCatching {
+                getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+            }.getOrDefault(false)
+            autoUpdateHandler.postDelayed(this, BatteryAwarePollingPolicy.subscriptionInterval(powerSave))
         }
     }
     private lateinit var monitorCard: LinearLayout
@@ -739,7 +742,13 @@ class MainActivity : Activity() {
         SubscriptionRefreshScheduler.sync(this)
         // onStart() performs the open-time subscription check. Avoid doing the
         // same preference/source scan here during cold-start initialization.
-        autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
+        val powerSaveForRefresh = runCatching {
+            getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+        }.getOrDefault(false)
+        autoUpdateHandler.postDelayed(
+            autoUpdateTick,
+            BatteryAwarePollingPolicy.subscriptionInterval(powerSaveForRefresh)
+        )
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Let the first frame become interactive before starting the isolated
         // sing-box measurement engine. This avoids competing with cold app startup.
