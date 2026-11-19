@@ -2833,13 +2833,32 @@ class MainActivity : Activity() {
     }
 
     private fun applyLatencyResults(payload: String, finished: Boolean) {
+        // Validate the snapshot before changing session state. A malformed final
+        // payload must not leave auto-selection or the quick tile waiting forever.
+        val values = runCatching { JSONObject(payload) }.getOrNull()
+        if (values == null) {
+            if (finished) {
+                getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
+                    .remove(KEY_LATENCY_PENDING_RESULTS)
+                    .apply()
+                latencyTestInFlight = false
+                pendingFastestSelection = false
+                selectingFastest = false
+                tilePendingStart = false
+                urlTestProfileMap.values.forEach { profile ->
+                    if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+                }
+                Toast.makeText(this, "Получен некорректный результат проверки. Повтори Ping.", Toast.LENGTH_LONG).show()
+                if (!isFinishing && !isDestroyed) renderProfiles()
+            }
+            return
+        }
         if (finished) {
             getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                 .remove(KEY_LATENCY_PENDING_RESULTS)
                 .apply()
             latencyTestInFlight = false
         }
-        val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
         // Render each successful measurement immediately instead of waiting for
         // the slowest server in the subscription to finish its URL-test.
         urlTestProfileMap.forEach { (tag, profile) ->
