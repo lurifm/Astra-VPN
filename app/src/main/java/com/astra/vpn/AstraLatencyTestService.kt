@@ -34,6 +34,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var server: CommandServer? = null
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
+    private var sessionId: String? = null
     private val latestResults = linkedMapOf<String, Long?>()
     private val timeout = Runnable { finishAndPublish() }
     private val completionDebounce = Runnable { finishAndPublish() }
@@ -44,6 +45,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         if (server != null) return START_NOT_STICKY
+        sessionId = intent?.getStringExtra(EXTRA_SESSION)
 
         val config = intent?.getStringExtra(EXTRA_CONFIG)
         val tagsJson = intent?.getStringExtra(EXTRA_TAGS)
@@ -218,11 +220,14 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 .setPackage(packageName)
                 .putExtra(EXTRA_RESULTS, payload)
                 .putExtra(EXTRA_FINAL, finished)
+                .putExtra(EXTRA_SESSION, sessionId)
         )
     }
 
     private fun publishFailure(message: String) {
-        sendBroadcast(Intent(ACTION_ERROR).setPackage(packageName).putExtra(EXTRA_ERROR, message))
+        sendBroadcast(Intent(ACTION_ERROR).setPackage(packageName)
+            .putExtra(EXTRA_ERROR, message)
+            .putExtra(EXTRA_SESSION, sessionId))
     }
 
     private fun finish() {
@@ -266,6 +271,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
         const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
+        const val EXTRA_SESSION = "com.astra.vpn.extra.LATENCY_SESSION"
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
         private const val KEY_LAST_RESULTS = "last_results"
@@ -275,12 +281,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val TEST_TIMEOUT_MS = 10_000L
         private const val RESULT_SETTLE_MS = 2_000L
 
-        fun start(context: Context, config: String, tags: Set<String>, network: Network) {
+        fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_CONFIG, config)
                 .putExtra(EXTRA_TAGS, JSONArray(tags.toList()).toString())
                 .putExtra(EXTRA_NETWORK, network)
+                .putExtra(EXTRA_SESSION, sessionId)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
