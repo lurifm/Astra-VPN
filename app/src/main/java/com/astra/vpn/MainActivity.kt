@@ -91,6 +91,7 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val latencyObservedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
@@ -109,6 +110,20 @@ class MainActivity : Activity() {
     private var receiverRegistered = false
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
+    private val throughputHistory by lazy { ThroughputHistoryStore(this) }
+    private val throughputMbps = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val throughputObservedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val throughputMonitorExecutor = Executors.newSingleThreadExecutor()
+    private val throughputProbeInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val throughputDropPolicy = ThroughputDropFailoverPolicy()
+    private val tunnelThroughputWarmup = mutableListOf<Double>()
+    private var tunnelThroughputNetwork: android.net.Network? = null
+    private var tunnelThroughputProfile: String? = null
+    private var tunnelThroughputBaselineMbps: Double? = null
+    private var lastTunnelThroughputProbeAt = 0L
+    private var throughputFailoverInProgress = false
+    @Volatile private var throughputProfileMap: Map<String, String> = emptyMap()
+    private var throughputTestInFlight = false
     private var refreshingSubscriptions = false
     private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
@@ -120,13 +135,17 @@ class MainActivity : Activity() {
     private val autoUpdateTick = object : Runnable {
         override fun run() {
             maybeAutoUpdateSubscriptions(false)
-            autoUpdateHandler.postDelayed(this, 60_000L)
+            val powerSave = runCatching {
+                getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+            }.getOrDefault(false)
+            autoUpdateHandler.postDelayed(this, BatteryAwarePollingPolicy.subscriptionInterval(powerSave))
         }
     }
     private lateinit var monitorCard: LinearLayout
     private lateinit var monitorProtection: TextView
     private lateinit var monitorVpnCountry: TextView
     private lateinit var monitorNetwork: TextView
+    private lateinit var monitorPortalSignIn: MaterialButton
     private lateinit var monitorOperator: TextView
     private lateinit var monitorDownload: TextView
     private lateinit var monitorUpload: TextView
@@ -170,7 +189,11 @@ class MainActivity : Activity() {
             updateTrafficMonitor()
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
-            monitorHandler.postDelayed(this, 1000L)
+            scheduleTunnelThroughputProbe()
+            val powerSave = runCatching {
+                getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+            }.getOrDefault(false)
+            monitorHandler.postDelayed(this, BatteryAwarePollingPolicy.interval(powerSave))
         }
     }
 
@@ -181,6 +204,20 @@ class MainActivity : Activity() {
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
                     applyLatencyResults(payload, finished)
+                    return
+                }
+                AstraThroughputTestService.ACTION_RESULTS -> {
+                    val payload = intent.getStringExtra(AstraThroughputTestService.EXTRA_RESULTS) ?: return
+                    val finished = intent.getBooleanExtra(AstraThroughputTestService.EXTRA_FINAL, false)
+                    applyThroughputResults(payload, finished)
+                    return
+                }
+                AstraThroughputTestService.ACTION_ERROR -> {
+                    throughputTestInFlight = false
+                    val message = intent.getStringExtra(AstraThroughputTestService.EXTRA_ERROR)
+                        ?: "Измерение скорости прервано"
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    if (pendingFastestSelection) completeFastestSelection()
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
@@ -211,6 +248,7 @@ class MainActivity : Activity() {
                     connecting = true
                     consecutiveHealthFailures = 0
                     lastHealthCheckAt = 0L
+                    resetTunnelThroughputBaseline()
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
                 }
@@ -219,6 +257,8 @@ class MainActivity : Activity() {
                     connecting = false
                     tunnelInternetOk = null
                     lastHealthCheckAt = 0L
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Подключено"
                     status.setTextColor(GREEN)
                 }
@@ -227,6 +267,8 @@ class MainActivity : Activity() {
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = null
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Отключено"
                     status.setTextColor(MUTED)
                 }
@@ -235,6 +277,8 @@ class MainActivity : Activity() {
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = false
+                    resetTunnelThroughputBaseline()
+                    throughputFailoverInProgress = false
                     status.text = "Ошибка подключения"
                     status.setTextColor(RED)
                     // AstraVpnService sends a user-safe explanation in EXTRA_ERROR.
@@ -637,6 +681,13 @@ class MainActivity : Activity() {
         }
         monitorDetails.addView(monitorVpnCountry)
         monitorDetails.addView(monitorNetwork)
+        monitorPortalSignIn = MaterialButton(this).apply {
+            text = "Открыть страницу входа в сеть"
+            isAllCaps = false
+            visibility = View.GONE
+            setOnClickListener { openCaptivePortalSignIn() }
+        }
+        monitorDetails.addView(monitorPortalSignIn, matchWidth())
         monitorDetails.addView(monitorOperator)
         monitorDetails.addView(TextView(this).apply {
             text = "Скорость всего устройства · последние 60 секунд\n*Трафик за день с момента первого замера; возможна неполная статистика"
@@ -676,6 +727,7 @@ class MainActivity : Activity() {
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
         setContentView(root)
+        Handler(Looper.getMainLooper()).post { maybeShowOnboarding() }
         // Accept server links shared from browsers, messengers and file viewers.
         // The user still confirms the import explicitly in Astra's own sheet.
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
@@ -700,7 +752,13 @@ class MainActivity : Activity() {
         SubscriptionRefreshScheduler.sync(this)
         // onStart() performs the open-time subscription check. Avoid doing the
         // same preference/source scan here during cold-start initialization.
-        autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
+        val powerSaveForRefresh = runCatching {
+            getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+        }.getOrDefault(false)
+        autoUpdateHandler.postDelayed(
+            autoUpdateTick,
+            BatteryAwarePollingPolicy.subscriptionInterval(powerSaveForRefresh)
+        )
         // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
         // Let the first frame become interactive before starting the isolated
         // sing-box measurement engine. This avoids competing with cold app startup.
@@ -1816,7 +1874,7 @@ class MainActivity : Activity() {
                     } else if (connected && link != activeProfile) {
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this@MainActivity)) }.getOrElse {
                             Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
@@ -1949,6 +2007,21 @@ class MainActivity : Activity() {
             }
             details.addView(protocolText)
             details.addView(meta)
+            val stabilitySamples = latencyHistory.samples(link).map { it.latencyMs }
+            val stability = if (stabilitySamples.size >= 3) ServerStabilityRating.score(stabilitySamples) else null
+            if (stability != null) {
+                details.addView(TextView(this).apply {
+                    text = "Стабильность: $stability/100"
+                    textSize = 10f
+                    setTextColor(when {
+                        stability >= 80 -> GREEN
+                        stability >= 55 -> AMBER
+                        else -> RED
+                    })
+                    contentDescription = "Оценка стабильности сервера: $stability из 100, по последним измерениям задержки"
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }
             val favoriteButton = TextView(this).apply {
                 text = if (link in favorites) "★" else "☆"
                 textSize = 22f
@@ -2183,7 +2256,7 @@ class MainActivity : Activity() {
     private fun connectSelectedProfile() {
         if (connecting) return
         val link = selectedProfile ?: return
-        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+        val config = runCatching { SingBoxConfigBuilder.build(link, AstraNetworkPreferences.load(this@MainActivity)) }.getOrElse {
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
             MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
@@ -2517,6 +2590,8 @@ class MainActivity : Activity() {
                 addAction(AstraVpnService.ACTION_STATE)
                 addAction(AstraLatencyTestService.ACTION_RESULTS)
                 addAction(AstraLatencyTestService.ACTION_ERROR)
+                addAction(AstraThroughputTestService.ACTION_RESULTS)
+                addAction(AstraThroughputTestService.ACTION_ERROR)
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
@@ -2602,39 +2677,20 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
+                latencyObservedAt[profile] = System.currentTimeMillis()
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
                 latencyMs.remove(profile)
+                latencyObservedAt.remove(profile)
                 pingInfo[profile] = "н/д"
             }
         }
         // URL-test broadcasts partial snapshots as individual nodes finish.
         // Do not pick the "fastest" server from an incomplete subset: a slower
         // node may still return a valid result before the final snapshot.
-        if (pendingFastestSelection && finished) {
-            pendingFastestSelection = false
-            selectingFastest = false
-            val fastest = BestServerSelector.select(
-                profiles = urlTestProfileMap.values.toList(),
-                latencyMs = latencyMs,
-                recentFailures = recentServerFailureCounts(urlTestProfileMap.values.toList()),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(urlTestProfileMap.values.toList())
-            )
-            if (fastest != null) {
-                selectedProfile = fastest
-                status.text = "Выбран быстрый сервер"
-                status.setTextColor(GREEN)
-                selectedInfo.text = profileSummary(fastest)
-                Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
-                if (tilePendingStart) {
-                    tilePendingStart = false
-                    connectSelectedProfile()
-                }
-            } else {
-                tilePendingStart = false
-                Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
-            }
+        if (pendingFastestSelection && finished && !throughputTestInFlight) {
+            if (!startThroughputForFastestSelection()) completeFastestSelection()
         }
         // Coalesce bursts of partial latency results into one list rebuild.
         // This keeps ping badges responsive without repeatedly recreating every
@@ -2709,7 +2765,10 @@ class MainActivity : Activity() {
     override fun onStop() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
-        monitorHandler.removeCallbacks(monitorTick)
+        // Keep the lightweight VPN monitor alive while the foreground VPN
+        // service is connected. This lets health/throughput checks continue
+        // after the Activity is backgrounded; Android Doze may still defer them.
+        if (!connected) monitorHandler.removeCallbacks(monitorTick)
         // Keep the receiver registered while this Activity instance is alive.
         // A latency test can finish while the app is backgrounded; unregistering
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
@@ -2792,12 +2851,42 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
+    private fun openCaptivePortalSignIn() {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.allNetworks.firstOrNull { candidate ->
+            connectivity.getNetworkCapabilities(candidate)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        }
+        if (network == null) {
+            Toast.makeText(this, "Страница входа уже недоступна или сеть изменилась", Toast.LENGTH_SHORT).show()
+            monitorPortalSignIn.visibility = View.GONE
+            return
+        }
+        // Use only public SDK APIs: open Wi-Fi settings and let Android/OEM
+        // surface its captive-portal sign-in notification or app.
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
+            .onFailure { Toast.makeText(this, "Открой настройки Wi-Fi и заверши авторизацию", Toast.LENGTH_LONG).show() }
+    }
+
     private fun updateNetworkLabel() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastNetworkLabelAt != 0L && now - lastNetworkLabelAt < 5_000L) return
         lastNetworkLabelAt = now
         val caps = underlyingNetworkCapabilities()
         val telephony = getSystemService(TelephonyManager::class.java)
+        val captivePortal = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        monitorPortalSignIn.visibility = if (captivePortal) View.VISIBLE else View.GONE
+        if (captivePortal) {
+            monitorNetwork.text = "Сеть: требуется вход через браузер (captive portal)"
+            monitorOperator.text = "Оператор: —"
+            return
+        }
+        val portalState = CaptivePortalState.from(
+            hasNetwork = caps != null,
+            captivePortal = false,
+            internet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+            validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        )
         when {
             caps == null -> {
                 monitorNetwork.text = "Сеть: не определена"
@@ -2841,6 +2930,9 @@ class MainActivity : Activity() {
                 monitorOperator.text = "Оператор: —"
             }
         }
+        if (portalState == CaptivePortalState.NO_INTERNET) {
+            monitorNetwork.text = monitorNetwork.text.toString() + " · интернет не подтверждён"
+        }
     }
 
     private fun updateDailyTraffic(rx: Long, tx: Long) {
@@ -2859,9 +2951,21 @@ class MainActivity : Activity() {
             .putLong("uploaded", totals.uploadedBytes)
             .putString("week", dailyTrafficHistory.encode())
             .apply()
+        val nowCalendar = java.util.Calendar.getInstance()
+        val startOfDay = (nowCalendar.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val forecast = TrafficForecast.projectedDailyBytes(
+            consumedBytes = totals.downloadedBytes + totals.uploadedBytes,
+            elapsedDayMs = (System.currentTimeMillis() - startOfDay).coerceAtLeast(1L)
+        )
         monitorDailyTraffic.text = "Сегодня*  ↓ " +
             DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
-            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
+            "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes) +
+            (forecast?.let { "\nПрогноз за сутки: ${DailyTrafficAccumulator.formatBytes(it)}" } ?: "")
         val weekly = dailyTrafficHistory.total()
         monitorWeeklyTraffic.text = "За 7 дней*  ↓ " +
             DailyTrafficAccumulator.formatBytes(weekly.downloadedBytes) +
@@ -2946,6 +3050,121 @@ class MainActivity : Activity() {
         }
     }
 
+
+    /**
+     * Periodically samples a small fixed payload through the active Android VPN
+     * Network. TrafficStats is deliberately not used because it is device-wide.
+     */
+    private fun scheduleTunnelThroughputProbe() {
+        if (!connected || connecting || throughputFailoverInProgress || isFinishing || isDestroyed) return
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.activeNetwork ?: return
+        val capabilities = connectivity.getNetworkCapabilities(network)
+        if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) return
+        val profile = activeProfile ?: selectedProfile ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTunnelThroughputProbeAt < TUNNEL_THROUGHPUT_INTERVAL_MS) return
+        if (!throughputProbeInFlight.compareAndSet(false, true)) return
+
+        if (tunnelThroughputNetwork != network || tunnelThroughputProfile != profile) {
+            resetTunnelThroughputBaseline()
+            tunnelThroughputNetwork = network
+            tunnelThroughputProfile = profile
+        }
+        lastTunnelThroughputProbeAt = now
+        try {
+            throughputMonitorExecutor.execute {
+                val measured = VpnTunnelThroughputProbe.measure(network)
+                runOnUiThread {
+                    throughputProbeInFlight.set(false)
+                    if (isFinishing || isDestroyed || !connected || activeProfile != profile) return@runOnUiThread
+                    val currentNetwork = connectivity.activeNetwork
+                    val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
+                    if (currentNetwork != network ||
+                        currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                    ) {
+                        resetTunnelThroughputBaseline()
+                        return@runOnUiThread
+                    }
+                    if (measured == null || !measured.isFinite() || measured <= 0.0) {
+                        throughputDropPolicy.reset()
+                        return@runOnUiThread
+                    }
+                    val baseline = tunnelThroughputBaselineMbps
+                    if (baseline == null) {
+                        tunnelThroughputWarmup += measured
+                        if (tunnelThroughputWarmup.size >= TUNNEL_THROUGHPUT_BASELINE_SAMPLES) {
+                            tunnelThroughputBaselineMbps = tunnelThroughputWarmup.sorted()
+                                .let { values -> values[values.size / 2] }
+                            tunnelThroughputWarmup.clear()
+                        }
+                        return@runOnUiThread
+                    }
+                    if (throughputDropPolicy.shouldFailover(
+                            baselineMbps = baseline,
+                            currentMbps = measured,
+                            nowMs = android.os.SystemClock.elapsedRealtime()
+                        )
+                    ) {
+                        switchAfterThroughputDrop(profile)
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            throughputProbeInFlight.set(false)
+        }
+    }
+
+    private fun switchAfterThroughputDrop(current: String) {
+        if (!connected || connecting || throughputFailoverInProgress || activeProfile != current) return
+        val profiles = safeProfiles() ?: return
+        val alternatives = profiles.filterNot { it == current }
+        val now = System.currentTimeMillis()
+        val reachable = alternatives.filter { profile ->
+            latencyMs[profile]?.let { it > 0L } == true &&
+                latencyObservedAt[profile]?.let { ServerSelectionFreshness.usableLatency(it, now) } == true
+        }.toSet()
+        val fallbackCandidates = ProtocolFallbackPolicy.candidates(current, alternatives, reachable)
+        val activeProtocol = current.substringBefore("://").lowercase()
+        val differentProtocol = fallbackCandidates.filter {
+            it.substringBefore("://").lowercase() != activeProtocol
+        }
+        val selectionPool = differentProtocol.ifEmpty { fallbackCandidates }
+        val alternate = BestServerSelector.select(
+            profiles = selectionPool,
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(selectionPool),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(selectionPool),
+            throughputMbps = throughputScores(selectionPool),
+            latencyTimestamps = latencyObservedAt,
+            throughputTimestamps = throughputObservedAt,
+            nowMs = now,
+            localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+            preferredProtocols = timeProtocolPreferences()
+        )
+        if (alternate == null) {
+            Toast.makeText(this, "Скорость упала, но резервного сервера нет", Toast.LENGTH_LONG).show()
+            return
+        }
+        throughputFailoverInProgress = true
+        selectedProfile = alternate
+        selectedInfo.text = profileSummary(alternate)
+        status.text = "Скорость упала · переключаем сервер…"
+        status.setTextColor(AMBER)
+        updateConnectionCardAppearance("switching")
+        Toast.makeText(this, "Скорость VPN упала более чем на 50%. Переключаем сервер…", Toast.LENGTH_LONG).show()
+        connectSelectedProfile()
+    }
+
+    private fun resetTunnelThroughputBaseline() {
+        tunnelThroughputWarmup.clear()
+        tunnelThroughputBaselineMbps = null
+        tunnelThroughputNetwork = null
+        tunnelThroughputProfile = null
+        lastTunnelThroughputProbeAt = 0L
+        throughputDropPolicy.reset()
+    }
+
     /**
      * Checks real HTTPS reachability through Android's active VPN route.
      * A created VpnService/TUN alone does not prove that the selected proxy can
@@ -3026,7 +3245,8 @@ class MainActivity : Activity() {
             profiles = profiles.filterNot { it == current },
             latencyMs = latencyMs,
             recentFailures = recentServerFailureCounts(profiles.filterNot { it == current }),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current })
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles.filterNot { it == current }),
+            throughputMbps = throughputScores(profiles.filterNot { it == current })
         ) ?: run {
             renderProfiles()
             return
@@ -3461,6 +3681,7 @@ class MainActivity : Activity() {
             appendLine("Интернет доступен: ${if (internet) "да" else "нет"}")
             appendLine("Сеть подтверждена Android: ${if (validated) "да" else "нет"}")
             appendLine("VPN-транспорт активной сети: ${if (vpnTransport) "да" else "нет"}")
+            appendLine("Системный Kill Switch: состояние недоступно приложению; проверь Always-on VPN и «Блокировать подключения без VPN» в Android.")
             appendLine("Количество серверов: ${safeProfiles()?.size?.toString() ?: "недоступно"}")
             appendLine()
             appendLine("ДОСТУПНОСТЬ СЕРВИСОВ")
@@ -3515,10 +3736,56 @@ class MainActivity : Activity() {
         if (vpnTransport && network != null) {
             diagnosticsExecutor.execute {
                 val results = ServiceReachabilityChecker.checkAll(network)
+                val securityAudit = active?.let { profile ->
+                    runCatching {
+                        TunnelSecurityAudit.inspect(SingBoxConfigBuilder.build(profile, AstraNetworkPreferences.load(this@MainActivity)))
+                    }.getOrNull()
+                }
+                val dnsResolutionOk = runCatching {
+                    network.getAllByName("example.com").isNotEmpty()
+                }.getOrDefault(false)
+                val ipv6Reachable = runCatching {
+                    val connection = network.openConnection(URL("https://api64.ipify.org")) as HttpsURLConnection
+                    try {
+                        connection.connectTimeout = 4_000
+                        connection.readTimeout = 4_000
+                        connection.instanceFollowRedirects = false
+                        val address = connection.inputStream.bufferedReader().use { it.readText().trim() }
+                        java.net.InetAddress.getByName(address) is java.net.Inet6Address
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrDefault(false)
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
-                    val serviceReport = results.joinToString("\n") { it.display() }
-                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport)
+                    val serviceStates = results.associate { result ->
+                        val probe = when {
+                            result.httpCode == null -> ServiceAvailability.Probe(0, 0)
+                            ServiceReachabilityChecker.isSuccessfulHttpCode(result.httpCode) ->
+                                ServiceAvailability.Probe(1, 1)
+                            else -> ServiceAvailability.Probe(0, 1)
+                        }
+                        result.name to ServiceAvailability.classify(probe)
+                    }
+                    val serviceReport = buildString {
+                        appendLine("Общая оценка: ${ServiceAvailability.summary(serviceStates)}")
+                        append(results.joinToString("\n") { it.display() })
+                    }
+                    val securityReport = buildString {
+                        appendLine("DNS/IPv6 — проверка через активную VPN-сеть")
+                        appendLine("DNS-over-HTTPS в конфигурации: " +
+                            if (securityAudit?.dnsRoutingProtected == true) "настроен" else "не подтверждён")
+                        appendLine("DNS-запрос через VPN: " + if (dnsResolutionOk) "успешен" else "не прошёл")
+                        appendLine("IPv4-маршрут в TUN: " +
+                            if (securityAudit?.let { it.ipv4TunnelConfigured && it.automaticRoutingEnabled } == true) "настроен" else "не подтверждён")
+                        appendLine("IPv6-маршрут в TUN: " +
+                            if (securityAudit?.ipv6RoutingConfigured == true) "настроен" else "не подтверждён")
+                        appendLine("Публичный IPv6 через VPN: " +
+                            if (ipv6Reachable) "доступен" else "не получен")
+                        append("Примечание: это аудит конфигурации и доступности; он не доказывает отсутствие всех DNS/IPv6-утечек.")
+                    }
+                    latestReport = report.replace("Проверка выполняется через VPN…", serviceReport) +
+                        "\n\n" + securityReport
                     reportView.text = latestReport
                 }
             }
@@ -3533,9 +3800,15 @@ class MainActivity : Activity() {
             recentEntries.map { ConnectionStability.Event(it.timestamp, it.state) },
             System.currentTimeMillis()
         )
+        val streak = VpnUsageStreak.currentDays(
+            recentEntries.filter { it.state == "connected" }.map { it.timestamp },
+            System.currentTimeMillis()
+        )
         val stabilityText = "За 7 дней · по сохранённым событиям\n" +
             "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\n" +
-            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}"
+            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}\n" +
+            "Доля обрывов: ${stability.dropRatePercent?.let { "$it%" } ?: "недостаточно данных"}\n" +
+            "Серия дней с подключением: $streak (по истории последних 100 событий)"
         val body = if (entries.isEmpty()) {
             "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
         } else {
@@ -3667,7 +3940,7 @@ class MainActivity : Activity() {
                     "2. Выберите Astra VPN.\n" +
                     "3. Включите «Постоянно включённая VPN».\n" +
                     "4. Включите «Блокировать подключения без VPN», если такой пункт доступен.\n\n" +
-                    "Важно: после включения блокировки интернет будет недоступен, если VPN отключится или не сможет подключиться. Сначала проверьте работу сервера и убедитесь, что сможете вернуться в эти настройки."
+                    "Важно: Astra не может включить эти переключатели или прочитать их состояние. После включения блокировки интернет будет недоступен, если VPN отключится или не сможет подключиться. Сначала проверьте работу сервера и убедитесь, что сможете вернуться в эти настройки."
             )
             .setPositiveButton("Открыть настройки VPN") { _, _ ->
                 runCatching {
@@ -3725,6 +3998,102 @@ class MainActivity : Activity() {
             })
         }
         panel.addView(sortGroup)
+        addSectionLabel("✦  МАРШРУТИЗАЦИЯ И СЕТЬ")
+        val routingGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val networkPrefs = AstraNetworkPreferences.load(this@MainActivity)
+        listOf(
+            AstraNetworkPreferences.RoutingPreset.ALL_VPN to "Весь трафик через VPN",
+            AstraNetworkPreferences.RoutingPreset.LOCAL_DIRECT to "Российские домены напрямую, остальное через VPN"
+        ).forEach { (preset, label) ->
+            routingGroup.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = preset.name
+                text = label
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                isChecked = networkPrefs.routingPreset == preset
+            })
+        }
+        panel.addView(routingGroup)
+        val mtuLabel = TextView(this).apply {
+            textSize = 13f
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        val mtuSlider = android.widget.SeekBar(this).apply {
+            max = AstraNetworkPreferences.MAX_MTU - AstraNetworkPreferences.MIN_MTU
+            progress = networkPrefs.mtu - AstraNetworkPreferences.MIN_MTU
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    mtuLabel.text = "MTU туннеля: ${AstraNetworkPreferences.MIN_MTU + progress}"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) = Unit
+            })
+        }
+        mtuLabel.text = "MTU туннеля: ${networkPrefs.mtu}"
+        panel.addView(mtuLabel)
+        panel.addView(mtuSlider)
+        panel.addView(TextView(this).apply {
+            text = "Диапазон 1280–1500. Если соединение нестабильно, верни значение 1400. Изменения применятся при следующем подключении."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(8))
+        })
+        val shareProfileEntry = TextView(this).apply {
+            text = "▦  Поделиться выбранным сервером (ссылка / QR)"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { shareSelectedProfile() }
+        }
+        panel.addView(shareProfileEntry)
+
+        addSectionLabel("✦  УМНЫЙ ВЫБОР СЕРВЕРА")
+        fun addTimeProtocolPreference(label: String, window: TimeOfDayServerPolicy.Window) {
+            val key = "time_protocol_${window.name}"
+            val options = arrayOf("Без предпочтения", "VLESS", "Hysteria2", "TUIC")
+            val protocols = arrayOf("", "vless", "hysteria2", "tuic")
+            val row = TextView(this).apply {
+                textSize = 13f
+                setTextColor(LIGHT_ACCENT)
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+                background = rounded(0xFF172238.toInt(), 12)
+                fun refresh() {
+                    val current = settingsPrefs.getString(key, "").orEmpty()
+                    val name = options[protocols.indexOf(current).takeIf { it >= 0 } ?: 0]
+                    text = "$label · $name"
+                }
+                refresh()
+                setOnClickListener {
+                    val current = settingsPrefs.getString(key, "").orEmpty()
+                    val selected = protocols.indexOf(current).coerceAtLeast(0)
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(label)
+                        .setSingleChoiceItems(options, selected) { dialog, which ->
+                            settingsPrefs.edit().putString(key, protocols[which]).apply()
+                            refresh()
+                            dialog.dismiss()
+                        }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            }
+            panel.addView(row)
+        }
+        addTimeProtocolPreference("Утро (06–10)", TimeOfDayServerPolicy.Window.MORNING)
+        addTimeProtocolPreference("День (11–16)", TimeOfDayServerPolicy.Window.DAY)
+        addTimeProtocolPreference("Вечер (17–22)", TimeOfDayServerPolicy.Window.EVENING)
+        addTimeProtocolPreference("Ночь (23–05)", TimeOfDayServerPolicy.Window.NIGHT)
+        panel.addView(TextView(this).apply {
+            text = "Предпочтение протокола даёт небольшой бонус при близком ping и не перебивает заметно более быстрый сервер."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(2), dp(4), dp(8))
+        })
+
         addSectionLabel("✦  ИНСТРУМЕНТЫ")
         val monitorEntry = TextView(this).apply {
             text = "📶  Мониторинг сети"
@@ -3933,9 +4302,20 @@ class MainActivity : Activity() {
                 settingsPrefs.edit()
                     .putString("sort_mode", mode)
                     .putBoolean("auto_update", autoUpdate.isChecked)
+                    .putString("routing_preset", routingGroup.findViewById<RadioButton>(routingGroup.checkedRadioButtonId)?.tag as? String ?: AstraNetworkPreferences.RoutingPreset.ALL_VPN.name)
+                    .putInt("tun_mtu", AstraNetworkPreferences.MIN_MTU + mtuSlider.progress)
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
                     .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
                     .apply()
+                AstraNetworkPreferences(
+                    routingPreset = runCatching {
+                        AstraNetworkPreferences.RoutingPreset.valueOf(
+                            routingGroup.findViewById<RadioButton>(routingGroup.checkedRadioButtonId)?.tag as? String
+                                ?: AstraNetworkPreferences.RoutingPreset.ALL_VPN.name
+                        )
+                    }.getOrDefault(AstraNetworkPreferences.RoutingPreset.ALL_VPN),
+                    mtu = AstraNetworkPreferences.MIN_MTU + mtuSlider.progress
+                ).save(this@MainActivity)
                 if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
@@ -3964,6 +4344,89 @@ class MainActivity : Activity() {
         sheet.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
+
+    private fun maybeShowOnboarding() {
+        if (settingsPrefs.getBoolean("onboarding_completed", false) || isFinishing || isDestroyed) return
+        var index = 0
+        fun showSlide() {
+            val slide = OnboardingSlides.all[index]
+            val dialog = MaterialAlertDialogBuilder(this)
+                .setTitle(slide.title)
+                .setMessage(slide.body)
+                .setCancelable(false)
+                .setNegativeButton(if (index == 0) "Пропустить" else "Назад") { _, _ ->
+                    if (index == 0) {
+                        settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                    } else {
+                        index--
+                        showSlide()
+                    }
+                }
+                .setPositiveButton(if (index == OnboardingSlides.all.lastIndex) "Начать" else "Далее", null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val next = OnboardingSlides.next(index)
+                    if (next == null) {
+                        settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                        dialog.dismiss()
+                    } else {
+                        index = next
+                        dialog.dismiss()
+                        showSlide()
+                    }
+                }
+            }
+            dialog.show()
+        }
+        showSlide()
+    }
+
+    private fun shareSelectedProfile() {
+        val link = selectedProfile?.takeIf { it.isNotBlank() }
+        if (link == null) {
+            Toast.makeText(this, "Сначала выбери сервер", Toast.LENGTH_SHORT).show()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Поделиться сервером?")
+            .setMessage("Ссылка содержит данные доступа к серверу. Отправляй её только доверенному человеку. Получатель сможет импортировать профиль в Astra VPN.")
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Показать QR") { _, _ -> showProfileQr(link) }
+            .setPositiveButton("Поделиться ссылкой") { _, _ ->
+                startActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link),
+                    "Поделиться сервером"
+                ))
+            }
+            .show()
+    }
+
+    private fun showProfileQr(link: String) {
+        runCatching { ProfileShareQr.create(link) }
+            .onSuccess { bitmap ->
+                val image = android.widget.ImageView(this).apply {
+                    setImageBitmap(bitmap)
+                    adjustViewBounds = true
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                }
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("QR-код сервера")
+                    .setMessage("QR-код содержит секретную ссылку доступа. Не публикуй его открыто.")
+                    .setView(image)
+                    .setPositiveButton("Готово", null)
+                    .setNeutralButton("Поделиться ссылкой") { _, _ ->
+                        startActivity(Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link),
+                            "Поделиться сервером"
+                        ))
+                    }
+                    .show()
+            }
+            .onFailure {
+                Toast.makeText(this, "Не удалось создать QR-код. Ссылка слишком длинная или некорректная.", Toast.LENGTH_LONG).show()
+            }
+    }
 
     private data class InstalledApp(
         val packageName: String,
@@ -4149,6 +4612,96 @@ class MainActivity : Activity() {
         return profiles.mapNotNull { profile ->
             val penalty = LatencyStabilityScorer.penaltyMs(latencyHistory.samples(profile, now), now)
             if (penalty > 0L) profile to penalty else null
+        }.toMap()
+    }
+
+    private fun startThroughputForFastestSelection(): Boolean {
+        // URL-test already identifies the strongest latency candidates. Probe
+        // only a small shortlist instead of downloading data from every node
+        // in a potentially very large subscription.
+        val profiles = ThroughputCandidateSelector.select(
+            profiles = urlTestProfileMap.values.toList(),
+            latencyMs = latencyMs,
+            maxCandidates = ThroughputCandidateSelector.DEFAULT_MAX_CANDIDATES
+        )
+        val network = networkForLatencyProbe() ?: return false
+        if (profiles.isEmpty()) return false
+        // Do not let measurements from an earlier selection attempt masquerade
+        // as results from this run when a server probe fails or times out.
+        profiles.forEach { throughputMbps.remove(it) }
+        throughputProfileMap = profiles.associateBy { SingBoxThroughputTestConfig.outboundTag(it) }
+        throughputTestInFlight = ThroughputTestLauncher.start(this, profiles, network)
+        return throughputTestInFlight
+    }
+
+    private fun applyThroughputResults(payload: String, finished: Boolean) {
+        val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        throughputProfileMap.forEach { (tag, profile) ->
+            if (!values.has(tag) || values.isNull(tag)) return@forEach
+            val speed = values.optDouble(tag, Double.NaN)
+            if (!speed.isFinite() || speed <= 0.0) return@forEach
+            throughputMbps[profile] = speed
+            throughputObservedAt[profile] = System.currentTimeMillis()
+            if (finished) throughputHistory.record(profile, speed)
+        }
+        if (finished) {
+            throughputTestInFlight = false
+            if (pendingFastestSelection) completeFastestSelection()
+        }
+        if (!isFinishing && !isDestroyed) {
+            searchRenderHandler.removeCallbacks(searchRenderTask)
+            searchRenderHandler.postDelayed(searchRenderTask, 90L)
+        }
+    }
+
+    private fun completeFastestSelection() {
+        pendingFastestSelection = false
+        throughputTestInFlight = false
+        selectingFastest = false
+        val profiles = urlTestProfileMap.values.toList()
+        val fastest = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = latencyMs,
+            recentFailures = recentServerFailureCounts(profiles),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(profiles),
+            throughputMbps = throughputScores(profiles),
+            latencyTimestamps = latencyObservedAt,
+            throughputTimestamps = throughputObservedAt,
+            nowMs = System.currentTimeMillis(),
+            localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+            preferredProtocols = timeProtocolPreferences()
+        )
+        if (fastest != null) {
+            selectedProfile = fastest
+            status.text = "Выбран быстрый сервер"
+            status.setTextColor(GREEN)
+            selectedInfo.text = profileSummary(fastest)
+            Toast.makeText(this, "Выбран сервер: " + profileName(fastest), Toast.LENGTH_LONG).show()
+            if (tilePendingStart) {
+                tilePendingStart = false
+                connectSelectedProfile()
+            }
+        } else {
+            tilePendingStart = false
+            Toast.makeText(this, "Работающих серверов не найдено", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun timeProtocolPreferences(): Map<TimeOfDayServerPolicy.Window, Set<String>> =
+        TimeOfDayServerPolicy.Window.values().mapNotNull { window ->
+            settingsPrefs.getString("time_protocol_${window.name}", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { window to setOf(it.lowercase(java.util.Locale.ROOT)) }
+        }.toMap()
+
+    private fun throughputScores(profiles: List<String>): Map<String, Double> {
+        val now = System.currentTimeMillis()
+        return profiles.mapNotNull { profile ->
+            // Prefer a valid sample from the current selection attempt. The
+            // persistent history enforces a 60-second write interval, so relying
+            // on it alone could silently discard a fresh measurement on retries.
+            val current = throughputMbps[profile]?.takeIf { it.isFinite() && it > 0.0 }
+            (current ?: throughputHistory.medianMbps(profile, now))?.let { profile to it }
         }.toMap()
     }
 
@@ -4355,10 +4908,13 @@ class MainActivity : Activity() {
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        throughputMonitorExecutor.shutdownNow()
         super.onDestroy()
     }
 
     companion object {
+        private const val TUNNEL_THROUGHPUT_INTERVAL_MS = 15_000L
+        private const val TUNNEL_THROUGHPUT_BASELINE_SAMPLES = 3
         const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_EXPORT_BACKUP = 7005

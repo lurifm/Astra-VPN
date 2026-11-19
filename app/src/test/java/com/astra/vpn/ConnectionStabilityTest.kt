@@ -15,6 +15,7 @@ class ConnectionStabilityTest {
         assertEquals(150_000L, result.connectedDurationMs)
         assertEquals(2, result.completedSessions)
         assertEquals(1, result.unexpectedDrops)
+        assertEquals(50, result.dropRatePercent)
     }
 
     @Test fun includesAnActiveSessionUpToNow() {
@@ -25,6 +26,7 @@ class ConnectionStabilityTest {
         assertEquals(60_000L, result.connectedDurationMs)
         assertEquals(0, result.completedSessions)
         assertEquals(0, result.unexpectedDrops)
+        assertEquals(null, result.dropRatePercent)
     }
 
     @Test fun ignoresDisconnectsWithoutARecordedSession() {

@@ -6,7 +6,12 @@ object ConnectionStability {
         val connectedDurationMs: Long,
         val completedSessions: Int,
         val unexpectedDrops: Int
-    )
+    ) {
+        val dropRatePercent: Int?
+            get() = if (completedSessions <= 0) null
+            else ((unexpectedDrops.toDouble() / completedSessions.toDouble()) * 100.0)
+                .toInt().coerceIn(0, 100)
+    }
 
     data class Event(val timestamp: Long, val state: String)
 

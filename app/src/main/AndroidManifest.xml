@@ -76,6 +76,17 @@
                 android:value="Isolated proxy latency testing" />
         </service>
 
+        <!-- Isolated throughput measurement engine; no TUN is established. -->
+        <service
+            android:name=".AstraThroughputTestService"
+            android:process=":throughput"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Isolated per-server throughput testing" />
+        </service>
+
         <service
             android:name=".AstraVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"

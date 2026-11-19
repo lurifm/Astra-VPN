@@ -106,4 +106,75 @@ class BestServerSelectorTest {
         )
         assertEquals("vless://normal", selected)
     }
+
+    @Test
+    fun ignoresStaleLatencyMeasurementsWhenFreshnessMetadataIsProvided() {
+        val now = 10_000_000L
+        val selected = BestServerSelector.select(
+            profiles = listOf("tuic://stale", "vless://fresh"),
+            latencyMs = mapOf("tuic://stale" to 5L, "vless://fresh" to 70L),
+            latencyTimestamps = mapOf(
+                "tuic://stale" to now - ServerSelectionFreshness.MAX_LATENCY_AGE_MS - 1L,
+                "vless://fresh" to now
+            ),
+            nowMs = now
+        )
+        assertEquals("vless://fresh", selected)
+    }
+
+    @Test
+    fun staleHighThroughputDoesNotDistortFreshCandidateScoring() {
+        val now = 10_000_000L
+        val profiles = listOf("vless://fresh-fast", "tuic://fresh-slower", "hysteria2://stale")
+        val selected = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = mapOf(
+                "vless://fresh-fast" to 50L,
+                "tuic://fresh-slower" to 55L,
+                "hysteria2://stale" to 1L
+            ),
+            throughputMbps = mapOf(
+                "vless://fresh-fast" to 80.0,
+                "tuic://fresh-slower" to 70.0,
+                "hysteria2://stale" to 10_000.0
+            ),
+            latencyTimestamps = profiles.associateWith { now },
+            throughputTimestamps = mapOf(
+                "vless://fresh-fast" to now,
+                "tuic://fresh-slower" to now,
+                "hysteria2://stale" to now - ServerSelectionFreshness.MAX_THROUGHPUT_AGE_MS - 1L
+            ),
+            nowMs = now
+        )
+        assertEquals("tuic://fresh-slower", selected)
+    }
+
+    @Test
+    fun ignoresStaleThroughputAndAppliesTimeOfDayPreferenceOnlyWhenConfigured() {
+        val now = 10_000_000L
+        val profiles = listOf("vless://preferred", "tuic://fast")
+        val latencies = mapOf("vless://preferred" to 50L, "tuic://fast" to 56L)
+        val baseline = BestServerSelector.select(profiles, latencies, nowMs = now)
+        val preferred = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = latencies,
+            nowMs = now,
+            localHour = 19,
+            preferredProtocols = mapOf(TimeOfDayServerPolicy.Window.EVENING to setOf("vless"))
+        )
+        assertEquals("tuic://fast", baseline)
+        assertEquals("vless://preferred", preferred)
+
+        val staleSpeed = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = latencies,
+            throughputMbps = mapOf("vless://preferred" to 1.0, "tuic://fast" to 100.0),
+            throughputTimestamps = mapOf(
+                "vless://preferred" to now,
+                "tuic://fast" to now - ServerSelectionFreshness.MAX_THROUGHPUT_AGE_MS - 1L
+            ),
+            nowMs = now
+        )
+        assertEquals("tuic://fast", staleSpeed)
+    }
 }
