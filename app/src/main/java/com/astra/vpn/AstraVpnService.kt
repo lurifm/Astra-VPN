@@ -36,7 +36,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val healthTick = object : Runnable {
         override fun run() {
             synchronized(lifecycleLock) {
-                if (stopping || tunDescriptor == null) return
+                if (!HealthMonitorLifecyclePolicy.shouldScheduleTick(stopping, tunDescriptor != null)) return
             }
             val connectivity = getSystemService(ConnectivityManager::class.java)
             val network = connectivity.activeNetwork
@@ -77,7 +77,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         }
                     }
             }
-            mainHandler.postDelayed(this, HEALTH_INTERVAL_MS)
+            synchronized(lifecycleLock) {
+                if (HealthMonitorLifecyclePolicy.shouldScheduleTick(stopping, tunDescriptor != null)) {
+                    mainHandler.postDelayed(this, HEALTH_INTERVAL_MS)
+                }
+            }
         }
     }
 
