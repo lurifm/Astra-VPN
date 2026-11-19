@@ -13,7 +13,8 @@ internal object AstraNetworkSecurity {
         val vpnTransportActive: Boolean,
         val dnsServers: List<String>,
         val activeNetworkHasInternet: Boolean,
-        val ipv6DefaultRoutePresent: Boolean
+        val ipv6DefaultRoutePresent: Boolean,
+        val captivePortalDetected: Boolean
     )
 
     fun snapshot(context: Context): Snapshot {
@@ -27,7 +28,8 @@ internal object AstraNetworkSecurity {
             activeNetworkHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
             ipv6DefaultRoutePresent = links?.routes?.any { route ->
                 route.isDefaultRoute && route.destination.address is Inet6Address
-            } == true
+            } == true,
+            captivePortalDetected = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
         )
     }
 
