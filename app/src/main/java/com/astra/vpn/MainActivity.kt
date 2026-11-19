@@ -4153,7 +4153,14 @@ class MainActivity : Activity() {
     }
 
     private fun startThroughputForFastestSelection(): Boolean {
-        val profiles = urlTestProfileMap.values.distinct()
+        // URL-test already identifies the strongest latency candidates. Probe
+        // only a small shortlist instead of downloading data from every node
+        // in a potentially very large subscription.
+        val profiles = ThroughputCandidateSelector.select(
+            profiles = urlTestProfileMap.values.toList(),
+            latencyMs = latencyMs,
+            maxCandidates = ThroughputCandidateSelector.DEFAULT_MAX_CANDIDATES
+        )
         val network = networkForLatencyProbe() ?: return false
         if (profiles.isEmpty()) return false
         // Do not let measurements from an earlier selection attempt masquerade
