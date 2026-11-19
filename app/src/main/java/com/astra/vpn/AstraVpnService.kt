@@ -52,13 +52,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         }
                         val sameVpnNetwork = currentNetwork == network &&
                             currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                        if (ServiceHealthResultPolicy.shouldPublish(
-                                android.os.SystemClock.elapsedRealtime(),
-                                android.os.SystemClock.elapsedRealtime(),
-                                serviceActive,
-                                sameVpnNetwork
-                            )
-                        ) {
+                        if (serviceActive && sameVpnNetwork) {
                             val result = Intent(ACTION_HEALTH).setPackage(packageName)
                                 .putExtra(EXTRA_HEALTH_REACHABLE, reachable)
                                 .putExtra(EXTRA_HEALTH_CHECKED_AT, android.os.SystemClock.elapsedRealtime())
