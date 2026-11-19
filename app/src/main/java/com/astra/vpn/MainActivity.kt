@@ -4156,6 +4156,9 @@ class MainActivity : Activity() {
         val profiles = urlTestProfileMap.values.distinct()
         val network = networkForLatencyProbe() ?: return false
         if (profiles.isEmpty()) return false
+        // Do not let measurements from an earlier selection attempt masquerade
+        // as results from this run when a server probe fails or times out.
+        profiles.forEach { throughputMbps.remove(it) }
         throughputProfileMap = profiles.associateBy { SingBoxThroughputTestConfig.outboundTag(it) }
         throughputTestInFlight = ThroughputTestLauncher.start(this, profiles, network)
         return throughputTestInFlight
@@ -4211,7 +4214,11 @@ class MainActivity : Activity() {
     private fun throughputScores(profiles: List<String>): Map<String, Double> {
         val now = System.currentTimeMillis()
         return profiles.mapNotNull { profile ->
-            throughputHistory.medianMbps(profile, now)?.let { profile to it }
+            // Prefer a valid sample from the current selection attempt. The
+            // persistent history enforces a 60-second write interval, so relying
+            // on it alone could silently discard a fresh measurement on retries.
+            val current = throughputMbps[profile]?.takeIf { it.isFinite() && it > 0.0 }
+            (current ?: throughputHistory.medianMbps(profile, now))?.let { profile to it }
         }.toMap()
     }
 
