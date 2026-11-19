@@ -3660,7 +3660,7 @@ class MainActivity : Activity() {
                             if (securityAudit?.dnsRoutingProtected == true) "настроен" else "не подтверждён")
                         appendLine("DNS-запрос через VPN: " + if (dnsResolutionOk) "успешен" else "не прошёл")
                         appendLine("IPv4-маршрут в TUN: " +
-                            if (securityAudit?.ipv4TunnelConfigured == true && securityAudit.automaticRoutingEnabled) "настроен" else "не подтверждён")
+                            if (securityAudit?.let { it.ipv4TunnelConfigured && it.automaticRoutingEnabled } == true) "настроен" else "не подтверждён")
                         appendLine("IPv6-маршрут в TUN: " +
                             if (securityAudit?.ipv6RoutingConfigured == true) "настроен" else "не подтверждён")
                         appendLine("Публичный IPv6 через VPN: " +
