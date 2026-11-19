@@ -3925,6 +3925,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAppSettingsDialog() {
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(12))
@@ -4191,7 +4192,6 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(4))
             addView(panel)
         }
-        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val sheetContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(18))
