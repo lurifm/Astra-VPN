@@ -28,7 +28,7 @@ internal object TimeOfDayProtocolPreferences {
 
     internal fun encode(
         values: Map<TimeOfDayServerPolicy.Window, Set<String>>
-    ): String = TimeOfDayServerPolicy.Window.entries.mapNotNull { window ->
+    ): String = TimeOfDayServerPolicy.Window.values().mapNotNull { window ->
         val protocols = values[window].orEmpty()
             .mapNotNull(::normalizeProtocol)
             .distinct()
