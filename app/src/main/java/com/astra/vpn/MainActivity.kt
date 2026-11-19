@@ -427,8 +427,8 @@ class MainActivity : Activity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         val starButtonFrame = android.widget.FrameLayout(this).apply {
-            addView(starBurstView, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
             addView(connectButton, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
+            addView(starBurstView, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
         }
         connectCard.addView(starButtonFrame, LinearLayout.LayoutParams(dp(108), dp(108)))
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
