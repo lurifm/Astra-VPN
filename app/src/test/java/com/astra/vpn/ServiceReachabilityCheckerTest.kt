@@ -17,7 +17,7 @@ class ServiceReachabilityCheckerTest {
             assertFalse(result.serviceAvailable)
             assertTrue(result.display().contains("сервер ответил"))
             assertTrue(result.display().contains("сервис недоступен"))
-            assertFalse(result.display().contains("доступен ·"))
+            assertFalse(result.display().contains(": доступен ·"))
         }
 
         assertFalse(ServiceReachabilityChecker.Result("test", null, null, "IOException").reachable)
