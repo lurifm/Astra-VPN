@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Astra VPN</string>
+    <string name="subscription_alerts_channel">Уведомления о подписке</string>
+    <string name="subscription_alerts_description">Предупреждения об окончании срока и остатке трафика</string>
+    <string name="shortcut_open">Открыть Astra</string>
+    <string name="shortcut_open_long">Открыть Astra VPN</string>
+</resources>
