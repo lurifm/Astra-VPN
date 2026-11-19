@@ -45,12 +45,21 @@ class ThroughputMeasurementTest {
     }
 
     @Test
-    fun rejectsUnreliableDurations() {
-        assertNull(
+    fun acceptsFastReliableTransfersAndRejectsTimerResolutionNoise() {
+        assertEquals(
+            83.88608,
             ThroughputMeasurement.fromTransfer(
                 bytesRead = 1_048_576L,
                 expectedBytes = 1_048_576L,
                 durationNanos = 100_000_000L
+            )!!.downloadMbps,
+            0.00001
+        )
+        assertNull(
+            ThroughputMeasurement.fromTransfer(
+                bytesRead = 1_048_576L,
+                expectedBytes = 1_048_576L,
+                durationNanos = 5_000_000L
             )
         )
         assertNull(
