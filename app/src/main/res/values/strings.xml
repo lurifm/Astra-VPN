@@ -11,4 +11,8 @@
     <string name="network_security_entry">🔐  Состояние VPN и DNS</string>
     <string name="widget_title">Astra VPN</string>
     <string name="widget_connect">Подключить / отключить</string>
+    <string name="widget_status_connected">Подключено</string>
+    <string name="widget_status_connecting">Подключение…</string>
+    <string name="widget_status_disconnected">Отключено</string>
+    <string name="widget_status_error">Ошибка подключения</string>
 </resources>
