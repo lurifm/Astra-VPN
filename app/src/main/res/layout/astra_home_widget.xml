@@ -16,6 +16,15 @@
         android:textStyle="bold" />
 
     <TextView
+        android:id="@+id/astra_widget_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:text="@string/widget_status_disconnected"
+        android:textColor="#AAB9D8"
+        android:textSize="12sp" />
+
+    <TextView
         android:id="@+id/astra_widget_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
