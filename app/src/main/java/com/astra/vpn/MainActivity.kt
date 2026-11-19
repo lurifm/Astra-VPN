@@ -174,13 +174,10 @@ class MainActivity : Activity() {
     private var lastTrafficAt = 0L
     // Network type and carrier metadata change infrequently; avoid querying telephony every frame.
     private var lastNetworkLabelAt = 0L
-    private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsProbeExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsRequestGuard = DiagnosticsRequestGuard()
     private val diagnosticsTaskRegistry = DiagnosticsTaskRegistry()
-    private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-    @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
@@ -191,7 +188,6 @@ class MainActivity : Activity() {
         override fun run() {
             updateTrafficMonitor()
             updateNetworkLabel()
-            scheduleTunnelHealthCheck()
             scheduleTunnelThroughputProbe()
             val powerSave = runCatching {
                 getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
@@ -242,6 +238,14 @@ class MainActivity : Activity() {
                     }
                     return
                 }
+                AstraVpnService.ACTION_HEALTH -> {
+                    val checkedAt = intent.getLongExtra(AstraVpnService.EXTRA_HEALTH_CHECKED_AT, 0L)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (checkedAt > 0L && now >= checkedAt && now - checkedAt <= 30_000L) {
+                        applyServiceHealthResult(intent.getBooleanExtra(AstraVpnService.EXTRA_HEALTH_REACHABLE, false))
+                    }
+                    return
+                }
                 AstraVpnService.ACTION_STATE -> Unit
                 else -> return
             }
@@ -250,7 +254,6 @@ class MainActivity : Activity() {
                     connected = false
                     connecting = true
                     consecutiveHealthFailures = 0
-                    lastHealthCheckAt = 0L
                     resetTunnelThroughputBaseline()
                     status.text = "Создаём VPN-туннель…"
                     status.setTextColor(AMBER)
@@ -259,7 +262,6 @@ class MainActivity : Activity() {
                     connected = true
                     connecting = false
                     tunnelInternetOk = null
-                    lastHealthCheckAt = 0L
                     resetTunnelThroughputBaseline()
                     throughputFailoverInProgress = false
                     status.text = "Подключено"
@@ -2591,6 +2593,7 @@ class MainActivity : Activity() {
         if (!receiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(AstraVpnService.ACTION_STATE)
+                addAction(AstraVpnService.ACTION_HEALTH)
                 addAction(AstraLatencyTestService.ACTION_RESULTS)
                 addAction(AstraLatencyTestService.ACTION_ERROR)
                 addAction(AstraThroughputTestService.ACTION_RESULTS)
@@ -3173,64 +3176,18 @@ class MainActivity : Activity() {
      * A created VpnService/TUN alone does not prove that the selected proxy can
      * carry traffic. The check runs off the UI thread and is rate-limited.
      */
-    private fun scheduleTunnelHealthCheck() {
+    private fun applyServiceHealthResult(ok: Boolean) {
         if (!connected || isFinishing || isDestroyed) return
-        val connectivity = getSystemService(ConnectivityManager::class.java)
-        val vpnNetwork = connectivity.activeNetwork
-        val vpnCapabilities = vpnNetwork?.let(connectivity::getNetworkCapabilities)
-        if (vpnNetwork == null || vpnCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
-            tunnelInternetOk = false
-            updateProtectionLabels()
-            return
+        tunnelInternetOk = ok
+        if (ok) consecutiveHealthFailures = 0
+        else {
+            consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
+            maybeAutoFailover()
         }
-        // Use monotonic time so wall-clock changes cannot stall or spam health probes.
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
-        lastHealthCheckAt = now
-        try {
-            healthCheckExecutor.execute {
-                val ok = try {
-                    TunnelHealthChecker.check(vpnNetwork)
-                } catch (_: Exception) {
-                    false
-                } finally {
-                    // Always release the gate, even if a platform/network call fails unexpectedly.
-                    healthCheckInFlight.set(false)
-                }
-                runOnUiThread {
-                    if (!isFinishing && !isDestroyed && connected) {
-                        // Discard a probe result if Android replaced the VPN Network
-                        // while the request was in flight; it says nothing about the new tunnel.
-                        val currentNetwork = connectivity.activeNetwork
-                        val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
-                        if (currentNetwork != vpnNetwork ||
-                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
-                        ) {
-                            lastHealthCheckAt = 0L
-                            return@runOnUiThread
-                        }
-                        tunnelInternetOk = ok
-                        if (ok) {
-                            consecutiveHealthFailures = 0
-                        } else {
-                            consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
-                            maybeAutoFailover()
-                        }
-                        updateProtectionLabels()
-                        renderProfiles()
-                    }
-                }
-            }
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
-            // Activity teardown can race with a scheduled probe after executor shutdown.
-            healthCheckInFlight.set(false)
-        }
+        updateProtectionLabels()
+        renderProfiles()
     }
 
-    /**
-     * Switch only after repeated failed end-to-end checks. A single blocked
-     * probe or transient network handover must not cause a server change.
-     */
     private fun maybeAutoFailover() {
         if (!connected || connecting || selectingFastest) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
@@ -4943,7 +4900,6 @@ class MainActivity : Activity() {
         importExecutor.shutdownNow()
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
-        healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
         diagnosticsTaskRegistry.cancelAll()
         diagnosticsProbeExecutor.shutdownNow()
