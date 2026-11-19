@@ -3758,7 +3758,19 @@ class MainActivity : Activity() {
                 }.getOrDefault(false)
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
-                    val serviceReport = results.joinToString("\n") { it.display() }
+                    val serviceStates = results.associate { result ->
+                        val probe = when {
+                            result.httpCode == null -> ServiceAvailability.Probe(0, 0)
+                            ServiceReachabilityChecker.isSuccessfulHttpCode(result.httpCode) ->
+                                ServiceAvailability.Probe(1, 1)
+                            else -> ServiceAvailability.Probe(0, 1)
+                        }
+                        result.name to ServiceAvailability.classify(probe)
+                    }
+                    val serviceReport = buildString {
+                        appendLine("Общая оценка: ${ServiceAvailability.summary(serviceStates)}")
+                        append(results.joinToString("\n") { it.display() })
+                    }
                     val securityReport = buildString {
                         appendLine("DNS/IPv6 — проверка через активную VPN-сеть")
                         appendLine("DNS-over-HTTPS в конфигурации: " +
