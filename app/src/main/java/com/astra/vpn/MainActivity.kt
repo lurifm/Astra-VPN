@@ -3771,9 +3771,15 @@ class MainActivity : Activity() {
             recentEntries.map { ConnectionStability.Event(it.timestamp, it.state) },
             System.currentTimeMillis()
         )
+        val streak = VpnUsageStreak.currentDays(
+            recentEntries.filter { it.state == "connected" }.map { it.timestamp },
+            System.currentTimeMillis()
+        )
         val stabilityText = "За 7 дней · по сохранённым событиям\n" +
             "Время под защитой: ${ConnectionStability.formatDuration(stability.connectedDurationMs)}\n" +
-            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}"
+            "Завершённых сессий: ${stability.completedSessions} · обрывов: ${stability.unexpectedDrops}\n" +
+            "Доля обрывов: ${stability.dropRatePercent?.let { "$it%" } ?: "недостаточно данных"}\n" +
+            "Серия дней с подключением: $streak (по истории последних 100 событий)"
         val body = if (entries.isEmpty()) {
             "История пока пуста. Здесь будут отображаться подключения, отключения и ошибки."
         } else {
