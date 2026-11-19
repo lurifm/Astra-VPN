@@ -178,8 +178,7 @@ class MainActivity : Activity() {
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsProbeExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsRequestGuard = DiagnosticsRequestGuard()
-    @Volatile private var diagnosticsProbeTask: java.util.concurrent.Future<*>? = null
-    @Volatile private var diagnosticsProbeTaskToken: Long = 0L
+    private val diagnosticsTaskRegistry = DiagnosticsTaskRegistry()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
@@ -3632,7 +3631,7 @@ class MainActivity : Activity() {
     }
 
     private fun showConnectionDiagnostics() {
-        diagnosticsProbeTask?.cancel(true)
+        diagnosticsTaskRegistry.cancelAll()
         val requestToken = diagnosticsRequestGuard.begin()
         val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivity.activeNetwork
@@ -3733,7 +3732,7 @@ class MainActivity : Activity() {
             .show()
         dialog.setOnDismissListener {
             diagnosticsRequestGuard.invalidate(requestToken)
-            if (diagnosticsProbeTaskToken == requestToken) diagnosticsProbeTask?.cancel(true)
+            diagnosticsTaskRegistry.cancel(requestToken)
         }
         dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
             val share = Intent(Intent.ACTION_SEND).apply {
@@ -3744,8 +3743,7 @@ class MainActivity : Activity() {
             startActivity(Intent.createChooser(share, "Отправить отчёт"))
         }
         if (vpnTransport && network != null) {
-            diagnosticsProbeTaskToken = requestToken
-            diagnosticsProbeTask = diagnosticsProbeExecutor.submit {
+            val diagnosticsTask = diagnosticsProbeExecutor.submit {
                 val results = ServiceReachabilityChecker.checkAll(network)
                 if (Thread.currentThread().isInterrupted || !diagnosticsRequestGuard.isCurrent(requestToken)) return@submit
                 val securityAudit = active?.let { profile ->
@@ -3807,6 +3805,7 @@ class MainActivity : Activity() {
                     reportView.text = latestReport
                 }
             }
+            diagnosticsTaskRegistry.replace(requestToken, diagnosticsTask)
         }
     }
 
@@ -4946,7 +4945,7 @@ class MainActivity : Activity() {
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
-        diagnosticsProbeTask?.cancel(true)
+        diagnosticsTaskRegistry.cancelAll()
         diagnosticsProbeExecutor.shutdownNow()
         throughputMonitorExecutor.shutdownNow()
         super.onDestroy()
