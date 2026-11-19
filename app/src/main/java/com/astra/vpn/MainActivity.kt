@@ -3447,6 +3447,37 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /**
+     * Android owns the real lockdown switch. Astra can guide the user to it,
+     * but must never claim that lockdown is enabled or silently change it.
+     */
+    private fun showAndroidLockdownGuide() {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Системная блокировка без VPN")
+            .setMessage(
+                "Android умеет блокировать весь сетевой трафик вне VPN. Это системная функция, и Astra VPN не может включить её самостоятельно.\n\n" +
+                    "Чтобы настроить защиту:\n" +
+                    "1. Откройте системные настройки VPN.\n" +
+                    "2. Выберите Astra VPN.\n" +
+                    "3. Включите «Постоянно включённая VPN».\n" +
+                    "4. Включите «Блокировать подключения без VPN», если такой пункт доступен.\n\n" +
+                    "Важно: после включения блокировки интернет будет недоступен, если VPN отключится или не сможет подключиться. Сначала проверьте работу сервера и убедитесь, что сможете вернуться в эти настройки."
+            )
+            .setPositiveButton("Открыть настройки VPN") { _, _ ->
+                runCatching {
+                    startActivity(Intent("android.settings.VPN_SETTINGS"))
+                }.onFailure {
+                    runCatching {
+                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                    }.onFailure {
+                        Toast.makeText(this, "Не удалось открыть системные настройки", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Позже", null)
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3532,6 +3563,19 @@ class MainActivity : Activity() {
             setOnClickListener { showAppRoutingDialog() }
         }
         panel.addView(appRoutingEntry)
+
+        addSectionLabel("✦  ЗАЩИТА СОЕДИНЕНИЯ")
+        val lockdownEntry = TextView(this).apply {
+            text = "🛡️  Системная блокировка без VPN"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showAndroidLockdownGuide() }
+        }
+        panel.addView(lockdownEntry)
+
         addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
         val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
