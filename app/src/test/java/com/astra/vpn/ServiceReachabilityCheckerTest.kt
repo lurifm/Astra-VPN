@@ -5,16 +5,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceReachabilityCheckerTest {
-    @Test fun resultUsesTheSameReachabilityRule() {
+    @Test fun resultSeparatesHostReachabilityFromServiceAvailability() {
         assertTrue(ServiceReachabilityChecker.Result("test", 204, 12L, null).reachable)
+        assertTrue(ServiceReachabilityChecker.Result("test", 204, 12L, null).serviceAvailable)
         assertTrue(ServiceReachabilityChecker.Result("test", 302, 12L, null).reachable)
-        assertTrue(ServiceReachabilityChecker.Result("test", 503, 12L, null).reachable)
-        assertFalse(ServiceReachabilityChecker.Result("test", 503, 12L, null).serviceAvailable)
-        assertTrue(ServiceReachabilityChecker.Result("test", 503, 12L, null).display().contains("сервер ответил"))
-        assertFalse(ServiceReachabilityChecker.Result("test", 503, 12L, null).display().contains("доступен"))
-        assertTrue(ServiceReachabilityChecker.Result("test", 403, 12L, null).reachable)
-        assertFalse(ServiceReachabilityChecker.Result("test", 403, 12L, null).serviceAvailable)
-        assertTrue(ServiceReachabilityChecker.Result("test", 403, 12L, null).display().contains("сервер ответил"))
+        assertTrue(ServiceReachabilityChecker.Result("test", 302, 12L, null).serviceAvailable)
+
+        for (code in listOf(403, 503)) {
+            val result = ServiceReachabilityChecker.Result("test", code, 12L, null)
+            assertTrue(result.reachable)
+            assertFalse(result.serviceAvailable)
+            assertTrue(result.display().contains("сервер ответил"))
+            assertTrue(result.display().contains("сервис недоступен"))
+            assertFalse(result.display().contains("доступен ·"))
+        }
+
         assertFalse(ServiceReachabilityChecker.Result("test", null, null, "IOException").reachable)
     }
 
@@ -28,7 +33,7 @@ class ServiceReachabilityCheckerTest {
         assertTrue(ServiceReachabilityChecker.isSuccessfulHttpCode(302))
     }
 
-    @Test fun rejectsClientAndServerErrors() {
+    @Test fun rejectsClientAndServerErrorsAsAvailableServices() {
         assertFalse(ServiceReachabilityChecker.isSuccessfulHttpCode(403))
         assertFalse(ServiceReachabilityChecker.isSuccessfulHttpCode(404))
         assertFalse(ServiceReachabilityChecker.isSuccessfulHttpCode(503))
