@@ -241,7 +241,7 @@ class MainActivity : Activity() {
                 AstraVpnService.ACTION_HEALTH -> {
                     val checkedAt = intent.getLongExtra(AstraVpnService.EXTRA_HEALTH_CHECKED_AT, 0L)
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (checkedAt > 0L && now >= checkedAt && now - checkedAt <= 30_000L) {
+                    if (ServiceHealthResultPolicy.isFresh(checkedAt, now)) {
                         applyServiceHealthResult(intent.getBooleanExtra(AstraVpnService.EXTRA_HEALTH_REACHABLE, false))
                     }
                     return
