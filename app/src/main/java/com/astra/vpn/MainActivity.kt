@@ -135,6 +135,7 @@ class MainActivity : Activity() {
     private lateinit var monitorLocation: TextView
     private lateinit var speedGraph: SpeedGraphView
     private lateinit var monitorSpeedStats: TextView
+    private lateinit var monitorSpeedDiagnostics: TextView
     private lateinit var monitorDailyTraffic: TextView
     private lateinit var monitorWeeklyTraffic: TextView
     private val dailyTrafficHistory: DailyTrafficHistory by lazy {
@@ -691,6 +692,13 @@ class MainActivity : Activity() {
         monitorDetails.addView(speedRow)
         monitorDetails.addView(speedGraph, LinearLayout.LayoutParams(matchWidth().width, dp(82)))
         monitorDetails.addView(monitorSpeedStats)
+        monitorSpeedDiagnostics = TextView(this).apply {
+            text = "Диагностика скорости: ожидаем первый замер"
+            textSize = 10f
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(6))
+        }
+        monitorDetails.addView(monitorSpeedDiagnostics)
         monitorDailyTraffic = TextView(this).apply {
             text = "Сегодня: ↓ — / ↑ —"
             textSize = 11f
@@ -3096,6 +3104,9 @@ class MainActivity : Activity() {
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
             monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
             speedGraph.addSample(down, up)
+            monitorSpeedDiagnostics.text = LiveSpeedDiagnostics.summary(
+                down.toDouble(), up.toDouble(), connected, 0L
+            )
             val stats = speedGraph.currentStats()
             monitorSpeedStats.text = String.format(
                 java.util.Locale.US,
