@@ -26,16 +26,17 @@ class TimeOfDayServerOptimizerTest {
     @Test
     fun requiresEnoughSamplesAndUsesMedianToLimitOutlierImpact() {
         val samples = listOf(
-            LatencyStabilityScorer.Sample(now - 14L * DAY_MS, 100L),
-            LatencyStabilityScorer.Sample(now - 7L * DAY_MS, 200L),
-            LatencyStabilityScorer.Sample(now, 10_000L)
+            LatencyStabilityScorer.Sample(now - 21L * DAY_MS, 100L),
+            LatencyStabilityScorer.Sample(now - 14L * DAY_MS, 200L),
+            LatencyStabilityScorer.Sample(now - 7L * DAY_MS, 10_000L),
+            LatencyStabilityScorer.Sample(now, 1_000L)
         )
 
         val result = TimeOfDayServerOptimizer.adjustedLatencies(
             listOf(profile), mapOf(profile to 1_000L), { samples }, now, utc
         )
 
-        // Median of the matching samples is 200 ms; current value retains 70% weight.
+        // Current sample is excluded; historical median is 200 ms and current value retains 70% weight.
         assertEquals(760L, result[profile])
     }
 

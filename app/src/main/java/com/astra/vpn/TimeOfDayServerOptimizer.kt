@@ -22,7 +22,13 @@ internal object TimeOfDayServerOptimizer {
         return profiles.mapNotNull { profile ->
             val current = currentLatencies[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
             val matching = samples(profile).asSequence().filter { sample ->
-                if (sample.timestampMs <= 0L || sample.timestampMs > now || sample.latencyMs <= 0L) {
+                // The caller records the just-finished URL-test before selecting a server.
+                // Exclude that fresh point so it cannot bias its own historical baseline.
+                if (sample.timestampMs <= 0L ||
+                    sample.timestampMs > now ||
+                    now - sample.timestampMs < MIN_HISTORICAL_AGE_MS ||
+                    sample.latencyMs <= 0L
+                ) {
                     return@filter false
                 }
                 val sampleCalendar = Calendar.getInstance(timeZone).apply { timeInMillis = sample.timestampMs }
@@ -47,8 +53,9 @@ internal object TimeOfDayServerOptimizer {
         else sorted[middle - 1] + (sorted[middle] - sorted[middle - 1]) / 2L
     }
 
-    private const val MIN_MATCHING_SAMPLES = 3
+    private const val MIN_MATCHING_SAMPLES = 2
     private const val MAX_HISTORY_SAMPLES = 6
+    private const val MIN_HISTORICAL_AGE_MS = 60_000L
     private const val CURRENT_WEIGHT = 0.7
     private const val HISTORY_WEIGHT = 0.3
 }
