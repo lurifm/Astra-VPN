@@ -4253,35 +4253,38 @@ class MainActivity : Activity() {
             "Запуск — одним нажатием" to "Выбери сервер и нажми на звезду. Для лучшего результата сначала проверь задержку серверов."
         )
         var page = 0
-        lateinit var dialog: AlertDialog
-        fun renderPage() {
-            val item = pages[page]
-            val content = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(18), dp(12), dp(18), dp(12))
-                background = rounded(BG, 20)
-                addView(TextView(this@MainActivity).apply {
-                    text = "✦"; textSize = 48f; gravity = Gravity.CENTER; setTextColor(LIGHT_ACCENT)
-                }, matchWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = item.first; textSize = 19f; typeface = Typeface.DEFAULT_BOLD
-                    gravity = Gravity.CENTER; setTextColor(Color.WHITE); setPadding(0, dp(8), 0, dp(10))
-                }, matchWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = item.second; textSize = 14f; gravity = Gravity.CENTER
-                    setTextColor(0xFFD0D9EC.toInt()); setPadding(dp(8), 0, dp(8), dp(12))
-                }, matchWidth())
-                addView(TextView(this@MainActivity).apply {
-                    text = (page + 1).toString() + " / 3"; textSize = 11f
-                    gravity = Gravity.CENTER; setTextColor(MUTED)
-                }, matchWidth())
-            }
-            dialog.setView(content)
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.text = if (page == pages.lastIndex) "Начать" else "Далее"
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = rounded(BG, 20)
         }
-        dialog = MaterialAlertDialogBuilder(this)
+        val star = TextView(this).apply {
+            text = "✦"; textSize = 48f; gravity = Gravity.CENTER; setTextColor(LIGHT_ACCENT)
+        }
+        val heading = TextView(this).apply {
+            textSize = 19f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setTextColor(Color.WHITE); setPadding(0, dp(8), 0, dp(10))
+        }
+        val description = TextView(this).apply {
+            textSize = 14f; gravity = Gravity.CENTER
+            setTextColor(0xFFD0D9EC.toInt()); setPadding(dp(8), 0, dp(8), dp(12))
+        }
+        val pageLabel = TextView(this).apply {
+            textSize = 11f; gravity = Gravity.CENTER; setTextColor(MUTED)
+        }
+        content.addView(star, matchWidth())
+        content.addView(heading, matchWidth())
+        content.addView(description, matchWidth())
+        content.addView(pageLabel, matchWidth())
+        fun renderPage() {
+            heading.text = pages[page].first
+            description.text = pages[page].second
+            pageLabel.text = (page + 1).toString() + " / 3"
+        }
+        renderPage()
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Знакомство с Astra")
-            .setView(TextView(this))
+            .setView(content)
             .setPositiveButton("Далее", null)
             .setNegativeButton("Пропустить") { _, _ ->
                 settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
@@ -4292,14 +4295,16 @@ class MainActivity : Activity() {
                 if (page < pages.lastIndex) {
                     page++
                     renderPage()
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).text =
+                        if (page == pages.lastIndex) "Начать" else "Далее"
                 } else {
                     settingsPrefs.edit().putBoolean("onboarding_completed", true).apply()
                     dialog.dismiss()
                 }
             }
-            renderPage()
         }
         dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Далее"
     }
 
     private fun runCombinedSpeedAndIpTest() {
