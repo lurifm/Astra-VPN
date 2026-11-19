@@ -5,4 +5,6 @@
     <string name="subscription_alerts_description">Предупреждения об окончании срока и остатке трафика</string>
     <string name="shortcut_open">Открыть Astra</string>
     <string name="shortcut_open_long">Открыть Astra VPN</string>
+    <string name="shortcut_connect">Подключить</string>
+    <string name="shortcut_connect_long">Подключить Astra VPN к лучшему серверу</string>
 </resources>
