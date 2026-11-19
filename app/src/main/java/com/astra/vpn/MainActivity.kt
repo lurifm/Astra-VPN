@@ -2001,6 +2001,30 @@ class MainActivity : Activity() {
             row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             })
+            val shareButton = TextView(this).apply {
+                text = "↗"
+                textSize = 21f
+                setTextColor(LIGHT_ACCENT)
+                gravity = Gravity.CENTER
+                minimumWidth = dp(48)
+                minimumHeight = dp(48)
+                isClickable = true
+                isFocusable = true
+                background = rounded(0x1A9AA6BF, 14)
+                foreground = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x40A9B8FF), null, null
+                )
+                contentDescription = "Поделиться сервером $name"
+                setOnClickListener {
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Astra VPN — $name")
+                        putExtra(Intent.EXTRA_TEXT, link)
+                    }
+                    startActivity(Intent.createChooser(share, "Поделиться сервером"))
+                }
+            }
+            row.addView(shareButton, LinearLayout.LayoutParams(dp(44), dp(48)).apply { rightMargin = dp(4) })
             row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
             profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
