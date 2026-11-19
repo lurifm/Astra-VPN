@@ -123,6 +123,33 @@ class BestServerSelectorTest {
     }
 
     @Test
+    fun staleHighThroughputDoesNotDistortFreshCandidateScoring() {
+        val now = 10_000_000L
+        val profiles = listOf("vless://fresh-fast", "tuic://fresh-slower", "hysteria2://stale")
+        val selected = BestServerSelector.select(
+            profiles = profiles,
+            latencyMs = mapOf(
+                "vless://fresh-fast" to 50L,
+                "tuic://fresh-slower" to 55L,
+                "hysteria2://stale" to 1L
+            ),
+            throughputMbps = mapOf(
+                "vless://fresh-fast" to 80.0,
+                "tuic://fresh-slower" to 70.0,
+                "hysteria2://stale" to 10_000.0
+            ),
+            latencyTimestamps = profiles.associateWith { now },
+            throughputTimestamps = mapOf(
+                "vless://fresh-fast" to now,
+                "tuic://fresh-slower" to now,
+                "hysteria2://stale" to now - ServerSelectionFreshness.MAX_THROUGHPUT_AGE_MS - 1L
+            ),
+            nowMs = now
+        )
+        assertEquals("tuic://fresh-slower", selected)
+    }
+
+    @Test
     fun ignoresStaleThroughputAndAppliesTimeOfDayPreferenceOnlyWhenConfigured() {
         val now = 10_000_000L
         val profiles = listOf("vless://preferred", "tuic://fast")
