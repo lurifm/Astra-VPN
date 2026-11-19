@@ -152,6 +152,13 @@ internal class AstraThroughputTestService : VpnService(), CommandServerHandler {
     }
 
     private fun finish() {
+        // Service lifecycle APIs must run on the main thread. The successful
+        // probe path reaches cleanup from the worker thread, unlike timeout and
+        // platform callbacks, so marshal every cleanup path through the handler.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post { finish() }
+            return
+        }
         if (!stopped.compareAndSet(false, true)) return
         handler.removeCallbacks(timeout)
         val currentServer = server
