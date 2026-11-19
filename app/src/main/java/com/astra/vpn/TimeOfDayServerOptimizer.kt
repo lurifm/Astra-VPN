@@ -36,7 +36,7 @@ internal object TimeOfDayServerOptimizer {
                     sampleCalendar.get(Calendar.HOUR_OF_DAY) / 3 == hourBucket
             }.sortedBy { it.timestampMs }.toList().takeLast(MAX_HISTORY_SAMPLES)
 
-            // Require three points: at most one is the current measurement just recorded by the caller.
+            // Require two independent historical points after excluding the current measurement.
             val adjusted = if (matching.size >= MIN_MATCHING_SAMPLES) {
                 val historical = median(matching.map { it.latencyMs })
                 // Current measurement remains dominant; history only smooths time-specific variation.
