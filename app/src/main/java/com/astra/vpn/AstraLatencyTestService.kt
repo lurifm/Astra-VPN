@@ -31,8 +31,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val stopped = AtomicBoolean(false)
-    private var server: CommandServer? = null
-    private var client: CommandClient? = null
+    @Volatile private var server: CommandServer? = null
+    @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
     private val latestResults = linkedMapOf<String, Long?>()
     private val timeout = Runnable { finishAndPublish() }
@@ -67,26 +67,62 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
         )
-        try {
-            val platform = AstraPlatform(this, { descriptor ->
-                runCatching { descriptor.close() }
-                publishFailure("Проверка неожиданно запросила VPN-интерфейс")
-                handler.post { finish() }
-            }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
-            val commandServer = CommandServer(this, platform)
-            server = commandServer
-            commandServer.start()
-            commandServer.startOrReloadService(config, OverrideOptions())
+        // Start the hard deadline immediately, then perform all libbox startup work
+        // away from the main thread. Native engine startup can take noticeable time.
+        handler.postDelayed(timeout, TEST_TIMEOUT_MS)
+        worker.execute {
+            var createdServer: CommandServer? = null
+            var createdClient: CommandClient? = null
+            try {
+                if (stopped.get()) return@execute
+                val platform = AstraPlatform(this, { descriptor ->
+                    runCatching { descriptor.close() }
+                    publishFailure("Проверка неожиданно запросила VPN-интерфейс")
+                    handler.post { finish() }
+                }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
+                val commandServer = CommandServer(this, platform)
+                createdServer = commandServer
+                commandServer.start()
+                if (stopped.get()) {
+                    runCatching { commandServer.closeService() }
+                    runCatching { commandServer.close() }
+                    return@execute
+                }
+                commandServer.startOrReloadService(config, OverrideOptions())
+                if (stopped.get()) {
+                    runCatching { commandServer.closeService() }
+                    runCatching { commandServer.close() }
+                    return@execute
+                }
+                server = commandServer
 
-            val options = CommandClientOptions().apply { addCommand(Libbox.CommandGroup) }
-            val commandClient = CommandClient(resultHandler, options)
-            client = commandClient
-            commandClient.connect()
-            handler.postDelayed(timeout, TEST_TIMEOUT_MS)
-        } catch (failure: Exception) {
-            Log.e(TAG, "Не удалось запустить изолированную проверку (" + failure.javaClass.simpleName + ")")
-            publishFailure("Не удалось запустить проверку серверов")
-            finish()
+                val options = CommandClientOptions().apply { addCommand(Libbox.CommandGroup) }
+                val commandClient = CommandClient(resultHandler, options)
+                createdClient = commandClient
+                client = commandClient
+                if (stopped.get()) {
+                    runCatching { commandClient.disconnect() }
+                    runCatching { commandServer.closeService() }
+                    runCatching { commandServer.close() }
+                    return@execute
+                }
+                commandClient.connect()
+                if (stopped.get()) {
+                    runCatching { commandClient.disconnect() }
+                    runCatching { commandServer.closeService() }
+                    runCatching { commandServer.close() }
+                }
+            } catch (failure: Exception) {
+                Log.e(TAG, "Не удалось запустить изолированную проверку (" + failure.javaClass.simpleName + ")")
+                if (stopped.get()) {
+                    runCatching { createdClient?.disconnect() }
+                    runCatching { createdServer?.closeService() }
+                    runCatching { createdServer?.close() }
+                } else {
+                    publishFailure("Не удалось запустить проверку серверов")
+                    handler.post { finish() }
+                }
+            }
         }
         return START_NOT_STICKY
     }
