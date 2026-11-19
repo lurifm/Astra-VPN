@@ -18,7 +18,12 @@ internal object SingBoxThroughputTestConfig {
 
     fun build(
         targets: List<Target>,
-        validateConfig: (String) -> Unit = { Libbox.checkConfig(it) }
+        validateConfig: (String) -> Unit = { Libbox.checkConfig(it) },
+        buildOutbound: (String) -> JSONObject = { link ->
+            JSONObject(SingBoxConfigBuilder.build(link))
+                .getJSONArray("outbounds")
+                .getJSONObject(0)
+        }
     ): Result {
         require(targets.isNotEmpty()) { "Нет серверов для измерения скорости" }
         require(targets.size <= MAX_TARGETS) { "Слишком много серверов для одного измерения" }
@@ -35,8 +40,7 @@ internal object SingBoxThroughputTestConfig {
         val seenTags = mutableSetOf<String>()
 
         targets.forEachIndexed { index, target ->
-            val parsed = JSONObject(SingBoxConfigBuilder.build(target.profileLink))
-            val proxy = parsed.getJSONArray("outbounds").getJSONObject(0)
+            val proxy = buildOutbound(target.profileLink)
             val outboundTag = outboundTag(target.profileLink)
             require(seenTags.add(outboundTag)) { "Коллизия идентификаторов серверов" }
             val inboundTag = "astra-throughput-in-$index"
@@ -72,8 +76,9 @@ internal object SingBoxThroughputTestConfig {
             )
             .toString()
 
-        // Production uses the exact bundled libbox validator. Unit tests inject
-        // a no-op because Android's native libbox runtime is unavailable on the JVM.
+        // Production uses the exact bundled libbox validator. JVM tests inject
+        // deterministic outbound data and a no-op because Android/native runtime
+        // validation is unavailable in the local unit-test process.
         validateConfig(config)
         return Result(config, ports)
     }
