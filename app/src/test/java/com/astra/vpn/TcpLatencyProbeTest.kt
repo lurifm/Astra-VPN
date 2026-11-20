@@ -2,6 +2,9 @@ package com.astra.vpn
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 
 class TcpLatencyProbeTest {
@@ -29,6 +32,33 @@ class TcpLatencyProbeTest {
             Long.MAX_VALUE - 1L,
             TcpLatencyProbe.median(listOf(Long.MAX_VALUE - 2L, Long.MAX_VALUE))
         )
+    }
+
+    @Test
+    fun boundedProbeStopsWaitingAtTheGlobalDeadline() {
+        val timedOut = AtomicBoolean(false)
+        val started = System.nanoTime()
+        assertThrows(SocketTimeoutException::class.java) {
+            TcpLatencyProbe.runBounded(40L, onTimeout = { timedOut.set(true) }) {
+                Thread.sleep(5_000L)
+                "too late"
+            }
+        }
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000L
+        assertTrue("Probe should return close to its 40 ms deadline, elapsed=${elapsedMs}ms", elapsedMs < 1_000L)
+        assertTrue(timedOut.get())
+    }
+
+    @Test
+    fun boundedProbeReturnsCompletedOperation() {
+        assertEquals("ok", TcpLatencyProbe.runBounded(1_000L) { "ok" })
+    }
+
+    @Test
+    fun boundedProbePropagatesOperationErrors() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TcpLatencyProbe.runBounded<Int>(1_000L) { throw IllegalArgumentException("bad endpoint") }
+        }
     }
 
     @Test
