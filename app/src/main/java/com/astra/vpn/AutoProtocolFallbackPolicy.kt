@@ -16,6 +16,19 @@ internal object AutoProtocolFallbackPolicy {
     }
 
     /**
+     * Legacy ordering helper retained for callers/tests that only need ordering.
+     * Production failover uses candidatesWithFreshMeasurements so ranking cannot
+     * undo the alternative-protocol priority.
+     */
+    fun preferAlternativeProtocol(profiles: List<String>, currentProfile: String?): List<String> {
+        val currentProtocol = currentProfile?.let(::protocol) ?: return profiles
+        val alternatives = profiles.filter { candidate ->
+            protocol(candidate)?.let { it != currentProtocol } == true
+        }
+        return alternatives.ifEmpty { profiles }
+    }
+
+    /**
      * Prefer a measured profile on a different transport after repeated tunnel
      * failures. If no alternative transport has a fresh successful measurement,
      * keep the other measured profiles as a fallback.
