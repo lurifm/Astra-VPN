@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import org.json.JSONObject
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.OverrideOptions
@@ -14,6 +15,7 @@ import io.nekohasekai.libbox.SystemProxyStatus
 
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
+    private var trafficMonitor: LibboxTrafficMonitor? = null
     private val trafficMonitor = LibboxTrafficMonitor()
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
@@ -67,6 +69,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     activeConfig = config
+                    startTrafficMonitor()
                     if (tunDescriptor == null) {
                         publishState(STATE_CONNECTING)
                         awaitTunCreation()
@@ -95,6 +98,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             trafficMonitor.start()
             server.startOrReloadService(config, OverrideOptions())
             activeConfig = config
+            startTrafficMonitor()
             Log.i(TAG, "sing-box service accepted configuration")
             if (tunDescriptor == null) {
                 publishState(STATE_CONNECTING)
@@ -116,6 +120,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val server = commandServer ?: return
         runCatching { server.startOrReloadService(config, OverrideOptions()) }
             .onSuccess {
+                startTrafficMonitor()
                 if (tunDescriptor == null) {
                     publishState(STATE_CONNECTING)
                     awaitTunCreation()
@@ -179,6 +184,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         mainHandler.removeCallbacks(tunTimeout)
         val server = commandServer
         commandServer = null
+        trafficMonitor?.stop()
+        trafficMonitor = null
+        publishTrafficSnapshot(emptyMap())
         trafficMonitor.stop()
         activeConfig = null
 
@@ -195,6 +203,30 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         publishState(STATE_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun startTrafficMonitor() {
+        if (trafficMonitor != null) return
+        val monitor = LibboxTrafficMonitor(::publishTrafficSnapshot)
+        trafficMonitor = monitor
+        monitor.start()
+    }
+
+    private fun publishTrafficSnapshot(snapshot: Map<String, LibboxTrafficAccumulator.Totals>) {
+        val payload = JSONObject()
+        snapshot.forEach { (tag, totals) ->
+            payload.put(tag, JSONObject()
+                .put("uploadBytes", totals.uploadBytes)
+                .put("downloadBytes", totals.downloadBytes))
+        }
+        getSharedPreferences(TRAFFIC_PREFS, MODE_PRIVATE).edit()
+            .putString(TRAFFIC_JSON, payload.toString())
+            .putLong(TRAFFIC_UPDATED_AT, System.currentTimeMillis())
+            .apply()
+        sendBroadcast(
+            Intent(ACTION_TRAFFIC).setPackage(packageName)
+                .putExtra(EXTRA_TRAFFIC_JSON, payload.toString())
+        )
     }
 
     private fun publishState(state: String, error: String? = null) {
@@ -234,6 +266,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val ACTION_START = "com.astra.vpn.action.START"
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
+        const val ACTION_TRAFFIC = "com.astra.vpn.action.TRAFFIC"
+        const val EXTRA_TRAFFIC_JSON = "com.astra.vpn.extra.TRAFFIC_JSON"
+        const val TRAFFIC_PREFS = "astra_libbox_traffic"
+        const val TRAFFIC_JSON = "outbound_traffic_json"
+        const val TRAFFIC_UPDATED_AT = "updated_at"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.CONFIG"
         const val EXTRA_PROFILE_NAME = "com.astra.vpn.extra.PROFILE_NAME"
         const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
