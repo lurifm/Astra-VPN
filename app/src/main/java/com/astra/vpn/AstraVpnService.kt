@@ -23,6 +23,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
+    // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
+    private var lifecycleGeneration = 0L
     private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tunTimeout = Runnable {
@@ -88,8 +90,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         try {
+            val ownerGeneration = synchronized(lifecycleLock) {
+                lifecycleGeneration += 1L
+                lifecycleGeneration
+            }
             val platform = AstraPlatform(this, { descriptor ->
-                handleTunCreated(descriptor)
+                handleTunCreated(descriptor, ownerGeneration)
             })
             val server = CommandServer(this, platform)
             commandServer = server
@@ -158,11 +164,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         super.onDestroy()
     }
 
-    private fun handleTunCreated(descriptor: ParcelFileDescriptor) {
+    private fun handleTunCreated(descriptor: ParcelFileDescriptor, ownerGeneration: Long) {
         synchronized(lifecycleLock) {
-            // libbox may finish opening TUN while shutdown is already underway.
-            // Never resurrect a stopped service or publish CONNECTED in that race.
-            if (stopping) {
+            // libbox may finish opening TUN after shutdown or after a replacement
+            // CommandServer has started. Never let an older server publish CONNECTED.
+            if (stopping || lifecycleGeneration != ownerGeneration) {
                 runCatching { descriptor.close() }
                     .onFailure { Log.w(TAG, "Late TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
                 return
@@ -177,6 +183,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
+        lifecycleGeneration += 1L
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
         mainHandler.removeCallbacks(tunTimeout)
