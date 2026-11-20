@@ -36,6 +36,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
+    // CommandClient may report connected more than once; only one URLTest batch
+    // is allowed to own this service session and its per-server deadlines.
+    private val urlTestsDispatched = AtomicBoolean(false)
     @Volatile private var server: CommandServer? = null
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
@@ -155,6 +158,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun connected() {
             executeWorkerIfActive {
                 val activeClient = client ?: return@executeWorkerIfActive
+                if (!urlTestsDispatched.compareAndSet(false, true)) return@executeWorkerIfActive
                 handler.post {
                     if (stopped.get()) return@post
                     handler.removeCallbacks(startupTimeout)
