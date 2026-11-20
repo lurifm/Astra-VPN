@@ -78,6 +78,47 @@ class ProfileStore(context: Context) {
         link
     }
 
+    /**
+     * Persists the UI selection separately from opt-in VPN process recovery.
+     * The complete proxy URI is encrypted with Android Keystore; credentials
+     * are never written to plaintext preferences.
+     */
+    fun setSelectedProfile(link: String?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val current = prefs.getString(SELECTED_PROFILE_KEY, null)?.let(::decryptStored)
+        if (current == link) return@synchronized
+        val editor = prefs.edit()
+        if (link.isNullOrBlank()) {
+            editor.remove(SELECTED_PROFILE_KEY)
+        } else {
+            editor.putString(SELECTED_PROFILE_KEY, encrypt(link))
+        }
+        check(editor.commit()) { "Не удалось сохранить выбранный сервер" }
+    }
+
+    /**
+     * Restores the saved selection. Subscription links may rotate between
+     * launches, so use the same credential-agnostic matcher as live refresh.
+     * A removed or ambiguous profile is discarded rather than guessed.
+     */
+    fun selectedProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val encrypted = prefs.getString(SELECTED_PROFILE_KEY, null) ?: return@synchronized null
+        val saved = decryptStored(encrypted)
+        val available = all()
+        val resolved = if (saved in available) saved else ProfileSelectionMatcher.remap(saved, available)
+        if (resolved == null) {
+            check(prefs.edit().remove(SELECTED_PROFILE_KEY).commit()) {
+                "Не удалось очистить устаревший выбор сервера"
+            }
+            return@synchronized null
+        }
+        if (resolved != saved) {
+            check(prefs.edit().putString(SELECTED_PROFILE_KEY, encrypt(resolved)).commit()) {
+                "Не удалось обновить выбранный сервер"
+            }
+        }
+        resolved
+    }
+
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val id = java.util.UUID.randomUUID().toString()
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
@@ -442,6 +483,7 @@ class ProfileStore(context: Context) {
 
     companion object {
         private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
+        private const val SELECTED_PROFILE_KEY = "selected_profile_encrypted"
         private const val PROFILE_PREFIX = "profile_"
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
         private const val SUBSCRIPTION_SOURCE_PREFIX = "subscription_source_"

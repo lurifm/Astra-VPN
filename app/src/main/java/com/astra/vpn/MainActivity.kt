@@ -111,6 +111,8 @@ class MainActivity : Activity() {
     private var selectingFastest = false
     private var tilePendingStart = false
     private var selectedProfile: String? = null
+    private var persistedSelectionSnapshot: String? = null
+    private var selectionPersistenceReady = false
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
     private var connected = false
@@ -301,6 +303,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
+        // Restore only the user's selected node. Actual VPN connectivity is
+        // independently verified against Android's live VPN transport in onStart().
+        selectedProfile = runCatching { profileStore.selectedProfile() }.getOrNull()
+        persistedSelectionSnapshot = selectedProfile
+        selectionPersistenceReady = true
         AstraNoticeChannels.ensureCreated(this)
         AstraQuickShortcut.publish(this)
 
@@ -1589,6 +1596,16 @@ class MainActivity : Activity() {
             else latestProfiles.firstOrNull()
     }
 
+    /**
+     * Save selection only when it changes. ProfileStore encrypts the URI using
+     * Android Keystore, and its restore path remaps rotated subscription links.
+     */
+    private fun persistSelectedProfileIfChanged() {
+        if (!selectionPersistenceReady || persistedSelectionSnapshot == selectedProfile) return
+        runCatching { profileStore.setSelectedProfile(selectedProfile) }
+            .onSuccess { persistedSelectionSnapshot = selectedProfile }
+    }
+
     private fun formatTraffic(bytes: Long): String {
         if (bytes < 0L) return "—"
         val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
@@ -1828,6 +1845,7 @@ class MainActivity : Activity() {
                 (selectedProfile == null || selectedProfile == activeProfile)
             ) activeProfile else profiles.firstOrNull()
         }
+        persistSelectedProfileIfChanged()
         val selected = selectedProfile
         connectButton.isEnabled = !disconnecting && (connected || (selected != null && !connecting))
         connectActionLabel.text = when {
