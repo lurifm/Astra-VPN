@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class TrafficMonitorRetryPolicyTest {
@@ -24,6 +25,29 @@ class TrafficMonitorRetryPolicyTest {
         assertEquals(2_000L, policy.nextDelayAfter(0L))
         assertEquals(1_000L, policy.nextDelayAfter(30_000L))
         assertEquals(1_000L, policy.nextDelayAfter(100_000L))
+    }
+
+    @Test fun constructorRejectsInvalidDelayConfiguration() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TrafficMonitorRetryPolicy(initialDelayMs = 0L)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TrafficMonitorRetryPolicy(initialDelayMs = 2_000L, maxDelayMs = 1_000L)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TrafficMonitorRetryPolicy(stableConnectionMs = -1L)
+        }
+    }
+
+    @Test fun doublingSaturatesWithoutLongOverflow() {
+        val policy = TrafficMonitorRetryPolicy(
+            initialDelayMs = Long.MAX_VALUE / 4L,
+            maxDelayMs = Long.MAX_VALUE
+        )
+        assertEquals(Long.MAX_VALUE / 4L, policy.nextDelayAfter(0L))
+        assertEquals(Long.MAX_VALUE / 2L, policy.nextDelayAfter(0L))
+        assertEquals(Long.MAX_VALUE, policy.nextDelayAfter(0L))
+        assertEquals(Long.MAX_VALUE, policy.nextDelayAfter(0L))
     }
 
     @Test fun negativeDurationIsTreatedAsUnstable() {
