@@ -403,3 +403,12 @@ CI для последнего набора изменений необходи�
 - Добавлен тестируемый `TunCreationTimeoutGeneration.kt` и unit-тесты на замену ожидания, отмену и монотонность token.
 - Изменения внесены коммитами: `48b0536` (per-wait timeout token integration), `6c0e32e` (generation helper), `ed40179` (tests), `60a1126` (service integration), `e3c7234` (advance token on each wait).
 - Новый CI run после этих изменений необходимо дождаться. Физическая проверка повторных reload/stop/start на Android устройстве не выполнена.
+
+## 25. Serialize service-triggered reload with shutdown (2026-11-20)
+
+- AstraVpnService.serviceReload() now executes under lifecycleLock, the same lock used by TUN callbacks, timeout handling, and stopTunnel().
+- Reload returns immediately when shutdown is already in progress or the active config/server is unavailable.
+- After startOrReloadService() returns, success and failure handlers verify that shutdown has not started and the same CommandServer is still active before publishing state, starting monitoring, scheduling a TUN timeout, or stopping the tunnel.
+- This closes a stale-service-reload race where a reload could retain an old server reference while shutdown was closing it, then publish CONNECTING or schedule a timeout after shutdown.
+- The guard is intentionally limited to the serviceReload() callback path. The full onStartCommand() start/reload path still requires broader concurrency review and Android runtime testing.
+- Commit: 017af9f969a697b7e344dfe92b49ae45bd09cc6e.
