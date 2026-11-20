@@ -416,7 +416,7 @@ CI для последнего набора изменений необходи�
 ## 26. Guard stale onStartCommand completions (2026-11-20)
 
 - Added ServiceStartRequestGeneration, a monotonic request token separate from the CommandServer lifecycle generation and per-wait TUN timeout generation.
-- Every non-STOP start command advances the request token. stopTunnel() invalidates it. The existing-server reload path and new-server startup path recheck the token and active server identity before publishing CONNECTING/CONNECTED, storing active config, starting traffic monitoring, or scheduling a TUN timeout.
+- Every non-STOP start command advances the request token. stopTunnel() invalidates it. The existing-server reload path and new-server startup path recheck the token and active server identity before invoking a new libbox reload and before publishing CONNECTING/CONNECTED, storing active config, starting traffic monitoring, or scheduling a TUN timeout.
 - Failure handling is token-aware: an exception from an obsolete start request cannot stop a newer connection or overwrite its UI state with ERROR.
 - Added ServiceStartRequestGenerationTest for newer-start invalidation, stop invalidation, and monotonic tokens.
 - Android runtime concurrency tests remain outstanding. libbox start/reload calls are deliberately made outside lifecycleLock to avoid holding the service lock while native callbacks may be running.
