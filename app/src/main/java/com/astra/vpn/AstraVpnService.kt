@@ -29,7 +29,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val mainHandler = Handler(Looper.getMainLooper())
     // A distinct token is required for every TUN wait, including reloads that
     // reuse the same CommandServer and therefore the same lifecycle generation.
-    private var tunTimeoutGeneration = 0L
+    private val tunTimeoutGeneration = TunCreationTimeoutGeneration()
     private var tunTimeout: Runnable? = null
 
     private fun awaitTunCreation() = synchronized(lifecycleLock) {
@@ -37,7 +37,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val ownerToken = tunTimeoutGeneration
         val timeout = Runnable {
             synchronized(lifecycleLock) {
-                if (ownerToken != tunTimeoutGeneration) return@synchronized
+                if (!tunTimeoutGeneration.isCurrent(ownerToken)) return@synchronized
                 tunTimeout = null
                 if (!stopping && commandServer != null && tunDescriptor == null) {
                     val message = "sing-box не создал VPN-интерфейс за отведённое время"
@@ -52,7 +52,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun cancelTunTimeoutLocked() {
-        tunTimeoutGeneration++
+        tunTimeoutGeneration.invalidate()
         tunTimeout?.let(mainHandler::removeCallbacks)
         tunTimeout = null
     }
