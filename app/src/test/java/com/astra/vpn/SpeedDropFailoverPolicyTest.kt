@@ -73,8 +73,11 @@ class SpeedDropFailoverPolicyTest {
         assertFalse(policy.update(10.0, 10_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 11_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 5_000L, true, trafficIsVpnScoped = true))
-        assertFalse(policy.update(4.0, 14_999L, true, trafficIsVpnScoped = true))
-        assertTrue(policy.update(4.0, 15_000L, true, trafficIsVpnScoped = true))
+        // After rollback, a new healthy baseline is required before measuring a drop.
+        assertFalse(policy.update(10.0, 6_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 7_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 16_999L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 17_000L, true, trafficIsVpnScoped = true))
     }
 
     @Test
