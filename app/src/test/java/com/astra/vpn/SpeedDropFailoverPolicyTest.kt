@@ -22,7 +22,7 @@ class SpeedDropFailoverPolicyTest {
         assertFalse(policy.update(0.01, 7_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 8_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 17_999L, true, trafficIsVpnScoped = true))
-        assertTrue(policy.update(4.0, 18_000L, true))
+        assertTrue(policy.update(4.0, 18_000L, true, trafficIsVpnScoped = true))
     }
 
     @Test
