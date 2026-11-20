@@ -397,8 +397,19 @@ class AstraPlatform(
             if (network == null) return false
             val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
                 ?: return false
-            return !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ) return false
+
+            // Android can keep a physical Network object around while its
+            // radio is suspended during handover or power management. Do not
+            // pin the VPN to that network merely because it still advertises
+            // INTERNET; wait for an unsuspended default/underlay instead.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            ) return false
+
+            return true
         }
 
         // URL-test receives the exact physical network selected by the main
