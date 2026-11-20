@@ -38,8 +38,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
-    private val timeout = Runnable { finishAndPublish() }
-    private val completionDebounce = Runnable { finishAndPublish() }
+    private val startupTimeout = Runnable { finishAndPublish() }
+    private val completedTags = linkedSetOf<String>()
+    private val perServerTimeouts = linkedMapOf<String, Runnable>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -72,9 +73,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
         )
-        // Start the hard deadline immediately, then perform all libbox startup work
-        // away from the main thread. Native engine startup can take noticeable time.
-        handler.postDelayed(timeout, TEST_TIMEOUT_MS)
+        // Bound native startup separately; per-server deadlines start after dispatch.
+        handler.postDelayed(startupTimeout, STARTUP_TIMEOUT_MS)
         worker.execute {
             var createdServer: CommandServer? = null
             var createdClient: CommandClient? = null
@@ -152,12 +152,24 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun connected() {
             executeWorkerIfActive {
                 val activeClient = client ?: return@executeWorkerIfActive
-                runCatching { activeClient.urlTest(SingBoxUrlTestConfig.GROUP_TAG) }
-                    .onFailure {
-                        if (!stopped.get()) {
-                            failIfActive("Не удалось запустить URL-test")
-                        }
+                handler.post {
+                    if (stopped.get()) return@post
+                    handler.removeCallbacks(startupTimeout)
+                    expectedTags.forEach { outboundTag ->
+                        val deadline = Runnable { completeTimedOutTag(outboundTag) }
+                        perServerTimeouts[outboundTag] = deadline
+                        handler.postDelayed(deadline, TEST_TIMEOUT_MS)
                     }
+                }
+                // Each group contains one outbound, so a slow node is isolated.
+                expectedTags.forEach { outboundTag ->
+                    if (stopped.get()) return@forEach
+                    runCatching {
+                        activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
+                    }.onFailure {
+                        handler.post { completeTimedOutTag(outboundTag) }
+                    }
+                }
             }
         }
 
@@ -182,12 +194,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             val snapshot = linkedMapOf<String, Long?>()
             while (message.hasNext()) {
                 val group = message.next()
-                if (group.tag != SingBoxUrlTestConfig.GROUP_TAG) continue
+                val outboundTag = SingBoxUrlTestConfig.outboundTagForGroup(group.tag)
+                    ?: continue
+                if (outboundTag !in expectedTags) continue
                 val items = group.getItems()
                 while (items.hasNext()) {
                     val item = items.next()
-                    if (item.tag !in expectedTags) continue
-                    snapshot[item.tag] = item.urlTestDelay.toLong().takeIf { it > 0L }
+                    if (item.tag != outboundTag) continue
+                    val delay = item.urlTestDelay.toLong()
+                    if (delay > 0L) snapshot[item.tag] = delay
                 }
             }
             if (snapshot.isNotEmpty()) {
@@ -195,17 +210,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 // state mutation and broadcasts with timeout/finish on the main handler.
                 handler.post {
                     if (stopped.get()) return@post
-                    val partial = latestResults.merge(snapshot)
-                    // Stream every successful measurement to the UI immediately.
-                    // A slow/unavailable node no longer hides the results of faster nodes.
+                    val accepted = snapshot.filterKeys { it !in completedTags }
+                    if (accepted.isEmpty()) return@post
+                    accepted.keys.forEach(::completeMeasuredTag)
+                    val partial = latestResults.merge(accepted)
                     publishResults(partial, finished = false)
-                    val allMeasured = latestResults.allMeasured()
-                    // Zero values are sing-box's initial placeholders, not measurements.
-                    // Finish early only when every outbound has a real positive result.
-                    if (allMeasured) {
-                        handler.removeCallbacks(completionDebounce)
-                        handler.postDelayed(completionDebounce, RESULT_SETTLE_MS)
-                    }
+                    finishIfAllTagsCompleted()
                 }
             }
         }
@@ -214,6 +224,22 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
         override fun updateClashMode(newMode: String) = Unit
         override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
+    }
+
+    private fun completeMeasuredTag(tag: String) {
+        if (completedTags.add(tag)) {
+            perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+        }
+    }
+
+    private fun completeTimedOutTag(tag: String) {
+        if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
+        perServerTimeouts.remove(tag)
+        finishIfAllTagsCompleted()
+    }
+
+    private fun finishIfAllTagsCompleted() {
+        if (!stopped.get() && completedTags.containsAll(expectedTags)) finishAndPublish()
     }
 
     private fun finishAndPublish() {
@@ -281,8 +307,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
-        handler.removeCallbacks(timeout)
-        handler.removeCallbacks(completionDebounce)
+        handler.removeCallbacks(startupTimeout)
+        perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
+        perServerTimeouts.clear()
         // CommandClient.disconnect() and CommandServer.close*() cross the
         // native libbox boundary. Never run them on the main thread: STOP,
         // timeout and service callbacks must release the UI/service lifecycle
@@ -352,9 +379,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        // Hard upper bound for a full server batch; unfinished nodes remain "no data".
+        private const val STARTUP_TIMEOUT_MS = 10_000L
         private const val TEST_TIMEOUT_MS = 10_000L
-        private const val RESULT_SETTLE_MS = 2_000L
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
