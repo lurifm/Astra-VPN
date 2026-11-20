@@ -251,18 +251,41 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         if (!stopped.compareAndSet(false, true)) return
         handler.removeCallbacks(timeout)
         handler.removeCallbacks(completionDebounce)
-        runCatching { client?.disconnect() }
+        // CommandClient.disconnect() and CommandServer.close*() cross the
+        // native libbox boundary. Never run them on the main thread: STOP,
+        // timeout and service callbacks must release the UI/service lifecycle
+        // promptly even if native shutdown is slow.
+        val currentClient = client
         client = null
-        getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_ACTIVE_SESSION_ID).apply()
         val currentServer = server
         server = null
-        if (currentServer != null) {
-            runCatching { currentServer.closeService() }
-            runCatching { currentServer.close() }
-        }
+        closeLibboxResourcesAsync(currentClient, currentServer)
+        getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_ACTIVE_SESSION_ID).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun closeLibboxResourcesAsync(
+        activeClient: CommandClient?,
+        activeServer: CommandServer?
+    ) {
+        if (activeClient == null && activeServer == null) return
+        Thread({
+            if (activeClient != null) {
+                runCatching { activeClient.disconnect() }
+                    .onFailure { Log.w(TAG, "latency client shutdown failed (${it.javaClass.simpleName})") }
+            }
+            if (activeServer != null) {
+                runCatching { activeServer.closeService() }
+                    .onFailure { Log.w(TAG, "latency service shutdown failed (${it.javaClass.simpleName})") }
+                runCatching { activeServer.close() }
+                    .onFailure { Log.w(TAG, "latency server close failed (${it.javaClass.simpleName})") }
+            }
+        }, "Astra-LatencyCleanup").apply {
+            isDaemon = true
+            start()
+        }
     }
 
     override fun serviceStop() { handler.post { finish() } }
