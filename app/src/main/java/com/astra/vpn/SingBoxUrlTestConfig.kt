@@ -73,14 +73,16 @@ internal object SingBoxUrlTestConfig {
     }
 
     fun groupTagForOutbound(outboundTag: String): String {
-        require(outboundTag.startsWith("astra-node-")) { "Некорректный тег сервера" }
-        return GROUP_TAG_PREFIX + outboundTag.removePrefix("astra-node-")
+        val suffix = outboundTag.removePrefix("astra-node-")
+        require(outboundTag.startsWith("astra-node-") && suffix.matches(OUTBOUND_SUFFIX))
+        { "Некорректный тег сервера" }
+        return GROUP_TAG_PREFIX + suffix
     }
 
     fun outboundTagForGroup(groupTag: String): String? {
         if (!groupTag.startsWith(GROUP_TAG_PREFIX)) return null
         val suffix = groupTag.removePrefix(GROUP_TAG_PREFIX)
-        if (!suffix.matches(Regex("[0-9a-f]{16}"))) return null
+        if (!suffix.matches(OUTBOUND_SUFFIX)) return null
         return "astra-node-$suffix"
     }
 
@@ -90,4 +92,6 @@ internal object SingBoxUrlTestConfig {
         val suffix = digest.take(8).joinToString("") { "%02x".format(it) }
         return "astra-node-$suffix"
     }
+
+    private val OUTBOUND_SUFFIX = Regex("[0-9a-f]{16}")
 }
