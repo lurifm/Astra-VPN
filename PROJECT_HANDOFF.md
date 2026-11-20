@@ -575,3 +575,15 @@ CI для последнего набора изменений необходи�
 - Изменения: `6e13b32` (encrypted profile store), `dac6382` (null-intent recovery), `5776dc6` (settings toggle), `9c57da7` (stale-profile validation), `9cde779` (sync running service), `7f469f0` (Activity integration).
 - Важно: это запрашиваемое Android системное восстановление после process death, а не гарантия на каждом устройстве — OEM battery management и системные ограничения могут повлиять на перезапуск. Перезагрузка телефона/force-stop не поддерживаются автоматически.
 - CI для последнего коммита `7f469f0` запущен как workflow run #828; результат ещё не подтверждён. До успешной сборки и проверки на реальном Android-устройстве функция не считается полностью проверенной.
+
+
+## 43. VPN-scoped throughput from sing-box proxy outbound (20 ноября 2026)
+
+- Добавлен чистый Kotlin-компонент `VpnTrafficRateTracker`: вычисляет download/upload Mbps из разницы накопительных байтовых счётчиков outbound `proxy` и монотонного времени `elapsedRealtime`.
+- Первое измерение используется только как baseline; откат счётчиков после reconnect, откат времени и длительная пауза не создают ложную скорость — устанавливается новый baseline.
+- Последняя скорость обнуляется после 3 секунд без свежего snapshot; это позволяет корректно отличать активный поток от простоя.
+- В монитор сети добавлен отдельный показатель скорости через sing-box `proxy` outbound. Существующая скорость `TrafficStats` остаётся явно обозначенной как общая скорость устройства.
+- Автоматическое переключение по падению скорости теперь получает только VPN-scoped измерение, а не общие счётчики устройства. Оставлены условия sustained drop, порог активности и cooldown; max sample gap увеличен до 5 секунд для режима энергосбережения с 4-секундным polling.
+- Добавлены JVM unit-тесты: baseline, Mbps расчёт, stale rate, counter rollback/reconnect, long pause, time rollback, invalid counters и reset.
+- Ограничение: libbox connection events дают счётчики по outbound connection events; покрытие может быть неполным для некоторых видов трафика/состояний. UI явно указывает источник и не выдаёт эти значения за полные системные TUN counters. Нужна проверка на Android устройстве с реальным трафиком через VPN.
+- Изменение внесено одним атомарным commit; после него обязательно проверить GitHub Actions unit tests, APK build, APK verification и artifact upload.

@@ -139,6 +139,7 @@ class MainActivity : Activity() {
     private lateinit var monitorOperator: TextView
     private lateinit var monitorDownload: TextView
     private lateinit var monitorUpload: TextView
+    private lateinit var monitorVpnSpeed: TextView
     private lateinit var monitorLocation: TextView
     private lateinit var speedGraph: SpeedGraphView
     private lateinit var monitorSpeedStats: TextView
@@ -172,7 +173,9 @@ class MainActivity : Activity() {
     @Volatile private var tunnelInternetOk: Boolean? = null
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
-    private val speedDropPolicy = SpeedDropFailoverPolicy()
+    private val speedDropPolicy = SpeedDropFailoverPolicy(maxSampleGapMs = 5_000L)
+    private val vpnTrafficRateTracker = VpnTrafficRateTracker()
+    private var lastVpnTrafficSnapshotAt = 0L
     private var originalCountry = "Определяем…"
     private var vpnCountry = "—"
     private var lastGeoConnectedState: Boolean? = null
@@ -757,6 +760,20 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(6))
         }
         monitorDetails.addView(monitorSpeedDiagnostics)
+        monitorDetails.addView(TextView(this).apply {
+            text = "Скорость через VPN · sing-box proxy outbound"
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(7), 0, dp(2))
+        })
+        monitorVpnSpeed = TextView(this).apply {
+            text = "VPN ↓ — / ↑ — Мбит/с · ожидаем данные"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(0, 0, 0, dp(6))
+        }
+        monitorDetails.addView(monitorVpnSpeed)
         monitorDailyTraffic = TextView(this).apply {
             text = "Сегодня: ↓ — / ↑ —"
             textSize = 11f
@@ -3246,8 +3263,9 @@ class MainActivity : Activity() {
     }
 
     private fun updateTrafficMonitor() {
-        // Android exposes aggregate device counters without special usage-access
-        // permission. These include background apps, so label them as device-wide.
+        // The device-wide graph remains explicitly separate from VPN-only measurements.
+        updateVpnTrafficMonitor()
+
         val now = System.currentTimeMillis()
         val rx = TrafficStats.getTotalRxBytes()
         val tx = TrafficStats.getTotalTxBytes()
@@ -3261,14 +3279,6 @@ class MainActivity : Activity() {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
             val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            // TrafficStats.getTotalRxBytes() is device-wide, not VPN-scoped. Keep it for
-            // the visible device monitor, but never use it to trigger server failover.
-            if (speedDropPolicy.update(
-                    down.toDouble(), android.os.SystemClock.elapsedRealtime(), connected,
-                    trafficIsVpnScoped = false
-                )) {
-                maybeAutoSpeedFailover()
-            }
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
             monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
             speedGraph.addSample(down, up)
@@ -3286,6 +3296,62 @@ class MainActivity : Activity() {
         lastRxBytes = rx
         lastTxBytes = tx
         lastTrafficAt = now
+    }
+
+    /**
+     * Reads the proxy outbound counters emitted by libbox. Unlike TrafficStats,
+     * this sample excludes unrelated apps and direct outbound traffic. The core
+     * currently exposes connection-event deltas, so coverage can be incomplete.
+     */
+    private fun updateVpnTrafficMonitor() {
+        val nowElapsed = android.os.SystemClock.elapsedRealtime()
+        if (!connected) {
+            vpnTrafficRateTracker.reset()
+            lastVpnTrafficSnapshotAt = 0L
+            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = false, trafficIsVpnScoped = true)
+            monitorVpnSpeed.text = "VPN ↓ — / ↑ — Мбит/с · не подключено"
+            return
+        }
+
+        val prefs = getSharedPreferences(AstraVpnService.TRAFFIC_PREFS, MODE_PRIVATE)
+        val updatedAt = prefs.getLong(AstraVpnService.TRAFFIC_UPDATED_AT, 0L)
+        if (updatedAt > 0L && updatedAt != lastVpnTrafficSnapshotAt) {
+            lastVpnTrafficSnapshotAt = updatedAt
+            val proxyTotals = runCatching {
+                val raw = prefs.getString(AstraVpnService.TRAFFIC_JSON, null) ?: return@runCatching null
+                JSONObject(raw).optJSONObject("proxy")
+            }.getOrNull()
+            if (proxyTotals == null) {
+                vpnTrafficRateTracker.reset()
+            } else {
+                val uploadBytes = proxyTotals.optLong("uploadBytes", -1L)
+                val downloadBytes = proxyTotals.optLong("downloadBytes", -1L)
+                if (uploadBytes >= 0L && downloadBytes >= 0L) {
+                    vpnTrafficRateTracker.update(downloadBytes, uploadBytes, nowElapsed)
+                } else {
+                    vpnTrafficRateTracker.reset()
+                }
+            }
+        }
+
+        val rate = vpnTrafficRateTracker.current(nowElapsed)
+        if (rate == null) {
+            monitorVpnSpeed.text = "VPN ↓ — / ↑ — Мбит/с · ожидаем данные sing-box"
+            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = true, trafficIsVpnScoped = true)
+            return
+        }
+
+        monitorVpnSpeed.text = String.format(
+            java.util.Locale.US,
+            "↓ %.2f / ↑ %.2f Мбит/с  ·  %s",
+            rate.downloadMbps, rate.uploadMbps,
+            if (rate.sampleAgeMs > 3_000L) "нет свежего трафика" else "через VPN"
+        )
+        if (speedDropPolicy.update(
+                rate.downloadMbps, nowElapsed, vpnConnected = true, trafficIsVpnScoped = true
+            )) {
+            maybeAutoSpeedFailover()
+        }
     }
 
     private fun updateGeoLocationForState() {
