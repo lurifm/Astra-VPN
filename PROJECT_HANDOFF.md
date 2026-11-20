@@ -383,3 +383,13 @@ CI для последнего набора изменений необходи�
 - Политика выделена в чистый Kotlin-класс `TrafficMonitorRetryPolicy.kt`; добавлены unit-тесты на экспоненциальный рост, верхнюю границу, reset после стабильной сессии и отрицательную длительность.
 - Изменения в monitor/policy/tests: commits `05aa835`, `88b3eb4`, `ff0198a`. GitHub Actions run #760 был отменён последующим запуском, но run #761 на commit документации `5064c58` завершился SUCCESS; он проверил актуальное дерево с retry policy и её unit-тестами. Все шаги unit tests, debug APK build, APK verification и artifact upload прошли.
 - Runtime-проверка поведения после реальных разрывов command channel и быстрых stop/start на Android устройстве всё ещё необходима.
+
+
+## 24. Защита callback создания TUN между перезапусками сервиса (20 ноября 2026)
+
+- Добавлен монотонный ServiceLifecycleGeneration. При создании нового CommandServer выдаётся новое поколение; при stopTunnel() поколение инвалидируется.
+- Callback AstraPlatform теперь передаёт поколение владельца в handleTunCreated(). Если callback пришёл после остановки или уже после запуска заменяющего CommandServer, переданный ParcelFileDescriptor закрывается, а состояние нового VPN не меняется.
+- Generation guard вынесен в чистый Kotlin-класс ServiceLifecycleGeneration.kt; добавлены три unit-теста: замена сервера, остановка активного сервера и монотонность поколений.
+- Изменения: 84b17a9 (первичная защита), e04b9db (helper), f1ed6ed (тесты), 996f886 (подключение helper в сервисе).
+- Предыдущий CI run #762 завершился SUCCESS: unit tests, debug APK, APK verification и upload прошли. Новый CI для lifecycle-generation изменений ожидается.
+- Ограничение: защита относится к callback открытия TUN от старого CommandServer. Она не заменяет runtime-тесты reload/stop/start на физическом Android устройстве и не позволяет различить несколько callback от одного и того же сервера в рамках одного поколения.
