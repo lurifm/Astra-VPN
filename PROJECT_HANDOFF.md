@@ -420,3 +420,19 @@ CI для последнего набора изменений необходи�
 - Failure handling is token-aware: an exception from an obsolete start request cannot stop a newer connection or overwrite its UI state with ERROR.
 - Added ServiceStartRequestGenerationTest for newer-start invalidation, stop invalidation, and monotonic tokens.
 - Android runtime concurrency tests remain outstanding. libbox start/reload calls are deliberately made outside lifecycleLock to avoid holding the service lock while native callbacks may be running.
+
+## 27. Дополнительная защита существующего CommandServer при новом start request (2026-11-20)
+
+- В ветке onStartCommand(), которая использует уже созданный CommandServer, добавлена повторная проверка request token, stopping и identity сервера непосредственно перед вызовом startOrReloadService().
+- Это закрывает промежуток между первоначальным получением existingServer и передачей конфигурации в libbox: если запрос уже устарел из-за stop/lifecycle transition, он не отправляется в libbox.
+- Проверка не заменяет полноценную сериализацию native libbox-вызовов и Android runtime stress tests.
+- Commit: a32acdcd928873cde894c26f3ba906c67b01f98a.
+- CI run #787 создан и ожидает выполнения на момент записи.
+
+## 28. Дополнительные concurrency-тесты для start request generation (2026-11-20)
+
+- В ServiceStartRequestGenerationTest добавлены проверки 32 параллельных вызовов next(): все токены уникальны, а актуальным остаётся только максимальный токен.
+- Добавлена проверка повторной invalidation (повторный STOP) с последующим новым start request.
+- Commit: a786ae9e8728e1dd6ed7f8db2b1857d21f5bffa6.
+- CI run #786 был in_progress при последней проверке; результат требуется проверить.
+
