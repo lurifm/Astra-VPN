@@ -299,3 +299,14 @@ CI для последнего набора изменений необходи�
 - Важное ограничение: сумма `UplinkDelta`/`DownlinkDelta` по connection events отражает трафик, который libbox сообщает для соединений/outbound. До проверки покрытия direct/bypass, DNS, служебных и фоновых потоков её нельзя называть полным байтовым счётчиком TUN. Авто-failover остаётся отключённым до проверки полноты и стабильности источника.
 - Справочник API для сверки: https://pkg.go.dev/github.com/sagernet/sing-box/experimental/libbox (CommandClient, CommandClientHandler, CommandConnections, ConnectionEvent, Connection).
 - CI run #730 для HEAD `2b9690079c0c1334974cc79185a00f2f926ea8b4` завершился **SUCCESS**: unit tests, debug APK build, APK verification и artifact upload — все шаги успешны. Это подтверждает сборку текущего HEAD, но не работу на физическом устройстве.
+
+
+## 15. Подготовка агрегатора трафика libbox (20 ноября 2026)
+
+- Проверен upstream sing-box tag `v1.14.3`, совпадающий с версией зависимости проекта. В исходниках подтверждены точные Go API: `NewCommandClient(handler, options)`, `CommandClientOptions.AddCommand(CommandConnections)`, `Connect()`, `Disconnect()` и callback `WriteConnectionEvents(*ConnectionEvents)`.
+- Подтверждено, что при отсутствии TCP listen port CommandClient использует локальный Unix socket `command.sock` внутри `sBasePath`; иначе подключается к localhost TCP-порту. Поэтому интеграция требует сверить инициализацию libbox/base path в Android binding, а не создавать произвольный сокет или порт.
+- `ConnectionEvent` имеет типы New/Update/Closed, а дельты передаются на Update; Reset очищает состояние списка соединений. У объекта Connection доступны Outbound/OutboundType и накопительные UplinkTotal/DownlinkTotal. При подсчёте нельзя повторно добавлять totals из New/Closed к уже полученным Update-дельтам.
+- Добавлен чистый внутренний `LibboxTrafficAccumulator`, который суммирует только неотрицательные дельты по outbound tag, изолирует outbounds, игнорирует пустые теги и отрицательные значения, защищает от Long overflow и поддерживает snapshot/reset.
+- Добавлены unit-тесты агрегатора: отдельные outbounds, частичные/отрицательные дельты, overflow, независимый snapshot и reset.
+- Файлы: `app/src/main/java/com/astra/vpn/LibboxTrafficAccumulator.kt`, `app/src/test/java/com/astra/vpn/LibboxTrafficAccumulatorTest.kt`.
+- Важно: агрегатор пока не подключён к CommandClient; это безопасный тестируемый компонент, а не уже работающая статистика приложения. Следующий шаг — сверить сгенерированные Java/Kotlin сигнатуры артефакта libbox 1.14.3 и lifecycle/base path, затем подключить callback в AstraVpnService и проверить события на реальном устройстве. Авто-failover по скорости остаётся выключенным до проверки полноты измерений.
