@@ -24,7 +24,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
     // Invalidates delayed start/reload completions after a newer request or stop.
-    private var startRequestGeneration = 0L
+    private val startRequestGeneration = ServiceStartRequestGeneration()
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
@@ -67,13 +67,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
         val requestToken = synchronized(lifecycleLock) {
             stopping = false
-            startRequestGeneration++
+            val token = startRequestGeneration.next()
             activeProfileName = intent?.getStringExtra(EXTRA_PROFILE_NAME)
                 ?.takeIf { it.isNotBlank() } ?: activeProfileName
             activeProtocol = intent?.getStringExtra(EXTRA_PROTOCOL)
                 ?.takeIf { it.isNotBlank() } ?: activeProtocol
             if (intent?.action == ACTION_START) lastHistoryState = null
-            startRequestGeneration
+            token
         }
 
         startForeground(
@@ -88,7 +88,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
 
         val existingServer = synchronized(lifecycleLock) {
-            if (stopping || requestToken != startRequestGeneration) return START_NOT_STICKY
+            if (stopping || !startRequestGeneration.isCurrent(requestToken)) return START_NOT_STICKY
             commandServer
         }
 
@@ -96,7 +96,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { existingServer.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     synchronized(lifecycleLock) {
-                        if (stopping || requestToken != startRequestGeneration ||
+                        if (stopping || !startRequestGeneration.isCurrent(requestToken) ||
                             commandServer !== existingServer
                         ) return@synchronized
                         activeConfig = config
@@ -123,7 +123,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val server: CommandServer
         try {
             synchronized(lifecycleLock) {
-                if (stopping || requestToken != startRequestGeneration) return START_NOT_STICKY
+                if (stopping || !startRequestGeneration.isCurrent(requestToken)) return START_NOT_STICKY
                 ownerGeneration = lifecycleGeneration.advance()
                 val platform = AstraPlatform(this) { descriptor ->
                     handleTunCreated(descriptor, ownerGeneration)
@@ -134,7 +134,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             server.start()
             server.startOrReloadService(config, OverrideOptions())
             synchronized(lifecycleLock) {
-                if (stopping || requestToken != startRequestGeneration || commandServer !== server) {
+                if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
                     return START_NOT_STICKY
                 }
                 activeConfig = config
@@ -160,7 +160,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
     private fun failStartRequest(requestToken: Long, userMessage: String, error: Throwable? = null) {
         synchronized(lifecycleLock) {
-            if (stopping || requestToken != startRequestGeneration) return
+            if (stopping || !startRequestGeneration.isCurrent(requestToken)) return
             if (error != null) {
                 Log.e(TAG, "Ошибка запуска VPN (" + error.javaClass.simpleName + ")")
             } else {
@@ -251,7 +251,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
-        startRequestGeneration++
+        startRequestGeneration.invalidate()
         lifecycleGeneration.advance()
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
