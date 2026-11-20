@@ -164,9 +164,14 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
 
         override fun disconnected(message: String?) {
-            if (!stopped.get()) {
-                publishFailure("Канал проверки отключён")
-                handler.post { finish() }
+            // Serialize terminal callback handling with timeout/completion on the main
+            // handler. A callback that was already in flight must not publish an error
+            // after finish() has committed the final result.
+            handler.post {
+                if (!stopped.get()) {
+                    publishFailure("Канал проверки отключён")
+                    finish()
+                }
             }
         }
 
@@ -187,22 +192,27 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     snapshot[item.tag] = item.urlTestDelay.toLong().takeIf { it > 0L }
                 }
             }
-            if (snapshot.isNotEmpty() && !stopped.get()) {
-                val partial = synchronized(latestResults) {
-                    snapshot.forEach { (tag, delay) ->
-                        if (delay != null && delay > 0L) latestResults[tag] = delay
+            if (snapshot.isNotEmpty()) {
+                // Consume native iterators on the callback thread, but serialize all
+                // state mutation and broadcasts with timeout/finish on the main handler.
+                handler.post {
+                    if (stopped.get()) return@post
+                    val partial = synchronized(latestResults) {
+                        snapshot.forEach { (tag, delay) ->
+                            if (delay != null && delay > 0L) latestResults[tag] = delay
+                        }
+                        latestResults.toMap()
                     }
-                    latestResults.toMap()
-                }
-                // Stream every successful measurement to the UI immediately.
-                // A slow/unavailable node no longer hides the results of faster nodes.
-                publishResults(partial, finished = false)
-                synchronized(latestResults) {
+                    // Stream every successful measurement to the UI immediately.
+                    // A slow/unavailable node no longer hides the results of faster nodes.
+                    publishResults(partial, finished = false)
+                    val allMeasured = synchronized(latestResults) {
+                        latestResults.keys.containsAll(expectedTags) &&
+                            latestResults.values.all { delay -> delay != null && delay > 0L }
+                    }
                     // Zero values are sing-box's initial placeholders, not measurements.
                     // Finish early only when every outbound has a real positive result.
-                    if (latestResults.keys.containsAll(expectedTags) &&
-                        latestResults.values.all { delay -> delay != null && delay > 0L }
-                    ) {
+                    if (allMeasured) {
                         handler.removeCallbacks(completionDebounce)
                         handler.postDelayed(completionDebounce, RESULT_SETTLE_MS)
                     }
