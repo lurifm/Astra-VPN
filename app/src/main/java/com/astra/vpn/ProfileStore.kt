@@ -51,6 +51,26 @@ class ProfileStore(context: Context) {
             .also { profilesCache = it }
     }
 
+    /**
+     * Keeps only the selected proxy URI for opt-in process recovery.
+     * The URI is encrypted with the same Android Keystore AES-GCM key as profiles.
+     */
+    fun setRecoveryProfile(link: String?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val editor = prefs.edit()
+        if (link.isNullOrBlank()) {
+            editor.remove(RECOVERY_PROFILE_KEY)
+        } else {
+            require(all().contains(link)) { "Профиль для восстановления не найден" }
+            editor.putString(RECOVERY_PROFILE_KEY, encrypt(link))
+        }
+        check(editor.commit()) { "Не удалось сохранить профиль восстановления" }
+    }
+
+    fun recoveryProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val encrypted = prefs.getString(RECOVERY_PROFILE_KEY, null) ?: return@synchronized null
+        decryptStored(encrypted)
+    }
+
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val id = java.util.UUID.randomUUID().toString()
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
@@ -413,6 +433,7 @@ class ProfileStore(context: Context) {
     }
 
     companion object {
+        private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
         private const val PROFILE_PREFIX = "profile_"
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
         private const val SUBSCRIPTION_SOURCE_PREFIX = "subscription_source_"
