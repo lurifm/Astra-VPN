@@ -372,8 +372,8 @@ CI для последнего набора изменений необходи�
 
 - При остановке и последующем быстром запуске старый CommandClient мог теоретически прислать поздний `connected`, `disconnected` или `writeConnectionEvents` callback и повлиять на новое подключение.
 - Добавлен generation token: каждый старт получает новое поколение, stop инвалидирует текущее; callbacks и reconnect worker принимаются только от активного поколения. Это изолирует старый клиент от нового после stop/restart и не позволяет старым event snapshot перезаписать актуальную статистику.
-- Изменение в `LibboxTrafficMonitor.kt`, commit `fe9554a`. Требуется CI и runtime-проверка многократного быстрого stop/start; отдельные тесты libbox callback lifecycle пока не добавлены.
-- CI run #755 для live outbound refresh commit `b55bc02` завершился SUCCESS: unit tests, debug APK build, APK verification и artifact upload прошли. Новый run для generation-token fix ожидает завершения.
+- Изменение в `LibboxTrafficMonitor.kt`, commit `fe9554a`. Последующий CI run #761 завершился SUCCESS и включает этот commit в проверенное дерево; runtime-проверка многократного быстрого stop/start всё ещё нужна. Отдельные тесты реального libbox callback lifecycle пока не добавлены.
+- CI run #755 для live outbound refresh commit `b55bc02` также завершился SUCCESS: unit tests, debug APK build, APK verification и artifact upload прошли.
 
 
 ## 23. Reconnect backoff для LibboxTrafficMonitor (20 ноября 2026)
@@ -381,5 +381,5 @@ CI для последнего набора изменений необходи�
 - Выявлен риск reconnect storm: прежний цикл сбрасывал задержку до 1 секунды после любого успешного возврата `connect()`, хотя этот вызов лишь запускал stream readers и не гарантировал стабильность подписки.
 - Добавлен `TrafficMonitorRetryPolicy`: короткие обрывы увеличивают задержку экспоненциально от 1 до 30 секунд; сброс к 1 секунде происходит только после стабильной сессии не менее 30 секунд.
 - Политика выделена в чистый Kotlin-класс `TrafficMonitorRetryPolicy.kt`; добавлены unit-тесты на экспоненциальный рост, верхнюю границу, reset после стабильной сессии и отрицательную длительность.
-- Изменения в monitor/policy/tests: commits `05aa835`, `88b3eb4`, `ff0198a`. GitHub Actions run #760 для test commit находился `in_progress` при последней проверке; дождаться результата. Предыдущий run #755 на commit `b55bc02` успешно выполнил unit tests и debug APK build.
+- Изменения в monitor/policy/tests: commits `05aa835`, `88b3eb4`, `ff0198a`. GitHub Actions run #760 был отменён последующим запуском, но run #761 на commit документации `5064c58` завершился SUCCESS; он проверил актуальное дерево с retry policy и её unit-тестами. Все шаги unit tests, debug APK build, APK verification и artifact upload прошли.
 - Runtime-проверка поведения после реальных разрывов command channel и быстрых stop/start на Android устройстве всё ещё необходима.
