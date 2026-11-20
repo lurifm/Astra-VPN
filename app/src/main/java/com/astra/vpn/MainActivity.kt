@@ -3480,10 +3480,10 @@ class MainActivity : Activity() {
             latencyMeasuredAt.remove(current)
             pingInfo[current] = "Не отвечает · проверка соединения не пройдена"
         }
-        val eligibleProfiles = AutoProtocolFallbackPolicy.preferAlternativeProtocol(
-            profiles = profiles.filterNot { it == current },
-            currentProfile = current
-        )
+        // Keep every other profile until freshness is evaluated. Filtering by
+        // protocol before checking measured candidates would discard same-protocol
+        // fallbacks even when every alternative-transport Ping is stale or missing.
+        val eligibleProfiles = profiles.filterNot { it == current }
         val freshLatencies = LatencyFreshnessPolicy.freshLatencies(
             latencyMs, latencyMeasuredAt, now, eligibleProfiles
         )
