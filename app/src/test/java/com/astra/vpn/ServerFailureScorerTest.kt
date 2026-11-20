@@ -58,4 +58,53 @@ class ServerFailureScorerTest {
         assertTrue(ServerFailureScorer.weightedFailures(listOf(sample), -1L).isEmpty())
         assertTrue(ServerFailureScorer.weightedFailures(listOf(sample), 2L, 0L).isEmpty())
     }
+
+    @Test
+    fun excludesRecentlyFailedProfileButKeepsOtherServers() {
+        val now = 1_000_000L
+        val profiles = listOf("vless://id@bad.example:443#Bad", "tuic://id:pass@good.example:443#Good")
+        val entries = listOf(ConnectionHistoryStore.Entry(now - 60_000L, "error", "Bad", "VLESS"))
+        assertEquals(
+            listOf(profiles[1]),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                profiles, entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
+    fun quarantineExpiresAndDoesNotCrossProtocolIdentity() {
+        val now = 1_000_000L
+        val sameNameDifferentProtocol = "tuic://id:pass@node.example:443#Node"
+        val entries = listOf(ConnectionHistoryStore.Entry(now - 6L * 60L * 1_000L, "error", "Node", "VLESS"))
+        assertEquals(
+            listOf(sameNameDifferentProtocol),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(sameNameDifferentProtocol), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
+    fun keepsLastResortCandidatesWhenAllAreQuarantined() {
+        val now = 1_000_000L
+        val profiles = listOf("vless://id@one.example:443#One", "tuic://id:pass@two.example:443#Two")
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(now - 1L, "error", "One", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 2L, "error", "Two", "TUIC")
+        )
+        assertEquals(
+            profiles,
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                profiles, entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
 }

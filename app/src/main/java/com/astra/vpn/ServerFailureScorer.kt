@@ -38,4 +38,44 @@ internal object ServerFailureScorer {
         }
         return totals
     }
+
+    /**
+     * Temporarily avoid a profile that just failed, so repeated failovers do not
+     * bounce straight back to the previous broken endpoint. If every candidate
+     * is quarantined, keep the original list: a last-resort connection is better
+     * than making automatic recovery impossible.
+     */
+    fun excludeRecentlyFailedProfiles(
+        profiles: List<String>,
+        entries: List<ConnectionHistoryStore.Entry>,
+        now: Long,
+        quarantineMs: Long = 5L * 60L * 1_000L,
+        nameOf: (String) -> String,
+        protocolOf: (String) -> String
+    ): List<String> {
+        if (profiles.isEmpty() || now < 0L || quarantineMs <= 0L) return profiles
+        val quarantined = entries.asSequence()
+            .filter { it.state == "error" && it.timestamp >= 0L && it.timestamp <= now }
+            .filter { now - it.timestamp <= quarantineMs }
+            .mapNotNull { entry ->
+                val name = normalizeIdentity(entry.serverName)
+                val protocol = normalizeProtocol(entry.protocol)
+                if (name.isBlank() || protocol.isBlank()) null else "$name|$protocol"
+            }
+            .toSet()
+        if (quarantined.isEmpty()) return profiles
+        val preferred = profiles.filter { profile ->
+            val key = "${normalizeIdentity(nameOf(profile))}|${normalizeProtocol(protocolOf(profile))}"
+            key !in quarantined
+        }
+        return preferred.ifEmpty { profiles }
+    }
+
+    private fun normalizeIdentity(value: String): String =
+        value.trim().lowercase(Locale.ROOT)
+
+    private fun normalizeProtocol(value: String): String {
+        val normalized = value.trim().lowercase(Locale.ROOT)
+        return if (normalized == "hy2") "hysteria2" else normalized
+    }
 }

@@ -3495,14 +3495,30 @@ class MainActivity : Activity() {
             currentProfile = current,
             measuredProfiles = freshLatencies.keys
         )
+        // Record the node that just failed its end-to-end health checks. A
+        // short quarantine prevents the next failover from immediately cycling
+        // back to it, while preserving a last-resort path if all nodes failed.
+        if (current != null) {
+            runCatching {
+                connectionHistory.record("error", profileName(current), protocolName(current))
+            }
+        }
+        val recentHistory = connectionHistory.getEntries()
+        val failoverCandidates = ServerFailureScorer.excludeRecentlyFailedProfiles(
+            profiles = measuredFailoverCandidates,
+            entries = recentHistory,
+            now = System.currentTimeMillis(),
+            nameOf = ::profileName,
+            protocolOf = ::protocolName
+        )
         val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
-            measuredFailoverCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
+            failoverCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
-            profiles = measuredFailoverCandidates,
+            profiles = failoverCandidates,
             latencyMs = timeAdjustedLatencies,
-            recentFailures = recentServerFailureCounts(eligibleProfiles),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(eligibleProfiles)
+            recentFailures = recentServerFailureCounts(failoverCandidates),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates)
         ) ?: run {
             renderProfiles()
             return
