@@ -94,6 +94,8 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // Monotonic timestamps prevent auto-failover from trusting an old ping after network conditions change.
+    private val latencyMeasuredAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private var latencyTestInFlight = false
@@ -2941,11 +2943,13 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
+                latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
                 // A failed URL-test means "no measurement", not proof that the server is dead.
                 latencyMs.remove(profile)
+                latencyMeasuredAt.remove(profile)
                 pingInfo[profile] = "н/д"
             }
         }
@@ -3241,8 +3245,11 @@ class MainActivity : Activity() {
         val current = activeProfile ?: selectedProfile
         val profiles = safeProfiles() ?: return
         val candidates = profiles.filterNot { it == current }
+        val freshLatencies = LatencyFreshnessPolicy.freshLatencies(
+            latencyMs, latencyMeasuredAt, android.os.SystemClock.elapsedRealtime(), candidates
+        )
         val adjusted = TimeOfDayServerOptimizer.adjustedLatencies(
-            candidates, latencyMs, { profile -> latencyHistory.samples(profile) }
+            candidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
             profiles = candidates,
@@ -3470,14 +3477,18 @@ class MainActivity : Activity() {
         // for this node; otherwise a later failover could bounce straight back.
         if (current != null) {
             latencyMs.remove(current)
+            latencyMeasuredAt.remove(current)
             pingInfo[current] = "Не отвечает · проверка соединения не пройдена"
         }
         val eligibleProfiles = AutoProtocolFallbackPolicy.preferAlternativeProtocol(
             profiles = profiles.filterNot { it == current },
             currentProfile = current
         )
+        val freshLatencies = LatencyFreshnessPolicy.freshLatencies(
+            latencyMs, latencyMeasuredAt, now, eligibleProfiles
+        )
         val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
-            eligibleProfiles, latencyMs, { profile -> latencyHistory.samples(profile) }
+            eligibleProfiles, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
             profiles = eligibleProfiles,
