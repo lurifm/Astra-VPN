@@ -329,3 +329,15 @@ CI для последнего набора изменений необходи�
 - Подтверждены значения ConnectionEvent в v1.14.3: New=0, Update=1, Closed=2; агрегатор учитывает только Update deltas.
 - CI run #739 для commit `90daa61` на момент этой записи ещё выполняется; новый commit с reconnect-loop создаст следующий run. Нужна проверка компиляции, поскольку точные Java API должны подтверждаться CI.
 - Runtime-проверка на устройстве всё ещё обязательна; UI не подключён, VPN-only полнота не доказана, авто-failover остаётся выключенным.
+
+
+## 18. Подключение мониторинга к VPN-службе и атрибуция по connection ID (20 ноября 2026)
+
+- `AstraVpnService` теперь создаёт `LibboxTrafficMonitor` после успешного `CommandServer.startOrReloadService()` и останавливает его в `stopTunnel()` до закрытия CommandServer. Удалены дублирующие поля/вызовы, возникшие при последовательном обновлении lifecycle.
+- Монитор использует локальный `CommandClient` в основном процессе приложения (тот же процесс и `basePath`, что и VPN CommandServer). Подписка выполняется на отдельном daemon thread; connect/disconnect не блокируют main thread. При ошибке/закрытии stream выполняется повторное подключение с backoff 1–30 секунд; callback disconnected будит worker.
+- Обработка событий теперь использует `LibboxTrafficEventTracker`: New запоминает соответствие connection ID → outbound tag, Update добавляет только delta (в том числе если update не содержит Connection object), Closed удаляет mapping. Reset очищает mappings и накопленные totals. Это предотвращает потерю outbound attribution при частичных update events и не складывает cumulative totals повторно.
+- Добавлена публикация снимков в `SharedPreferences` (`astra_libbox_traffic`) и package-scoped broadcast `com.astra.vpn.action.TRAFFIC`. Публикация ограничена максимум одним обновлением в секунду (Reset публикуется немедленно), чтобы поток событий не приводил к постоянной записи preferences и broadcast storm. На остановке публикуется пустой снимок.
+- Снимки пока не выведены в UI и не участвуют в failover. Наличие данных в SharedPreferences подтверждает только получение outbound-scoped connection deltas, не полноту TUN bytes. Требуется физическая runtime-проверка на Android: обычный proxy traffic, direct/bypass, DNS, UDP, фоновые соединения, переподключение, переключение профиля и reset.
+- Добавлены `LibboxTrafficEventTrackerTest` проверки для запоминания outbound, смены outbound, закрытия соединения, неизвестных ID и reset.
+- Последние изменения: `56862f5` устраняет повторное lifecycle-управление monitor; `82ed2b3` добавляет event-ID attribution и throttling. CI run #745 для HEAD `82ed2b3` ожидает результата; не считать компиляцию подтверждённой до завершения.
+- Авто-failover по скорости остаётся выключенным: текущий монитор — экспериментальный источник outbound-scoped статистики, его полнота и корректность на устройстве ещё не подтверждены.
