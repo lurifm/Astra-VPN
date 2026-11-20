@@ -13,8 +13,14 @@ internal class SpeedDropFailoverPolicy(
     private var belowSince: Long? = null
     private var lastTriggeredAt = Long.MIN_VALUE
 
-    fun update(downloadMbps: Double, now: Long, vpnConnected: Boolean): Boolean {
-        if (!vpnConnected || now <= 0L || !downloadMbps.isFinite() || downloadMbps < minimumActiveMbps) {
+    fun update(
+        downloadMbps: Double,
+        now: Long,
+        vpnConnected: Boolean,
+        trafficIsVpnScoped: Boolean = false
+    ): Boolean {
+        // Aggregate device counters include unrelated apps and must never trigger failover.
+        if (!trafficIsVpnScoped || !vpnConnected || now <= 0L || !downloadMbps.isFinite() || downloadMbps < minimumActiveMbps) {
             belowSince = null
             return false
         }
