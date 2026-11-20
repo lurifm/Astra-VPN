@@ -11,6 +11,12 @@ internal class TrafficMonitorRetryPolicy(
 ) {
     private var nextDelayMs = initialDelayMs
 
+    init {
+        require(initialDelayMs > 0L) { "Initial retry delay must be positive" }
+        require(maxDelayMs >= initialDelayMs) { "Maximum retry delay must be at least the initial delay" }
+        require(stableConnectionMs >= 0L) { "Stable connection duration cannot be negative" }
+    }
+
     @Synchronized
     fun nextDelayAfter(connectedDurationMs: Long): Long {
         if (connectedDurationMs >= stableConnectionMs) {
@@ -18,7 +24,12 @@ internal class TrafficMonitorRetryPolicy(
             return initialDelayMs
         }
         val delay = nextDelayMs
-        nextDelayMs = (nextDelayMs * 2L).coerceAtMost(maxDelayMs)
+        // Saturate before multiplication so custom large limits cannot overflow Long.
+        nextDelayMs = if (nextDelayMs >= maxDelayMs / 2L) {
+            maxDelayMs
+        } else {
+            (nextDelayMs * 2L).coerceAtMost(maxDelayMs)
+        }
         return delay
     }
 }
