@@ -3478,6 +3478,67 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(7) })
         }
+        // libbox connection events provide outbound-scoped deltas, not a complete
+        // TUN counter. Keep this section explicitly separate from Android device/app totals.
+        val outboundTraffic = getSharedPreferences(AstraVpnService.TRAFFIC_PREFS, MODE_PRIVATE)
+        val outboundJson = outboundTraffic.getString(AstraVpnService.TRAFFIC_JSON, null)
+        val outboundUpdatedAt = outboundTraffic.getLong(AstraVpnService.TRAFFIC_UPDATED_AT, 0L)
+        content.addView(TextView(this).apply {
+            text = "ТРАФИК VPN ПО OUTBOUND (ЧАСТИЧНО)"
+            textSize = 9f
+            letterSpacing = 0.12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF9EAEFF.toInt())
+            setPadding(dp(2), dp(8), 0, dp(5))
+        })
+        val outboundContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF151F32.toInt(), 14)
+        }
+        val outboundTotals = runCatching {
+            val json = outboundJson?.let(::JSONObject) ?: JSONObject()
+            json.keys().asSequence().mapNotNull { tag ->
+                val totals = json.optJSONObject(tag) ?: return@mapNotNull null
+                val upload = totals.optLong("uploadBytes", -1L)
+                val download = totals.optLong("downloadBytes", -1L)
+                if (upload < 0L || download < 0L) null else Triple(tag, upload, download)
+            }.toList()
+        }.getOrDefault(emptyList())
+        if (outboundTotals.isEmpty()) {
+            outboundContainer.addView(TextView(this).apply {
+                text = "Пока нет данных libbox. Подключись к VPN и передай трафик."
+                textSize = 12f
+                setTextColor(MUTED)
+            })
+        } else {
+            outboundTotals.sortedBy { it.first }.forEach { (tag, upload, download) ->
+                outboundContainer.addView(TextView(this).apply {
+                    text = "$tag · ↓ ${formatTraffic(download)} / ↑ ${formatTraffic(upload)}"
+                    textSize = 12f
+                    setTextColor(Color.WHITE)
+                    setPadding(0, 0, 0, dp(5))
+                })
+            }
+            outboundContainer.addView(TextView(this).apply {
+                text = "Сумма полученных дельт: ↓ ${formatTraffic(outboundTotals.sumOf { it.third })} / ↑ ${formatTraffic(outboundTotals.sumOf { it.second })}"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFB9C8FF.toInt())
+                setPadding(0, dp(4), 0, 0)
+            })
+        }
+        outboundContainer.addView(TextView(this).apply {
+            val age = if (outboundUpdatedAt > 0L) {
+                val seconds = ((System.currentTimeMillis() - outboundUpdatedAt).coerceAtLeast(0L) / 1000L)
+                "Обновлено: ${seconds} сек. назад"
+            } else "Время обновления неизвестно"
+            text = "$age. Это сумма connection-event дельт libbox по outbound; direct/bypass и служебный трафик могут учитываться не полностью. Не использовать как общий VPN/TUN-счётчик."
+            textSize = 10f
+            setTextColor(MUTED)
+            setPadding(0, dp(6), 0, 0)
+        })
+        content.addView(outboundContainer, matchWidth().apply { bottomMargin = dp(8) })
         content.addView(TextView(this).apply {
             text = if (hasAppUsageAccess()) {
                 "Статистика приложений: доступ разрешён"
@@ -4426,10 +4487,10 @@ class MainActivity : Activity() {
         }
         panel.addView(streakEntry)
         val speedFailoverEntry = CheckBox(this).apply {
-            text = "Автопереключение при падении скорости"
+            text = "Автопереключение при падении скорости (требует достоверной VPN-статистики)"
             textSize = 13f
             setTextColor(Color.WHITE)
-            isChecked = settingsPrefs.getBoolean("auto_speed_failover", true)
+            isChecked = settingsPrefs.getBoolean("auto_speed_failover", false)
             setOnCheckedChangeListener { _, checked ->
                 settingsPrefs.edit().putBoolean("auto_speed_failover", checked).apply()
             }
