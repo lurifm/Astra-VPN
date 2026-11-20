@@ -81,8 +81,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (stopped.get()) return@execute
                 val platform = AstraPlatform(this, { descriptor ->
                     runCatching { descriptor.close() }
-                    publishFailure("Проверка неожиданно запросила VPN-интерфейс")
-                    handler.post { finish() }
+                    failIfActive("Проверка неожиданно запросила VPN-интерфейс")
                 }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
                 val commandServer = CommandServer(this, platform)
                 createdServer = commandServer
@@ -123,8 +122,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     runCatching { createdServer?.closeService() }
                     runCatching { createdServer?.close() }
                 } else {
-                    publishFailure("Не удалось запустить проверку серверов")
-                    handler.post { finish() }
+                    failIfActive("Не удалось запустить проверку серверов")
                 }
             }
         }
@@ -156,8 +154,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 runCatching { activeClient.urlTest(SingBoxUrlTestConfig.GROUP_TAG) }
                     .onFailure {
                         if (!stopped.get()) {
-                            publishFailure("Не удалось запустить URL-test")
-                            handler.post { finish() }
+                            failIfActive("Не удалось запустить URL-test")
                         }
                     }
             }
@@ -255,6 +252,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 .putExtra(EXTRA_FINAL, finished)
                 .putExtra(EXTRA_SESSION, sessionId)
         )
+    }
+
+    /**
+     * Serialize terminal failures with timeout and successful completion.
+     * Rechecking stopped on the main handler prevents a late worker/native
+     * failure from broadcasting ACTION_ERROR after a final result was committed.
+     */
+    private fun failIfActive(message: String) {
+        handler.post {
+            if (stopped.get()) return@post
+            publishFailure(message)
+            finish()
+        }
     }
 
     private fun publishFailure(message: String) {

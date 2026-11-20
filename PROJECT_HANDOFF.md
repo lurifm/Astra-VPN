@@ -480,3 +480,11 @@ CI для последнего набора изменений необходи�
 - disconnected() теперь также отправляет обработку ошибки в main Handler и повторно проверяет stopped непосредственно перед публикацией. Поздний disconnect не должен перезаписывать уже завершённую проверку ошибкой.
 - Изменение: commit 06224d51a1381e86e959991c66c8737ccacd94b5.
 - CI для нового HEAD необходимо дождаться. Изменение закрывает конкретную гонку порядка публикации callback/terminal result; не заменяет stress-тесты реального libbox lifecycle на Android устройстве.
+
+## 34. Сериализация терминальных ошибок latency worker (2026-11-20)
+
+- В ходе аудита найден race: startup worker и callback `CommandClientHandler.connected()` могли проверить `stopped == false`, затем timeout успевал опубликовать финальный snapshot и остановить сервис, после чего worker отправлял запоздалый `ACTION_ERROR`. UI мог получить противоречивые терминальные события для одной сессии.
+- Добавлен единый `failIfActive()`: terminal failure публикуется и завершает сервис внутри main Handler, в той же последовательности, что timeout, debounce и обработка disconnect. Состояние `stopped` повторно проверяется непосредственно перед публикацией.
+- На этот путь переведены ошибка запуска URL-test, ошибка startup worker и неожиданный запрос TUN от изолированной проверки. Это устраняет check-then-act race, а не только предварительный атомарный check.
+- Commit: ожидается.
+- После commit требуется проверить GitHub Actions (unit tests, debug APK, APK verification, artifact upload). Реальная проверка STOP/timeout во время native startup всё ещё требует физического Android-устройства.
