@@ -47,11 +47,13 @@ internal class LibboxTrafficMonitor(
     }
 
     private fun runConnectionLoop(activeClient: CommandClient, activeGeneration: Long) {
-        var retryDelayMs = INITIAL_RETRY_DELAY_MS
+        val retryPolicy = TrafficMonitorRetryPolicy()
         while (isActive(activeClient, activeGeneration)) {
+            var connectedAt = 0L
             try {
                 // connect() establishes the command channel and starts stream readers.
                 activeClient.connect()
+                connectedAt = SystemClock.elapsedRealtime()
                 synchronized(lock) {
                     while (!stopped && generation == activeGeneration && client === activeClient && !disconnected) {
                         lock.wait()
@@ -59,7 +61,6 @@ internal class LibboxTrafficMonitor(
                     if (stopped || generation != activeGeneration || client !== activeClient) return
                     disconnected = false
                 }
-                retryDelayMs = INITIAL_RETRY_DELAY_MS
             } catch (error: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return
@@ -68,13 +69,16 @@ internal class LibboxTrafficMonitor(
             }
 
             if (!isActive(activeClient, activeGeneration)) return
+            val connectedDuration = if (connectedAt > 0L) {
+                (SystemClock.elapsedRealtime() - connectedAt).coerceAtLeast(0L)
+            } else 0L
+            val delayMs = retryPolicy.nextDelayAfter(connectedDuration)
             try {
-                Thread.sleep(retryDelayMs)
+                Thread.sleep(delayMs)
             } catch (error: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return
             }
-            retryDelayMs = (retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
         }
     }
 
@@ -174,7 +178,5 @@ internal class LibboxTrafficMonitor(
     companion object {
         private const val TAG = "LibboxTrafficMonitor"
         private const val PUBLISH_INTERVAL_MS = 1_000L
-        private const val INITIAL_RETRY_DELAY_MS = 1_000L
-        private const val MAX_RETRY_DELAY_MS = 30_000L
     }
 }
