@@ -406,9 +406,9 @@ CI для последнего набора изменений необходи�
 
 ## 25. Serialize service-triggered reload with shutdown (2026-11-20)
 
-- AstraVpnService.serviceReload() now executes under lifecycleLock, the same lock used by TUN callbacks, timeout handling, and stopTunnel().
+- AstraVpnService.serviceReload() captures the active CommandServer/config pair under lifecycleLock, then calls startOrReloadService() without holding the lock to avoid lock inversion with libbox callbacks.
 - Reload returns immediately when shutdown is already in progress or the active config/server is unavailable.
-- After startOrReloadService() returns, success and failure handlers verify that shutdown has not started and the same CommandServer is still active before publishing state, starting monitoring, scheduling a TUN timeout, or stopping the tunnel.
-- This closes a stale-service-reload race where a reload could retain an old server reference while shutdown was closing it, then publish CONNECTING or schedule a timeout after shutdown.
+- Success and failure handlers reacquire lifecycleLock and verify that shutdown has not started and the same CommandServer/config are still active before publishing state, starting monitoring, scheduling a TUN timeout, or stopping the tunnel.
+- This closes a stale-service-reload race while avoiding holding the service lifecycle lock across an external libbox call.
 - The guard is intentionally limited to the serviceReload() callback path. The full onStartCommand() start/reload path still requires broader concurrency review and Android runtime testing.
 - Commit: 017af9f969a697b7e344dfe92b49ae45bd09cc6e.
