@@ -23,6 +23,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
+    // Invalidates delayed start/reload completions after a newer request or stop.
+    private var startRequestGeneration = 0L
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
@@ -58,74 +60,115 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Serialize a new start with asynchronous libbox callbacks and shutdown.
-        synchronized(lifecycleLock) { stopping = false }
-        intent?.getStringExtra(EXTRA_PROFILE_NAME)?.takeIf { it.isNotBlank() }?.let { activeProfileName = it }
-        intent?.getStringExtra(EXTRA_PROTOCOL)?.takeIf { it.isNotBlank() }?.let { activeProtocol = it }
-        // A new start command may be a server switch that reuses the existing TUN.
-        if (intent?.action == ACTION_START) lastHistoryState = null
-        startForeground(
-            NOTIFICATION_ID,
-            AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
-        )
         if (intent?.action == ACTION_STOP) {
             stopTunnel()
             return START_NOT_STICKY
         }
+
+        val requestToken = synchronized(lifecycleLock) {
+            stopping = false
+            startRequestGeneration++
+            activeProfileName = intent?.getStringExtra(EXTRA_PROFILE_NAME)
+                ?.takeIf { it.isNotBlank() } ?: activeProfileName
+            activeProtocol = intent?.getStringExtra(EXTRA_PROTOCOL)
+                ?.takeIf { it.isNotBlank() } ?: activeProtocol
+            if (intent?.action == ACTION_START) lastHistoryState = null
+            startRequestGeneration
+        }
+
+        startForeground(
+            NOTIFICATION_ID,
+            AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
+        )
+
         val config = intent?.getStringExtra(EXTRA_CONFIG)
         if (config.isNullOrBlank()) {
-            val message = "Не передана конфигурация sing-box"
-            Log.e(TAG, message)
-            stopTunnel()
-            publishState(STATE_ERROR, message)
+            failStartRequest(requestToken, "Не передана конфигурация sing-box")
             return START_NOT_STICKY
         }
-        if (commandServer != null) {
-            runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
+
+        val existingServer = synchronized(lifecycleLock) {
+            if (stopping || requestToken != startRequestGeneration) return START_NOT_STICKY
+            commandServer
+        }
+
+        if (existingServer != null) {
+            runCatching { existingServer.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
-                    activeConfig = config
-                    startTrafficMonitor()
-                    if (tunDescriptor == null) {
-                        publishState(STATE_CONNECTING)
-                        awaitTunCreation()
-                    } else {
-                        // A reload can reuse an already established TUN. In that
-                        // case no new openTun callback is guaranteed, so restore
-                        // the connected state explicitly instead of leaving the UI
-                        // stuck on "connecting".
-                        publishState(STATE_CONNECTED)
+                    synchronized(lifecycleLock) {
+                        if (stopping || requestToken != startRequestGeneration ||
+                            commandServer !== existingServer
+                        ) return@synchronized
+                        activeConfig = config
+                        startTrafficMonitor()
+                        if (tunDescriptor == null) {
+                            publishState(STATE_CONNECTING)
+                            awaitTunCreation()
+                        } else {
+                            publishState(STATE_CONNECTED)
+                        }
                     }
                 }
                 .onFailure { error ->
-                    Log.e(TAG, "Не удалось перезапустить VPN (" + error.javaClass.simpleName + ")")
-                    stopTunnel()
-                    publishState(STATE_ERROR, "Не удалось перезапустить VPN. Проверь выбранный сервер и подключение.")
+                    failStartRequest(
+                        requestToken,
+                        "Не удалось перезапустить VPN. Проверь выбранный сервер и подключение.",
+                        error
+                    )
                 }
             return START_NOT_STICKY
         }
+
+        val ownerGeneration: Long
+        val server: CommandServer
         try {
-            val ownerGeneration = lifecycleGeneration.advance()
-            val platform = AstraPlatform(this, { descriptor ->
-                handleTunCreated(descriptor, ownerGeneration)
-            })
-            val server = CommandServer(this, platform)
-            commandServer = server
+            synchronized(lifecycleLock) {
+                if (stopping || requestToken != startRequestGeneration) return START_NOT_STICKY
+                ownerGeneration = lifecycleGeneration.advance()
+                val platform = AstraPlatform(this) { descriptor ->
+                    handleTunCreated(descriptor, ownerGeneration)
+                }
+                server = CommandServer(this, platform)
+                commandServer = server
+            }
             server.start()
             server.startOrReloadService(config, OverrideOptions())
-            activeConfig = config
-            startTrafficMonitor()
-            Log.i(TAG, "sing-box service accepted configuration")
-            if (tunDescriptor == null) {
-                publishState(STATE_CONNECTING)
-                awaitTunCreation()
-                Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
+            synchronized(lifecycleLock) {
+                if (stopping || requestToken != startRequestGeneration || commandServer !== server) {
+                    return START_NOT_STICKY
+                }
+                activeConfig = config
+                startTrafficMonitor()
+                Log.i(TAG, "sing-box service accepted configuration")
+                if (tunDescriptor == null) {
+                    publishState(STATE_CONNECTING)
+                    awaitTunCreation()
+                    Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
+                } else {
+                    publishState(STATE_CONNECTED)
+                }
             }
         } catch (error: Exception) {
-            Log.e(TAG, "Не удалось запустить sing-box VPN (" + error.javaClass.simpleName + ")")
-            stopTunnel()
-            publishState(STATE_ERROR, "Не удалось запустить VPN. Проверь конфигурацию сервера и разрешение на VPN.")
+            failStartRequest(
+                requestToken,
+                "Не удалось запустить VPN. Проверь конфигурацию сервера и разрешение на VPN.",
+                error
+            )
         }
         return START_NOT_STICKY
+    }
+
+    private fun failStartRequest(requestToken: Long, userMessage: String, error: Throwable? = null) {
+        synchronized(lifecycleLock) {
+            if (stopping || requestToken != startRequestGeneration) return
+            if (error != null) {
+                Log.e(TAG, "Ошибка запуска VPN (" + error.javaClass.simpleName + ")")
+            } else {
+                Log.e(TAG, userMessage)
+            }
+            stopTunnel()
+            publishState(STATE_ERROR, userMessage)
+        }
     }
 
     override fun serviceStop() = stopTunnel()
@@ -208,6 +251,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
+        startRequestGeneration++
         lifecycleGeneration.advance()
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
