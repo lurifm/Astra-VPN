@@ -472,3 +472,11 @@ CI для последнего набора изменений необходи�
 - Изменение: commit `36a24b718adaff4847019bb2e2070c375a369c32`.
 - Это закрывает конкретный путь позднего callback для `connected()`, но не доказывает отсутствие всех гонок native libbox lifecycle. Полный stress/runtime test STOP во время connect и callback после onDestroy нужен на Android устройстве.
 - CI run #796 для предыдущего HEAD `46c266b3a4c6837916781e07a5d5fd11d5b4d616` завершился SUCCESS. Для этого изменения нужен новый итоговый CI run.
+
+## 33. Сериализация callback результатов latency с завершением проверки (2026-11-20)
+
+- Найден ещё один race в AstraLatencyTestService: writeGroups() мог пройти проверку stopped, затем timeout/completion успевал опубликовать финальный snapshot, а callback после этого отправлял частичный результат. Это могло привести к устаревшему partial broadcast после финального результата.
+- Обработка writeGroups() теперь сначала полностью считывает native iterators на callback thread, затем передаёт snapshot в main Handler. Изменение latestResults, partial broadcast и планирование раннего завершения сериализованы с timeout/completion.
+- disconnected() теперь также отправляет обработку ошибки в main Handler и повторно проверяет stopped непосредственно перед публикацией. Поздний disconnect не должен перезаписывать уже завершённую проверку ошибкой.
+- Изменение: commit 06224d51a1381e86e959991c66c8737ccacd94b5.
+- CI для нового HEAD необходимо дождаться. Изменение закрывает конкретную гонку порядка публикации callback/terminal result; не заменяет stress-тесты реального libbox lifecycle на Android устройстве.
