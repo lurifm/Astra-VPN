@@ -393,3 +393,13 @@ CI для последнего набора изменений необходи�
 - Изменения: 84b17a9 (первичная защита), e04b9db (helper), f1ed6ed (тесты), 996f886 (подключение helper в сервисе).
 - Предыдущий CI run #762 завершился SUCCESS: unit tests, debug APK, APK verification и upload прошли. Новый CI для lifecycle-generation изменений ожидается.
 - Ограничение: защита относится к callback открытия TUN от старого CommandServer. Она не заменяет runtime-тесты reload/stop/start на физическом Android устройстве и не позволяет различить несколько callback от одного и того же сервера в рамках одного поколения.
+
+
+## 25. Защита тайм-аута создания TUN от устаревших reload (20 ноября 2026)
+
+- GitHub Actions run #767 для commit `4c437f2` завершился **SUCCESS**: unit tests, debug APK build, APK verification и artifact upload прошли. Это подтверждает предыдущий lifecycle-generation guard.
+- Выявлен отдельный race: один общий Runnable тайм-аута TUN переиспользовался при нескольких reload одного и того же CommandServer. Удаление callback из Handler не гарантирует отмену Runnable, который уже начал исполняться; service lifecycle generation здесь недостаточен, поскольку reload не создаёт новый CommandServer.
+- Тайм-аут теперь получает отдельный token на каждое ожидание TUN. При новом ожидании, успешном открытии TUN и stop token инвалидируется; уже запущенный старый Runnable проверяет token под lifecycleLock и не может остановить более новое подключение.
+- Добавлен тестируемый `TunCreationTimeoutGeneration.kt` и unit-тесты на замену ожидания, отмену и монотонность token.
+- Изменения внесены коммитами: `48b0536` (per-wait timeout token integration), `6c0e32e` (generation helper), `ed40179` (tests), `60a1126` (service integration), `e3c7234` (advance token on each wait).
+- Новый CI run после этих изменений необходимо дождаться. Физическая проверка повторных reload/stop/start на Android устройстве не выполнена.
