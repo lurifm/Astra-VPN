@@ -19,7 +19,7 @@ class ServerFailureScorerTest {
             ),
             now
         )
-        assertEquals(6, result["node a"])
+        assertEquals(6, result["node a|vless"])
     }
 
     @Test

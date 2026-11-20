@@ -108,8 +108,8 @@ class ProfileStore(context: Context) {
         val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + sourceId
         val editor = prefs.edit()
         prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
-        links.distinct().forEach { link ->
-            editor.putString(profilePrefix + java.util.UUID.randomUUID().toString(), encrypt(link))
+        links.distinct().forEachIndexed { index, link ->
+            editor.putString(SubscriptionProfileKey.storageKey(sourceId, index, link), encrypt(link))
         }
         editor.putString(sourceKey, encrypt(sourceUrl))
         val metadataKey = SUBSCRIPTION_META_PREFIX + sourceId
@@ -327,8 +327,8 @@ class ProfileStore(context: Context) {
             val id = sourceId(source)
             val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
             prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
-            links.forEach { link ->
-                editor.putString(profilePrefix + java.util.UUID.randomUUID().toString(), encrypt(link))
+            links.forEachIndexed { index, link ->
+                editor.putString(SubscriptionProfileKey.storageKey(id, index, link), encrypt(link))
             }
             editor.putString(SUBSCRIPTION_SOURCE_PREFIX + id, encrypt(source))
             editor.putString(SUBSCRIPTION_META_PREFIX + id, extra.first)
