@@ -158,30 +158,20 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 handler.post {
                     if (stopped.get()) return@post
                     handler.removeCallbacks(startupTimeout)
+                    // Start every per-server deadline together. This is a hard
+                    // upper bound for the batch even if a native URLTest call stalls.
+                    expectedTags.forEach { outboundTag ->
+                        val deadline = Runnable { completeTimedOutTag(outboundTag) }
+                        perServerTimeouts[outboundTag] = deadline
+                        handler.postDelayed(deadline, TEST_TIMEOUT_MS)
+                    }
                 }
-                // Each URLTest gets its own bounded dispatcher slot. The 10-second
-                // deadline begins immediately before that native request is issued,
-                // not while it is waiting in the dispatch queue.
+                // A bounded pool prevents one blocking native call from holding
+                // the single startup worker and keeps the number of threads finite.
                 expectedTags.forEach { outboundTag ->
                     if (stopped.get()) return@forEach
                     runCatching {
                         urlTestDispatcher.execute {
-                            if (stopped.get()) return@execute
-                            val deadlineReady = java.util.concurrent.CountDownLatch(1)
-                            handler.post {
-                                if (!stopped.get() && outboundTag !in completedTags) {
-                                    val deadline = Runnable { completeTimedOutTag(outboundTag) }
-                                    perServerTimeouts[outboundTag] = deadline
-                                    handler.postDelayed(deadline, TEST_TIMEOUT_MS)
-                                }
-                                deadlineReady.countDown()
-                            }
-                            try {
-                                deadlineReady.await()
-                            } catch (_: InterruptedException) {
-                                Thread.currentThread().interrupt()
-                                return@execute
-                            }
                             if (stopped.get()) return@execute
                             runCatching {
                                 activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
