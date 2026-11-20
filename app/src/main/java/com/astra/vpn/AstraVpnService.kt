@@ -24,7 +24,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
-    private var lifecycleGeneration = 0L
+    private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tunTimeout = Runnable {
@@ -90,10 +90,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         try {
-            val ownerGeneration = synchronized(lifecycleLock) {
-                lifecycleGeneration += 1L
-                lifecycleGeneration
-            }
+            val ownerGeneration = lifecycleGeneration.advance()
             val platform = AstraPlatform(this, { descriptor ->
                 handleTunCreated(descriptor, ownerGeneration)
             })
@@ -168,7 +165,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         synchronized(lifecycleLock) {
             // libbox may finish opening TUN after shutdown or after a replacement
             // CommandServer has started. Never let an older server publish CONNECTED.
-            if (stopping || lifecycleGeneration != ownerGeneration) {
+            if (stopping || !lifecycleGeneration.isCurrent(ownerGeneration)) {
                 runCatching { descriptor.close() }
                     .onFailure { Log.w(TAG, "Late TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
                 return
@@ -183,7 +180,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
-        lifecycleGeneration += 1L
+        lifecycleGeneration.advance()
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
         mainHandler.removeCallbacks(tunTimeout)
