@@ -1204,6 +1204,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
             return
         }
+        val selectionSnapshot = selectedProfile
         refreshingSubscriptions = true
         // Track attempts separately from successful updates so a broken provider
         // is not retried every minute, while the UI still shows the last success.
@@ -1242,6 +1243,7 @@ class MainActivity : Activity() {
                     settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
                 }
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                remapSelectionAfterRefresh(selectionSnapshot)
                 renderProfiles()
                 checkAllLatencies()
                 status.text = if (errors.isEmpty()) "Подписки обновлены" else "Обновление завершено с ошибками"
@@ -1534,6 +1536,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
+        val selectionSnapshot = selectedProfile
         refreshingSubscriptions = true
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
@@ -1549,6 +1552,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                if (result.isSuccess) remapSelectionAfterRefresh(selectionSnapshot)
                 renderProfiles()
                 checkAllLatencies()
                 result.onSuccess { count ->
@@ -1571,6 +1575,18 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    /**
+     * Rebind the user's selection to a rotated subscription URI without touching the
+     * active tunnel. Ignore the snapshot if the user selected another row meanwhile.
+     */
+    private fun remapSelectionAfterRefresh(selectionSnapshot: String?) {
+        if (selectedProfile != selectionSnapshot || selectionSnapshot == null) return
+        val latestProfiles = safeProfiles() ?: return
+        selectedProfile = ProfileSelectionMatcher.remap(selectionSnapshot, latestProfiles)
+            ?: if (connected && activeProfile == selectionSnapshot) selectionSnapshot
+            else latestProfiles.firstOrNull()
     }
 
     private fun formatTraffic(bytes: Long): String {
@@ -1805,7 +1821,13 @@ class MainActivity : Activity() {
         } else {
             "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: $measuredPingCount из ${profiles.size}. Нажмите для настроек."
         }
-        if (selectedProfile == null || selectedProfile !in profiles) selectedProfile = profiles.firstOrNull()
+        if (selectedProfile == null || selectedProfile !in profiles) {
+            // The live tunnel may still be using a profile removed/rotated by refresh.
+            // Keep that active identity until the user explicitly chooses another node.
+            selectedProfile = if (connected && activeProfile != null &&
+                (selectedProfile == null || selectedProfile == activeProfile)
+            ) activeProfile else profiles.firstOrNull()
+        }
         val selected = selectedProfile
         connectButton.isEnabled = !disconnecting && (connected || (selected != null && !connecting))
         connectActionLabel.text = when {
