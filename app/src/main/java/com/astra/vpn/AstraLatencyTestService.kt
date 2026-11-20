@@ -30,6 +30,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    // URLTest calls are dispatched independently: a blocked native call for one
+    // profile must not prevent other profiles from starting their own deadlines.
+    private val urlTestDispatcher = Executors.newFixedThreadPool(URL_TEST_DISPATCH_CONCURRENCY)
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
@@ -155,17 +158,37 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 handler.post {
                     if (stopped.get()) return@post
                     handler.removeCallbacks(startupTimeout)
-                    expectedTags.forEach { outboundTag ->
-                        val deadline = Runnable { completeTimedOutTag(outboundTag) }
-                        perServerTimeouts[outboundTag] = deadline
-                        handler.postDelayed(deadline, TEST_TIMEOUT_MS)
-                    }
                 }
-                // Each group contains one outbound, so a slow node is isolated.
+                // Each URLTest gets its own bounded dispatcher slot. The 10-second
+                // deadline begins immediately before that native request is issued,
+                // not while it is waiting in the dispatch queue.
                 expectedTags.forEach { outboundTag ->
                     if (stopped.get()) return@forEach
                     runCatching {
-                        activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
+                        urlTestDispatcher.execute {
+                            if (stopped.get()) return@execute
+                            val deadlineReady = java.util.concurrent.CountDownLatch(1)
+                            handler.post {
+                                if (!stopped.get() && outboundTag !in completedTags) {
+                                    val deadline = Runnable { completeTimedOutTag(outboundTag) }
+                                    perServerTimeouts[outboundTag] = deadline
+                                    handler.postDelayed(deadline, TEST_TIMEOUT_MS)
+                                }
+                                deadlineReady.countDown()
+                            }
+                            try {
+                                deadlineReady.await()
+                            } catch (_: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                                return@execute
+                            }
+                            if (stopped.get()) return@execute
+                            runCatching {
+                                activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
+                            }.onFailure {
+                                handler.post { completeTimedOutTag(outboundTag) }
+                            }
+                        }
                     }.onFailure {
                         handler.post { completeTimedOutTag(outboundTag) }
                     }
@@ -310,6 +333,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handler.removeCallbacks(startupTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()
+        // Interrupt queued dispatch tasks; native URLTest calls already in progress
+        // may be non-interruptible, but they cannot publish after stopped becomes true.
+        urlTestDispatcher.shutdownNow()
         // CommandClient.disconnect() and CommandServer.close*() cross the
         // native libbox boundary. Never run them on the main thread: STOP,
         // timeout and service callbacks must release the UI/service lifecycle
@@ -381,6 +407,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val NOTIFICATION_ID = 2
         private const val STARTUP_TIMEOUT_MS = 10_000L
         private const val TEST_TIMEOUT_MS = 10_000L
+        private const val URL_TEST_DISPATCH_CONCURRENCY = 4
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
