@@ -26,6 +26,41 @@ class AutoProtocolFallbackPolicyTest {
         assertEquals(candidates, AutoProtocolFallbackPolicy.preferAlternativeProtocol(candidates, current))
     }
 
+
+    @Test fun measuredAlternativeProtocolIsASeparatePriorityTier() {
+        val current = "vless://id@current.example:443"
+        val sameProtocol = "vless://id@same.example:443"
+        val alternative = "hysteria2://pass@udp.example:443"
+        assertEquals(
+            listOf(alternative),
+            AutoProtocolFallbackPolicy.candidatesWithFreshMeasurements(
+                listOf(sameProtocol, alternative), current, setOf(sameProtocol, alternative)
+            )
+        )
+    }
+
+    @Test fun fallsBackToSameProtocolWhenNoAlternativeHasFreshPing() {
+        val current = "vless://id@current.example:443"
+        val sameProtocol = "vless://id@same.example:443"
+        val unmeasuredAlternative = "tuic://id:pass@udp.example:443"
+        assertEquals(
+            listOf(sameProtocol),
+            AutoProtocolFallbackPolicy.candidatesWithFreshMeasurements(
+                listOf(sameProtocol, unmeasuredAlternative), current, setOf(sameProtocol)
+            )
+        )
+    }
+
+    @Test fun doesNotUseUnmeasuredSameProtocolProfilesAsFallback() {
+        val current = "vless://id@current.example:443"
+        assertEquals(
+            emptyList<String>(),
+            AutoProtocolFallbackPolicy.candidatesWithFreshMeasurements(
+                listOf("vless://id@same.example:443"), current, emptySet()
+            )
+        )
+    }
+
     @Test fun preservesCandidatesForUnknownCurrentProtocol() {
         val candidates = listOf("vless://id@two.example:443")
         assertEquals(candidates, AutoProtocolFallbackPolicy.preferAlternativeProtocol(candidates, "unknown://host"))

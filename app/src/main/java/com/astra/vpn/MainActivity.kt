@@ -3487,11 +3487,19 @@ class MainActivity : Activity() {
         val freshLatencies = LatencyFreshnessPolicy.freshLatencies(
             latencyMs, latencyMeasuredAt, now, eligibleProfiles
         )
+        // Transport fallback is a real priority tier, not merely an ordering hint:
+        // choose a fresh, measured alternative protocol first. If none has a fresh
+        // result, retain the measured same-protocol candidates as a safe fallback.
+        val measuredFailoverCandidates = AutoProtocolFallbackPolicy.candidatesWithFreshMeasurements(
+            profiles = eligibleProfiles,
+            currentProfile = current,
+            measuredProfiles = freshLatencies.keys
+        )
         val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
-            eligibleProfiles, freshLatencies, { profile -> latencyHistory.samples(profile) }
+            measuredFailoverCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
-            profiles = eligibleProfiles,
+            profiles = measuredFailoverCandidates,
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(eligibleProfiles),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(eligibleProfiles)

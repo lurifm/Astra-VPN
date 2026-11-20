@@ -16,14 +16,21 @@ internal object AutoProtocolFallbackPolicy {
     }
 
     /**
-     * Keeps all eligible profiles, but places profiles using another supported
-     * protocol first. If no cross-protocol candidate exists, preserves the input.
+     * Prefer a measured profile on a different transport after repeated tunnel
+     * failures. If no alternative transport has a fresh successful measurement,
+     * keep the other measured profiles as a fallback.
      */
-    fun preferAlternativeProtocol(profiles: List<String>, currentProfile: String?): List<String> {
-        val currentProtocol = currentProfile?.let(::protocol) ?: return profiles
-        val alternatives = profiles.filter { candidate ->
+    fun candidatesWithFreshMeasurements(
+        profiles: List<String>,
+        currentProfile: String?,
+        measuredProfiles: Set<String>
+    ): List<String> {
+        val measured = profiles.filter { it in measuredProfiles }
+        if (measured.isEmpty()) return emptyList()
+        val currentProtocol = currentProfile?.let(::protocol) ?: return measured
+        val alternatives = measured.filter { candidate ->
             protocol(candidate)?.let { it != currentProtocol } == true
         }
-        return alternatives.ifEmpty { profiles }
+        return alternatives.ifEmpty { measured }
     }
 }
