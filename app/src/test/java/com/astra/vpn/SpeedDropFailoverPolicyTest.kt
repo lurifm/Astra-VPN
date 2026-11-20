@@ -28,7 +28,8 @@ class SpeedDropFailoverPolicyTest {
     @Test
     fun doesNotTriggerWhenVpnIsDisconnected() {
         val policy = SpeedDropFailoverPolicy()
-        assertFalse(policy.update(10.0, 1_000L, false, trafficIsVpnScoped = true))
+        assertFalse(policy.update(10.0, 1_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 2_000L, false, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 20_000L, true, trafficIsVpnScoped = true))
     }
 
@@ -50,5 +51,32 @@ class SpeedDropFailoverPolicyTest {
         assertFalse(policy.update(4.0, 131_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 140_999L, true, trafficIsVpnScoped = true))
         assertTrue(policy.update(4.0, 141_000L, true, trafficIsVpnScoped = true))
+    }
+
+    @Test
+    fun longSamplingGapRestartsTheTenSecondObservation() {
+        val policy = SpeedDropFailoverPolicy()
+        assertFalse(policy.update(10.0, 1_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 2_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 6_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 15_999L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 16_000L, true, trafficIsVpnScoped = true))
+    }
+
+    @Test
+    fun timestampRollbackCannotCompleteAnOldDropWindow() {
+        val policy = SpeedDropFailoverPolicy()
+        assertFalse(policy.update(10.0, 10_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 11_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 5_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 14_999L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 15_000L, true, trafficIsVpnScoped = true))
+    }
+
+    @Test
+    fun constructorRejectsUnsafeTimingAndThresholdValues() {
+        assertTrue(runCatching { SpeedDropFailoverPolicy(thresholdFraction = 1.5) }.isFailure)
+        assertTrue(runCatching { SpeedDropFailoverPolicy(sustainedMs = 0L) }.isFailure)
+        assertTrue(runCatching { SpeedDropFailoverPolicy(maxSampleGapMs = 0L) }.isFailure)
     }
 }
