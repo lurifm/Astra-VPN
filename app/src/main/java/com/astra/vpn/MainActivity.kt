@@ -3204,7 +3204,7 @@ class MainActivity : Activity() {
     }
 
     private fun maybeAutoSpeedFailover() {
-        if (!connected || connecting || selectingFastest || !settingsPrefs.getBoolean("auto_speed_failover", true)) return
+        if (!connected || connecting || selectingFastest || !settingsPrefs.getBoolean("auto_speed_failover", false)) return
         val current = activeProfile ?: selectedProfile
         val profiles = safeProfiles() ?: return
         val candidates = profiles.filterNot { it == current }
