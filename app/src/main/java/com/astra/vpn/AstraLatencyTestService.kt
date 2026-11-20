@@ -37,7 +37,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
-    private val latestResults = linkedMapOf<String, Long?>()
+    private var latestResults = LatencyResultAccumulator(emptySet())
     private val timeout = Runnable { finishAndPublish() }
     private val completionDebounce = Runnable { finishAndPublish() }
 
@@ -66,6 +66,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             finish()
             return START_NOT_STICKY
         }
+        latestResults = LatencyResultAccumulator(expectedTags)
 
         startForeground(
             NOTIFICATION_ID,
@@ -194,19 +195,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 // state mutation and broadcasts with timeout/finish on the main handler.
                 handler.post {
                     if (stopped.get()) return@post
-                    val partial = synchronized(latestResults) {
-                        snapshot.forEach { (tag, delay) ->
-                            if (delay != null && delay > 0L) latestResults[tag] = delay
-                        }
-                        latestResults.toMap()
-                    }
+                    val partial = latestResults.merge(snapshot)
                     // Stream every successful measurement to the UI immediately.
                     // A slow/unavailable node no longer hides the results of faster nodes.
                     publishResults(partial, finished = false)
-                    val allMeasured = synchronized(latestResults) {
-                        latestResults.keys.containsAll(expectedTags) &&
-                            latestResults.values.all { delay -> delay != null && delay > 0L }
-                    }
+                    val allMeasured = latestResults.allMeasured()
                     // Zero values are sing-box's initial placeholders, not measurements.
                     // Finish early only when every outbound has a real positive result.
                     if (allMeasured) {
@@ -225,7 +218,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun finishAndPublish() {
         if (stopped.get()) return
-        val results = synchronized(latestResults) { expectedTags.associateWith { latestResults[it] } }
+        val results = latestResults.snapshot()
         publishResults(results, finished = true)
         finish()
     }
@@ -272,9 +265,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         // this terminal error broadcast. Never turn an engine failure into
         // evidence that every proxy is offline.
         if (expectedTags.isNotEmpty()) {
-            val snapshot = synchronized(latestResults) {
-                expectedTags.associateWith { latestResults[it] }
-            }
+            val snapshot = latestResults.snapshot()
             val json = JSONObject()
             snapshot.forEach { (tag, delay) -> json.put(tag, delay ?: JSONObject.NULL) }
             getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
