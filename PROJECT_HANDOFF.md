@@ -528,3 +528,13 @@ CI для последнего набора изменений необходи�
 - При завершении/отмене очередь dispatcher закрывается через shutdownNow(). Уже выполняющийся native вызов может не поддерживать interruption; его поздний callback должен игнорироваться по stopped guard.
 - Commit: 6c55a46.
 - CI нового HEAD пока не подтверждён (combined status не вернул checks). Обязательно проверить GitHub Actions и физическое поведение на устройстве: несколько профилей, один зависший native URLTest, отмена во время измерения, поздние callbacks после завершения. Ограниченный пул снижает блокировку одного профиля, но при полном зависании всех четырёх native потоков очередь остальных запросов не выполнится; общий дедлайн завершает batch и закрывает сервис.
+
+
+## 39. Фильтрация приостановленных физических сетей при handover (20 ноября 2026)
+
+- Повторный аудит AstraPlatform подтвердил, что смена физической сети уже отслеживается через registerDefaultNetworkCallback: onAvailable/onCapabilitiesChanged/onLinkPropertiesChanged/onLost вызывают повторное разрешение актуального default network и передают изменения sing-box; VpnService.setUnderlyingNetworks обновляется при смене underlay. Поэтому отдельный параллельный бесконечный reconnect-loop поверх сетевого менеджера libbox не добавлялся: он мог бы конкурировать с уже работающим lifecycle sing-box.
+- Найдено узкое место в выборе underlay: preferredPhysicalNetwork/activeNetwork проверялись только на INTERNET и отсутствие VPN transport, тогда как fallback уже учитывал NET_CAPABILITY_NOT_SUSPENDED. Это могло закрепить VPN на Network, который Android оставил в списке, но временно приостановил во время radio/network handover.
+- Исправлено: единый predicate resolveUnderlyingNetwork теперь также отклоняет NET_CAPABILITY_NOT_SUSPENDED=false на Android 9+; на API ниже 28 проверка capability не применяется. Если сеть временно suspended, платформа не назначает её как физический underlay; последующие callbacks повторно выбирают актуальную сеть.
+- Commit: cd52648.
+- Не заявлять runtime-подтверждение: нужны тесты на реальном устройстве с Wi-Fi↔LTE/5G, отключением/включением мобильных данных и режимом энергосбережения. CI для HEAD после этого коммита ещё не проверен.
+- Следующая крупная задача: опциональное восстановление VPN после force-stop/reboot с явной настройкой пользователя и корректной проверкой Android VPN consent; не запускать VPN автоматически без opt-in.
