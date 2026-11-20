@@ -13,7 +13,6 @@ class LatencyFreshnessPolicyTest {
             measuredAtElapsedMs = mapOf(
                 "fresh" to now - 5_000L,
                 "stale" to now - LatencyFreshnessPolicy.DEFAULT_MAX_AGE_MS - 1L,
-                "missing" to now - 1_000L,
                 "invalid" to now - 1_000L
             ),
             nowElapsedMs = now,
@@ -24,7 +23,7 @@ class LatencyFreshnessPolicyTest {
 
     @Test
     fun includesMeasurementExactlyAtFreshnessBoundary() {
-        val now = 500_000L
+        val now = 1_000_000L
         val result = LatencyFreshnessPolicy.freshLatencies(
             latencies = mapOf("node" to 77L),
             measuredAtElapsedMs = mapOf("node" to now - LatencyFreshnessPolicy.DEFAULT_MAX_AGE_MS),
