@@ -366,3 +366,11 @@ CI для последнего набора изменений необходи�
 - Пока диалог «Мониторинг сети» открыт, callback перечитывает последний snapshot `astra_libbox_traffic` и обновляет только outbound-блок. Данные не опрашиваются циклически: обновление инициируется сервисным broadcast при публикации нового snapshot.
 - Callback очищается при закрытии диалога и при уничтожении Activity; receiver продолжает работать по существующей схеме Activity до onDestroy, чтобы не нарушить обработку фоновых результатов latency service.
 - Изменение внесено в commit `2d40cf8`. CI run #754 для этого commit был `in_progress` при последней проверке. До завершения CI не считать изменение проверенным. Runtime-проверка на физическом Android устройстве всё ещё нужна.
+
+
+## 22. Защита LibboxTrafficMonitor от устаревших callback (20 ноября 2026)
+
+- При остановке и последующем быстром запуске старый CommandClient мог теоретически прислать поздний `connected`, `disconnected` или `writeConnectionEvents` callback и повлиять на новое подключение.
+- Добавлен generation token: каждый старт получает новое поколение, stop инвалидирует текущее; callbacks и reconnect worker принимаются только от активного поколения. Это изолирует старый клиент от нового после stop/restart и не позволяет старым event snapshot перезаписать актуальную статистику.
+- Изменение в `LibboxTrafficMonitor.kt`, commit `fe9554a`. Требуется CI и runtime-проверка многократного быстрого stop/start; отдельные тесты libbox callback lifecycle пока не добавлены.
+- CI run #755 для live outbound refresh commit `b55bc02` завершился SUCCESS: unit tests, debug APK build, APK verification и artifact upload прошли. Новый run для generation-token fix ожидает завершения.
