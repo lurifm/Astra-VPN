@@ -463,3 +463,12 @@ CI для последнего набора изменений необходи�
 - Задача также отменяется в `onDestroy()`; актуальная задача очищается при возврате результата на UI thread.
 - Commit: `2212db76334146b13812313212a77188efacdc08`.
 - Предыдущий HEAD `48884e224f41f201e02a137243cbb01f3921b518` прошёл CI run #794 (SUCCESS). Для commit этого пункта требуется отдельный итоговый CI run. Физический Android runtime test остаётся обязательным.
+
+## 32. Безопасная обработка позднего libbox callback после остановки latency worker (2026-11-20)
+
+- В `AstraLatencyTestService` callback `CommandClientHandler.connected()` раньше напрямую вызывал `worker.execute`. При гонке с `finish()/onDestroy()` executor уже мог быть остановлен, что приводило к `RejectedExecutionException` на native callback thread.
+- Добавлен `executeWorkerIfActive`: проверяет `stopped` до постановки задачи и внутри worker, а гонку с `shutdownNow()` обрабатывает как поздний callback вместо выброса исключения наружу.
+- `connected()` теперь захватывает текущий `CommandClient` внутри worker и не пытается вызвать URL-test, если client уже очищен. Ошибка URL-test публикуется только пока сервис ещё активен.
+- Изменение: commit `36a24b718adaff4847019bb2e2070c375a369c32`.
+- Это закрывает конкретный путь позднего callback для `connected()`, но не доказывает отсутствие всех гонок native libbox lifecycle. Полный stress/runtime test STOP во время connect и callback после onDestroy нужен на Android устройстве.
+- CI run #796 для предыдущего HEAD `46c266b3a4c6837916781e07a5d5fd11d5b4d616` завершился SUCCESS. Для этого изменения нужен новый итоговый CI run.
