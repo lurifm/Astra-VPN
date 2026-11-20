@@ -29,10 +29,16 @@ internal class SpeedDropFailoverPolicy(
         trafficIsVpnScoped: Boolean = false
     ): Boolean {
         // Aggregate device counters include unrelated apps and must never trigger failover.
-        if (!trafficIsVpnScoped || !vpnConnected || now <= 0L ||
-            !downloadMbps.isFinite() || downloadMbps < minimumActiveMbps
-        ) {
+        if (!trafficIsVpnScoped || !vpnConnected || now <= 0L || !downloadMbps.isFinite()) {
             resetObservationWindow()
+            return false
+        }
+        if (downloadMbps < minimumActiveMbps) {
+            // Idle traffic resets the continuous-drop timer but keeps a recent
+            // healthy peak as the comparison baseline when traffic resumes.
+            belowSince = null
+            lastSampleAt = null
+            while (samples.isNotEmpty() && now - samples.first().at > 30_000L) samples.removeFirst()
             return false
         }
 
