@@ -38,7 +38,7 @@ class ServerFailureScorerTest {
     }
 
     @Test
-    fun normalizesNamesAndKeepsServersSeparate() {
+    fun normalizesNamesAndSeparatesProtocols() {
         val now = 1_000_000_000L
         val result = ServerFailureScorer.weightedFailures(
             listOf(
@@ -48,8 +48,9 @@ class ServerFailureScorerTest {
             ),
             now
         )
-        assertEquals(6, result["node a"])
-        assertEquals(3, result["node b"])
+        assertEquals(3, result["node a|vless"])
+        assertEquals(3, result["node a|tuic"])
+        assertEquals(3, result["node b|vless"])
     }
 
     @Test

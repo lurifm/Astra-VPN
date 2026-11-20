@@ -26,15 +26,17 @@ internal object ServerFailureScorer {
             if (entry.state != "error" || entry.timestamp < 0L || entry.timestamp > now) return@forEach
             val age = now - entry.timestamp
             if (age > windowMs) return@forEach
-            val name = entry.serverName.trim().lowercase(Locale.ROOT)
-            if (name.isEmpty()) return@forEach
+            val name = normalizeIdentity(entry.serverName)
+            val protocol = normalizeProtocol(entry.protocol)
+            if (name.isEmpty() || protocol.isEmpty()) return@forEach
+            val key = "$name|$protocol"
             val weight = when {
                 age <= RECENT_WINDOW_MS -> 3
                 age <= DAY_MS -> 2
                 else -> 1
             }
-            val current = totals[name] ?: 0
-            totals[name] = if (Int.MAX_VALUE - current < weight) Int.MAX_VALUE else current + weight
+            val current = totals[key] ?: 0
+            totals[key] = if (Int.MAX_VALUE - current < weight) Int.MAX_VALUE else current + weight
         }
         return totals
     }

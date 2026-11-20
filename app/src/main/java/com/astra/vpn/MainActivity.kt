@@ -5257,7 +5257,8 @@ class MainActivity : Activity() {
             now = System.currentTimeMillis()
         )
         return profiles.associateWith { profile ->
-            failuresByName[profileName(profile).trim().lowercase(java.util.Locale.ROOT)] ?: 0
+            val identity = "${profileName(profile).trim().lowercase(java.util.Locale.ROOT)}|${protocolName(profile).trim().lowercase(java.util.Locale.ROOT).let { if (it == "hy2") "hysteria2" else it }}"
+            failuresByName[identity] ?: 0
         }
     }
 
