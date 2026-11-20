@@ -3245,7 +3245,12 @@ class MainActivity : Activity() {
             val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
             val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
             val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            if (speedDropPolicy.update(down.toDouble(), android.os.SystemClock.elapsedRealtime(), connected)) {
+            // TrafficStats.getTotalRxBytes() is device-wide, not VPN-scoped. Keep it for
+            // the visible device monitor, but never use it to trigger server failover.
+            if (speedDropPolicy.update(
+                    down.toDouble(), android.os.SystemClock.elapsedRealtime(), connected,
+                    trafficIsVpnScoped = false
+                )) {
                 maybeAutoSpeedFailover()
             }
             monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
