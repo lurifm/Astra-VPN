@@ -93,6 +93,16 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
 
         if (existingServer != null) {
+            // A stop callback or another lifecycle transition may invalidate this
+            // request after the server was captured above. Recheck immediately
+            // before entering libbox so an already-obsolete request is not sent.
+            val requestStillActive = synchronized(lifecycleLock) {
+                !stopping &&
+                    startRequestGeneration.isCurrent(requestToken) &&
+                    commandServer === existingServer
+            }
+            if (!requestStillActive) return START_NOT_STICKY
+
             runCatching { existingServer.startOrReloadService(config, OverrideOptions()) }
                 .onSuccess {
                     synchronized(lifecycleLock) {
