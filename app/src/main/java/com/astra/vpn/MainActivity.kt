@@ -4753,12 +4753,22 @@ class MainActivity : Activity() {
                     .apply()
                 runCatching {
                     ProfileStore(this@MainActivity).setRecoveryProfile(
-                        if (vpnRecovery.isChecked) activeProfile else null
+                        if (vpnRecovery.isChecked && (connected || connecting)) activeProfile else null
                     )
                 }.onFailure {
                     Toast.makeText(this@MainActivity, "Не удалось сохранить защищённый профиль восстановления", Toast.LENGTH_LONG).show()
                     settingsPrefs.edit().putBoolean("vpn_recovery_enabled", false).apply()
                     vpnRecovery.isChecked = false
+                }
+                if (connected || connecting) {
+                    runCatching {
+                        val recoveryIntent = Intent(this@MainActivity, AstraVpnService::class.java)
+                            .setAction(AstraVpnService.ACTION_UPDATE_RECOVERY)
+                            .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, activeProfile)
+                        startService(recoveryIntent)
+                    }.onFailure {
+                        Toast.makeText(this@MainActivity, "Не удалось применить настройку восстановления к VPN", Toast.LENGTH_LONG).show()
+                    }
                 }
                 if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
