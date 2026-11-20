@@ -61,6 +61,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            runCatching { ProfileStore(this).setRecoveryProfile(null) }
+                .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
             stopTunnel()
             return START_NOT_STICKY
         }
@@ -81,10 +83,53 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
         )
 
-        val config = intent?.getStringExtra(EXTRA_CONFIG)
+        val recoveryEnabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
+            .getBoolean(PREF_RECOVERY_ENABLED, false)
+        val restartMode = if (recoveryEnabled) START_STICKY else START_NOT_STICKY
+        val config = if (intent == null) {
+            val savedProfile = runCatching { ProfileStore(this).recoveryProfile() }
+                .onFailure { Log.w(TAG, "Не удалось прочитать зашифрованный профиль восстановления") }
+                .getOrNull()
+            val decision = VpnRecoveryPolicy.decide(
+                trigger = VpnRecoveryTrigger.SYSTEM_PROCESS_RESTART,
+                recoveryEnabled = recoveryEnabled,
+                userRequestedDisconnect = getSharedPreferences("astra_settings", MODE_PRIVATE)
+                    .getBoolean("vpn_disconnect_requested", false),
+                savedProfileAvailable = !savedProfile.isNullOrBlank(),
+                vpnConsentGranted = VpnService.prepare(this) == null
+            )
+            when (decision) {
+                VpnRecoveryDecision.START -> {
+                    activeProfileName = "Восстановление VPN"
+                    activeProtocol = "—"
+                    runCatching { SingBoxConfigBuilder.build(savedProfile!!) }.getOrElse {
+                        failStartRequest(requestToken, "Не удалось восстановить конфигурацию VPN")
+                        return START_NOT_STICKY
+                    }
+                }
+                VpnRecoveryDecision.REQUIRE_VPN_CONSENT -> {
+                    failStartRequest(requestToken, "Открой Astra VPN и повторно подтверди системное разрешение VPN")
+                    return START_NOT_STICKY
+                }
+                else -> {
+                    stopTunnel()
+                    return START_NOT_STICKY
+                }
+            }
+        } else {
+            intent.getStringExtra(EXTRA_CONFIG)
+        }
         if (config.isNullOrBlank()) {
             failStartRequest(requestToken, "Не передана конфигурация sing-box")
             return START_NOT_STICKY
+        }
+
+        if (intent != null && recoveryEnabled) {
+            val recoveryLink = intent.getStringExtra(EXTRA_PROFILE_LINK)
+            runCatching { ProfileStore(this).setRecoveryProfile(recoveryLink) }
+                .onFailure { Log.w(TAG, "Не удалось сохранить профиль для восстановления") }
+        } else if (!recoveryEnabled) {
+            runCatching { ProfileStore(this).setRecoveryProfile(null) }
         }
 
         val existingServer = synchronized(lifecycleLock) {
@@ -126,7 +171,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         error
                     )
                 }
-            return START_NOT_STICKY
+            return restartMode
         }
 
         val ownerGeneration: Long
@@ -169,7 +214,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 error
             )
         }
-        return START_NOT_STICKY
+        return restartMode
     }
 
     private fun failStartRequest(requestToken: Long, userMessage: String, error: Throwable? = null) {
@@ -359,6 +404,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val TRAFFIC_JSON = "outbound_traffic_json"
         const val TRAFFIC_UPDATED_AT = "updated_at"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.CONFIG"
+        const val EXTRA_PROFILE_LINK = "com.astra.vpn.extra.PROFILE_LINK"
+        private const val PREF_RECOVERY_ENABLED = "vpn_recovery_enabled"
         const val EXTRA_PROFILE_NAME = "com.astra.vpn.extra.PROFILE_NAME"
         const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
         const val EXTRA_STATE = "com.astra.vpn.extra.STATE"
