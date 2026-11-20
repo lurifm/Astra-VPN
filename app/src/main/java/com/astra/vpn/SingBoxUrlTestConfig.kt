@@ -16,7 +16,7 @@ import java.security.MessageDigest
  * in a separate lifecycle component so a probe can never disturb the active VPN.
  */
 internal object SingBoxUrlTestConfig {
-    const val GROUP_TAG = "astra-urltest"
+    private const val GROUP_TAG_PREFIX = "astra-test-"
     const val TEST_URL = "https://www.gstatic.com/generate_204"
 
     data class Result(
@@ -30,7 +30,6 @@ internal object SingBoxUrlTestConfig {
         require(profiles.isNotEmpty()) { "Нет серверов для проверки задержки" }
 
         val outbounds = JSONArray()
-        val tags = JSONArray()
         val profileMap = linkedMapOf<String, String>()
 
         profiles.forEach { link ->
@@ -41,22 +40,22 @@ internal object SingBoxUrlTestConfig {
             require(!profileMap.containsKey(tag)) { "Коллизия идентификаторов серверов" }
             proxy.put("tag", tag)
             outbounds.put(proxy)
-            tags.put(tag)
             profileMap[tag] = link
+            // A separate group gives every proxy its own URLTest lifecycle.
+            outbounds.put(
+                JSONObject()
+                    .put("type", "urltest")
+                    .put("tag", groupTagForOutbound(tag))
+                    .put("outbounds", JSONArray().put(tag))
+                    .put("url", TEST_URL)
+                    .put("interval", "30m")
+                    .put("tolerance", 0)
+                    .put("idle_timeout", "30m")
+                    .put("interrupt_exist_connections", false)
+            )
         }
 
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
-        outbounds.put(
-            JSONObject()
-                .put("type", "urltest")
-                .put("tag", GROUP_TAG)
-                .put("outbounds", tags)
-                .put("url", TEST_URL)
-                .put("interval", "30m")
-                .put("tolerance", 0)
-                .put("idle_timeout", "30m")
-                .put("interrupt_exist_connections", false)
-        )
 
         // This is deliberately not a VPN/TUN config. It is a short-lived
         // measurement engine and must never establish a second device-wide VPN.
@@ -71,6 +70,18 @@ internal object SingBoxUrlTestConfig {
         // Validate with the exact libbox version bundled in this application.
         Libbox.checkConfig(config)
         return Result(config, profileMap)
+    }
+
+    fun groupTagForOutbound(outboundTag: String): String {
+        require(outboundTag.startsWith("astra-node-")) { "Некорректный тег сервера" }
+        return GROUP_TAG_PREFIX + outboundTag.removePrefix("astra-node-")
+    }
+
+    fun outboundTagForGroup(groupTag: String): String? {
+        if (!groupTag.startsWith(GROUP_TAG_PREFIX)) return null
+        val suffix = groupTag.removePrefix(GROUP_TAG_PREFIX)
+        if (!suffix.matches(Regex("[0-9a-f]{16}"))) return null
+        return "astra-node-$suffix"
     }
 
     private fun outboundTag(link: String): String {
