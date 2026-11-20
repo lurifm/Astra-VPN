@@ -131,13 +131,34 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         return START_NOT_STICKY
     }
 
+    /**
+     * Native callbacks can arrive while finish()/onDestroy() is shutting the worker down.
+     * Treat that race as a normal late callback instead of leaking RejectedExecutionException
+     * back through the libbox callback thread.
+     */
+    private fun executeWorkerIfActive(task: () -> Unit) {
+        if (stopped.get()) return
+        try {
+            worker.execute {
+                if (!stopped.get()) task()
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            if (!stopped.get()) {
+                Log.w(TAG, "latency worker rejected an active callback")
+            }
+        }
+    }
+
     private val resultHandler = object : CommandClientHandler {
         override fun connected() {
-            worker.execute {
-                runCatching { client?.urlTest(SingBoxUrlTestConfig.GROUP_TAG) }
+            executeWorkerIfActive {
+                val activeClient = client ?: return@executeWorkerIfActive
+                runCatching { activeClient.urlTest(SingBoxUrlTestConfig.GROUP_TAG) }
                     .onFailure {
-                        publishFailure("Не удалось запустить URL-test")
-                        handler.post { finish() }
+                        if (!stopped.get()) {
+                            publishFailure("Не удалось запустить URL-test")
+                            handler.post { finish() }
+                        }
                     }
             }
         }
