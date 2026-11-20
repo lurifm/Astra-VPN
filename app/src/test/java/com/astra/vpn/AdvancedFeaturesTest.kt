@@ -51,10 +51,10 @@ class AdvancedFeaturesTest {
     @Test
     fun speedDropRequiresHalfSpeedForTenSecondsAndIgnoresIdle() {
         val policy = SpeedDropFailoverPolicy()
-        assertFalse(policy.update(3.0, 1_000L, true))
-        assertFalse(policy.update(1.0, 2_000L, true))
-        assertFalse(policy.update(0.0, 5_000L, true))
-        assertFalse(policy.update(1.0, 6_000L, true))
-        assertTrue(policy.update(1.0, 16_000L, true))
+        assertFalse(policy.update(3.0, 1_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(1.0, 2_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(0.0, 5_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(1.0, 6_000L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(1.0, 16_000L, true, trafficIsVpnScoped = true))
     }
 }
