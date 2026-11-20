@@ -55,12 +55,16 @@ class SpeedDropFailoverPolicyTest {
 
     @Test
     fun longSamplingGapRestartsTheTenSecondObservation() {
-        val policy = SpeedDropFailoverPolicy()
+        val policy = SpeedDropFailoverPolicy(maxSampleGapMs = 3_000L)
         assertFalse(policy.update(10.0, 1_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 2_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 6_000L, true, trafficIsVpnScoped = true))
         assertFalse(policy.update(4.0, 15_999L, true, trafficIsVpnScoped = true))
-        assertTrue(policy.update(4.0, 16_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 16_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 19_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 22_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 25_000L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 26_000L, true, trafficIsVpnScoped = true))
     }
 
     @Test

@@ -7,7 +7,7 @@ internal class SpeedDropFailoverPolicy(
     private val minimumActiveMbps: Double = 0.15,
     private val sustainedMs: Long = 10_000L,
     private val cooldownMs: Long = 120_000L,
-    private val maxSampleGapMs: Long = 3_000L
+    private val maxSampleGapMs: Long = 15_000L
 ) {
     private data class Sample(val at: Long, val mbps: Double)
     private val samples = ArrayDeque<Sample>()
