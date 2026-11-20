@@ -27,20 +27,34 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val tunTimeout = Runnable {
-        synchronized(lifecycleLock) {
-            if (!stopping && commandServer != null && tunDescriptor == null) {
-                val message = "sing-box не создал VPN-интерфейс за отведённое время"
-                Log.e(TAG, message)
-                stopTunnel()
-                publishState(STATE_ERROR, message)
+    // A distinct token is required for every TUN wait, including reloads that
+    // reuse the same CommandServer and therefore the same lifecycle generation.
+    private var tunTimeoutGeneration = 0L
+    private var tunTimeout: Runnable? = null
+
+    private fun awaitTunCreation() = synchronized(lifecycleLock) {
+        cancelTunTimeoutLocked()
+        val ownerToken = tunTimeoutGeneration
+        val timeout = Runnable {
+            synchronized(lifecycleLock) {
+                if (ownerToken != tunTimeoutGeneration) return@synchronized
+                tunTimeout = null
+                if (!stopping && commandServer != null && tunDescriptor == null) {
+                    val message = "sing-box не создал VPN-интерфейс за отведённое время"
+                    Log.e(TAG, message)
+                    stopTunnel()
+                    publishState(STATE_ERROR, message)
+                }
             }
         }
+        tunTimeout = timeout
+        mainHandler.postDelayed(timeout, TUN_TIMEOUT_MS)
     }
 
-    private fun awaitTunCreation() {
-        mainHandler.removeCallbacks(tunTimeout)
-        mainHandler.postDelayed(tunTimeout, TUN_TIMEOUT_MS)
+    private fun cancelTunTimeoutLocked() {
+        tunTimeoutGeneration++
+        tunTimeout?.let(mainHandler::removeCallbacks)
+        tunTimeout = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -172,7 +186,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             runCatching { tunDescriptor?.close() }
             tunDescriptor = descriptor
-            mainHandler.removeCallbacks(tunTimeout)
+            cancelTunTimeoutLocked()
             publishState(STATE_CONNECTED)
         }
     }
@@ -183,7 +197,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         lifecycleGeneration.advance()
         // Match the upstream sing-box Android lifecycle: release the Android
         // TUN descriptor, then close the service and finally the command server.
-        mainHandler.removeCallbacks(tunTimeout)
+        cancelTunTimeoutLocked()
         val server = commandServer
         commandServer = null
         trafficMonitor?.stop()
