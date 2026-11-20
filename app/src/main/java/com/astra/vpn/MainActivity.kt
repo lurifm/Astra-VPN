@@ -113,6 +113,7 @@ class MainActivity : Activity() {
     private var connecting = false
     private var disconnecting = false
     private var receiverRegistered = false
+    private var outboundTrafficRefresh: (() -> Unit)? = null
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
     private val latencyHistory by lazy { LatencyHistoryStore(this) }
     private var refreshingSubscriptions = false
@@ -220,6 +221,12 @@ class MainActivity : Activity() {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                             renderProfiles()
                         }
+                    }
+                    return
+                }
+                AstraVpnService.ACTION_TRAFFIC -> {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) outboundTrafficRefresh?.invoke()
                     }
                     return
                 }
@@ -2785,6 +2792,7 @@ class MainActivity : Activity() {
         if (!receiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(AstraVpnService.ACTION_STATE)
+                addAction(AstraVpnService.ACTION_TRAFFIC)
                 addAction(AstraLatencyTestService.ACTION_RESULTS)
                 addAction(AstraLatencyTestService.ACTION_ERROR)
             }
@@ -3478,66 +3486,13 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(7) })
         }
-        // libbox connection events provide outbound-scoped deltas, not a complete
-        // TUN counter. Keep this section explicitly separate from Android device/app totals.
-        val outboundTraffic = getSharedPreferences(AstraVpnService.TRAFFIC_PREFS, MODE_PRIVATE)
-        val outboundJson = outboundTraffic.getString(AstraVpnService.TRAFFIC_JSON, null)
-        val outboundUpdatedAt = outboundTraffic.getLong(AstraVpnService.TRAFFIC_UPDATED_AT, 0L)
-        content.addView(TextView(this).apply {
-            text = "ТРАФИК VPN ПО OUTBOUND (ЧАСТИЧНО)"
-            textSize = 9f
-            letterSpacing = 0.12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFF9EAEFF.toInt())
-            setPadding(dp(2), dp(8), 0, dp(5))
-        })
         val outboundContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF151F32.toInt(), 14)
         }
-        val outboundTotals = runCatching {
-            val json = outboundJson?.let(::JSONObject) ?: JSONObject()
-            json.keys().asSequence().mapNotNull { tag ->
-                val totals = json.optJSONObject(tag) ?: return@mapNotNull null
-                val upload = totals.optLong("uploadBytes", -1L)
-                val download = totals.optLong("downloadBytes", -1L)
-                if (upload < 0L || download < 0L) null else Triple(tag, upload, download)
-            }.toList()
-        }.getOrDefault(emptyList())
-        if (outboundTotals.isEmpty()) {
-            outboundContainer.addView(TextView(this).apply {
-                text = "Пока нет данных libbox. Подключись к VPN и передай трафик."
-                textSize = 12f
-                setTextColor(MUTED)
-            })
-        } else {
-            outboundTotals.sortedBy { it.first }.forEach { (tag, upload, download) ->
-                outboundContainer.addView(TextView(this).apply {
-                    text = "$tag · ↓ ${formatTraffic(download)} / ↑ ${formatTraffic(upload)}"
-                    textSize = 12f
-                    setTextColor(Color.WHITE)
-                    setPadding(0, 0, 0, dp(5))
-                })
-            }
-            outboundContainer.addView(TextView(this).apply {
-                text = "Сумма полученных дельт: ↓ ${formatTraffic(outboundTotals.sumOf { it.third })} / ↑ ${formatTraffic(outboundTotals.sumOf { it.second })}"
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFFB9C8FF.toInt())
-                setPadding(0, dp(4), 0, 0)
-            })
-        }
-        outboundContainer.addView(TextView(this).apply {
-            val age = if (outboundUpdatedAt > 0L) {
-                val seconds = ((System.currentTimeMillis() - outboundUpdatedAt).coerceAtLeast(0L) / 1000L)
-                "Обновлено: ${seconds} сек. назад"
-            } else "Время обновления неизвестно"
-            text = "$age. Это сумма connection-event дельт libbox по outbound; direct/bypass и служебный трафик могут учитываться не полностью. Не использовать как общий VPN/TUN-счётчик."
-            textSize = 10f
-            setTextColor(MUTED)
-            setPadding(0, dp(6), 0, 0)
-        })
+        outboundTrafficRefresh = { renderOutboundTraffic(outboundContainer) }
+        outboundTrafficRefresh?.invoke()
         content.addView(outboundContainer, matchWidth().apply { bottomMargin = dp(8) })
         content.addView(TextView(this).apply {
             text = if (hasAppUsageAccess()) {
@@ -3587,11 +3542,63 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(content)
         }
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Мониторинг сети")
             .setView(scroll)
             .setPositiveButton("Готово", null)
             .show()
+        dialog.setOnDismissListener { outboundTrafficRefresh = null }
+    }
+
+    /** Refreshes the partial libbox outbound snapshot while the dialog is open. */
+    private fun renderOutboundTraffic(container: LinearLayout) {
+        if (isFinishing || isDestroyed) return
+        container.removeAllViews()
+        val prefs = getSharedPreferences(AstraVpnService.TRAFFIC_PREFS, MODE_PRIVATE)
+        val raw = prefs.getString(AstraVpnService.TRAFFIC_JSON, null)
+        val updatedAt = prefs.getLong(AstraVpnService.TRAFFIC_UPDATED_AT, 0L)
+        val totals = runCatching {
+            val json = raw?.let(::JSONObject) ?: JSONObject()
+            json.keys().asSequence().mapNotNull { tag ->
+                val value = json.optJSONObject(tag) ?: return@mapNotNull null
+                val upload = value.optLong("uploadBytes", -1L)
+                val download = value.optLong("downloadBytes", -1L)
+                if (upload < 0L || download < 0L) null else Triple(tag, upload, download)
+            }.toList()
+        }.getOrDefault(emptyList())
+        if (totals.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = "Пока нет данных libbox. Подключись к VPN и передай трафик."
+                textSize = 12f
+                setTextColor(MUTED)
+            })
+        } else {
+            totals.sortedBy { it.first }.forEach { (tag, upload, download) ->
+                container.addView(TextView(this).apply {
+                    text = "$tag · ↓ ${formatTraffic(download)} / ↑ ${formatTraffic(upload)}"
+                    textSize = 12f
+                    setTextColor(Color.WHITE)
+                    setPadding(0, 0, 0, dp(5))
+                })
+            }
+            container.addView(TextView(this).apply {
+                text = "Сумма полученных дельт: ↓ ${formatTraffic(totals.sumOf { it.third })} / ↑ ${formatTraffic(totals.sumOf { it.second })}"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFB9C8FF.toInt())
+                setPadding(0, dp(4), 0, 0)
+            })
+        }
+        val age = if (updatedAt > 0L) {
+            val seconds = ((System.currentTimeMillis() - updatedAt).coerceAtLeast(0L) / 1000L)
+            "Обновлено: ${seconds} сек. назад"
+        } else "Время обновления неизвестно"
+        container.addView(TextView(this).apply {
+            text = "$age. Это сумма connection-event дельт libbox по outbound; direct/bypass и служебный трафик могут учитываться не полностью. Не использовать как общий VPN/TUN-счётчик."
+            textSize = 10f
+            setTextColor(MUTED)
+            setPadding(0, dp(6), 0, 0)
+        })
     }
 
     private fun hasAppUsageAccess(): Boolean = AppTrafficStatsReader.hasAccess(this)
@@ -5361,6 +5368,7 @@ class MainActivity : Activity() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
+        outboundTrafficRefresh = null
         if (receiverRegistered) {
             runCatching { unregisterReceiver(vpnStateReceiver) }
             receiverRegistered = false
