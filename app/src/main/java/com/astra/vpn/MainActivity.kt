@@ -99,6 +99,8 @@ class MainActivity : Activity() {
     private var latencyTestInFlight = false
     // Reject late broadcasts from a cancelled or superseded latency-test session.
     private var activeLatencySessionId: String? = null
+    // A cancelled config build must not occupy a worker while a retry is queued.
+    private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
@@ -2321,6 +2323,8 @@ class MainActivity : Activity() {
 
     private fun cancelLatencyCheck() {
         if (!latencyTestInFlight && !selectingFastest) return
+        latencyPreparationTask?.cancel(true)
+        latencyPreparationTask = null
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
@@ -2379,10 +2383,11 @@ class MainActivity : Activity() {
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         val generation = latencyCheckGeneration.get()
-        pingExecutor.execute {
+        val preparationTask = java.util.concurrent.FutureTask<Unit> {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
+                latencyPreparationTask = null
                 prepared.onSuccess { testConfig ->
                     urlTestProfileMap = testConfig.profileByOutboundTag
                     // Keep the tag-to-profile map across Activity recreation. The
@@ -2435,6 +2440,8 @@ class MainActivity : Activity() {
                 }
             }
         }
+        latencyPreparationTask = preparationTask
+        pingExecutor.execute(preparationTask)
     }
 
     /**
@@ -5375,6 +5382,8 @@ class MainActivity : Activity() {
         }
         monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
+        latencyPreparationTask?.cancel(true)
+        latencyPreparationTask = null
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
