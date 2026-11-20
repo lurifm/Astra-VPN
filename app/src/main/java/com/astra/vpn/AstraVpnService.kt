@@ -14,6 +14,7 @@ import io.nekohasekai.libbox.SystemProxyStatus
 
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
+    private val trafficMonitor = LibboxTrafficMonitor()
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
     private var activeProfileName: String = "Сервер не выбран"
@@ -91,6 +92,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val server = CommandServer(this, platform)
             commandServer = server
             server.start()
+            trafficMonitor.start()
             server.startOrReloadService(config, OverrideOptions())
             activeConfig = config
             Log.i(TAG, "sing-box service accepted configuration")
@@ -177,6 +179,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         mainHandler.removeCallbacks(tunTimeout)
         val server = commandServer
         commandServer = null
+        trafficMonitor.stop()
         activeConfig = null
 
         runCatching { tunDescriptor?.close() }
