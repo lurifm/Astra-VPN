@@ -34,7 +34,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
     private fun awaitTunCreation() = synchronized(lifecycleLock) {
         cancelTunTimeoutLocked()
-        val ownerToken = tunTimeoutGeneration
+        val ownerToken = tunTimeoutGeneration.next()
         val timeout = Runnable {
             synchronized(lifecycleLock) {
                 if (!tunTimeoutGeneration.isCurrent(ownerToken)) return@synchronized
