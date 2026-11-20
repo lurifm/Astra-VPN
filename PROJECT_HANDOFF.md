@@ -287,3 +287,15 @@ CI для последнего набора изменений необходи�
 - Исправлен тестовый fixture: синтетические измерения, которые моделируют именно VPN-scoped трафик, теперь явно передают `trafficIsVpnScoped=true`. Производственный код не ослаблялся.
 - Исправление закоммичено: `a90856856e9adeef05fcaecc887cb56b5167db7e`.
 - Следующий GitHub Actions run должен подтвердить все unit tests, APK build, APK verification и artifact upload. До его завершения CI считается непроверенным.
+
+
+## 14. Исследование штатной статистики libbox (20 ноября 2026)
+
+- Подтверждено по API-документации sing-box libbox 1.14.x: `CommandClientHandler` содержит callback `WriteConnectionEvents(ConnectionEvents)`; `CommandClientOptions` позволяет подписаться на `CommandConnections` через `AddCommand()`.
+- `ConnectionEvent` содержит тип события, ID соединения, объект соединения, `UplinkDelta` и `DownlinkDelta`; объект `Connection` содержит `Outbound`, `OutboundType`, `UplinkTotal` и `DownlinkTotal`. Это потенциальный штатный источник дельт трафика по соединениям и тегу outbound, в отличие от Android `TrafficStats`.
+- `CommandClient` также предоставляет `URLTest(outboundTag)`, но это отдельный API-вызов и не доказывает, что текущая реализация batch URL-test автоматически обеспечивает независимый timeout каждого сервера.
+- Текущий `AstraVpnService` поднимает `CommandServer`, но в проверенных Kotlin-файлах пока не найдено подключение `CommandClient`/обработчика `WriteConnectionEvents`. Нельзя считать статистику реализованной только на основании наличия API.
+- Следующий инженерный шаг: проверить фактические Java/Kotlin сигнатуры именно артефакта `com.github.singbox-android:libbox:1.14.3`, схему локального подключения CommandClient к CommandServer, команды/интервалы и корректное закрытие клиента; затем покрыть агрегатор событий тестами (дельты, reset, закрытые соединения, смена outbound, переполнение/отрицательные значения).
+- Важное ограничение: сумма `UplinkDelta`/`DownlinkDelta` по connection events отражает трафик, который libbox сообщает для соединений/outbound. До проверки покрытия direct/bypass, DNS, служебных и фоновых потоков её нельзя называть полным байтовым счётчиком TUN. Авто-failover остаётся отключённым до проверки полноты и стабильности источника.
+- Справочник API для сверки: https://pkg.go.dev/github.com/sagernet/sing-box/experimental/libbox (CommandClient, CommandClientHandler, CommandConnections, ConnectionEvent, Connection).
+- CI run #730 для HEAD `2b9690079c0c1334974cc79185a00f2f926ea8b4` завершился **SUCCESS**: unit tests, debug APK build, APK verification и artifact upload — все шаги успешны. Это подтверждает сборку текущего HEAD, но не работу на физическом устройстве.
