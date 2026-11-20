@@ -38,10 +38,9 @@ class SpeedDropFailoverPolicyTest {
         policy.update(10.0, 1_000L, true)
         assertFalse(policy.update(4.0, 2_000L, true))
         assertTrue(policy.update(4.0, 12_000L, true))
-        policy.update(10.0, 13_000L, true)
-        assertFalse(policy.update(4.0, 14_000L, true))
-        assertFalse(policy.update(4.0, 24_000L, true))
-        assertFalse(policy.update(4.0, 132_000L, true))
-        assertTrue(policy.update(4.0, 142_000L, true))
+        policy.update(10.0, 130_000L, true)
+        assertFalse(policy.update(4.0, 131_000L, true))
+        assertFalse(policy.update(4.0, 140_999L, true))
+        assertTrue(policy.update(4.0, 141_000L, true))
     }
 }
