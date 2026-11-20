@@ -125,9 +125,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             synchronized(lifecycleLock) {
                 if (stopping || !startRequestGeneration.isCurrent(requestToken)) return START_NOT_STICKY
                 ownerGeneration = lifecycleGeneration.advance()
-                val platform = AstraPlatform(this) { descriptor ->
+                val platform = AstraPlatform(this, onTunCreated = { descriptor ->
                     handleTunCreated(descriptor, ownerGeneration)
-                }
+                })
                 server = CommandServer(this, platform)
                 commandServer = server
             }
