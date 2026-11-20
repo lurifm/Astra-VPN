@@ -143,14 +143,14 @@ internal class LibboxTrafficMonitor(
                     val event = iterator.next() ?: continue
                     val connection = event.connection
                     when (event.type) {
-                        Libbox.ConnectionEventNew -> tracker.onNew(event.id, connection?.outbound)
-                        Libbox.ConnectionEventUpdate -> tracker.onUpdate(
+                        Libbox.ConnectionEventNew.toInt() -> tracker.onNew(event.id, connection?.outbound)
+                        Libbox.ConnectionEventUpdate.toInt() -> tracker.onUpdate(
                             event.id,
                             connection?.outbound,
                             event.uplinkDelta,
                             event.downlinkDelta
                         )
-                        Libbox.ConnectionEventClosed -> tracker.onClosed(event.id)
+                        Libbox.ConnectionEventClosed.toInt() -> tracker.onClosed(event.id)
                     }
                 }
                 val now = SystemClock.elapsedRealtime()
