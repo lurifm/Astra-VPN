@@ -40,12 +40,12 @@ class TrafficMonitorRetryPolicyTest {
     }
 
     @Test fun doublingSaturatesWithoutLongOverflow() {
+        val initial = Long.MAX_VALUE / 2L + 1L
         val policy = TrafficMonitorRetryPolicy(
-            initialDelayMs = Long.MAX_VALUE / 4L,
+            initialDelayMs = initial,
             maxDelayMs = Long.MAX_VALUE
         )
-        assertEquals(Long.MAX_VALUE / 4L, policy.nextDelayAfter(0L))
-        assertEquals(Long.MAX_VALUE / 2L, policy.nextDelayAfter(0L))
+        assertEquals(initial, policy.nextDelayAfter(0L))
         assertEquals(Long.MAX_VALUE, policy.nextDelayAfter(0L))
         assertEquals(Long.MAX_VALUE, policy.nextDelayAfter(0L))
     }
