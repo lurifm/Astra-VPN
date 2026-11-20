@@ -310,3 +310,12 @@ CI для последнего набора изменений необходи�
 - Добавлены unit-тесты агрегатора: отдельные outbounds, частичные/отрицательные дельты, overflow, независимый snapshot и reset.
 - Файлы: `app/src/main/java/com/astra/vpn/LibboxTrafficAccumulator.kt`, `app/src/test/java/com/astra/vpn/LibboxTrafficAccumulatorTest.kt`.
 - Важно: агрегатор пока не подключён к CommandClient; это безопасный тестируемый компонент, а не уже работающая статистика приложения. Следующий шаг — сверить сгенерированные Java/Kotlin сигнатуры артефакта libbox 1.14.3 и lifecycle/base path, затем подключить callback в AstraVpnService и проверить события на реальном устройстве. Авто-failover по скорости остаётся выключенным до проверки полноты измерений.
+
+
+## 16. Подключение событий соединений libbox (20 ноября 2026)
+
+- Проверен пример Android-клиента из upstream `sing-box-for-android`: подтверждены Java/Kotlin имена API gomobile — `CommandClient(handler, options)`, `CommandClientOptions.addCommand(Libbox.CommandConnections)`, `connect()`/`disconnect()`, nullable callback `writeConnectionEvents(ConnectionEvents?)` и остальные обязательные методы `CommandClientHandler`.
+- В проект добавлен `LibboxTrafficMonitor.kt`: создаёт локальный CommandClient в процессе VPN-службы, подписывается на CommandConnections, выполняет блокирующий connect на отдельном daemon thread, обрабатывает callback и отключает клиента при остановке. Для callback обрабатываются только Update events (type=1), поскольку они несут дельты; New/Closed snapshots с cumulative totals не суммируются повторно. Reset очищает накопитель.
+- Монитор подключён к lifecycle `AstraVpnService`: запускается после `CommandServer.start()`, останавливается при `stopTunnel()` до закрытия CommandServer.
+- Накопитель и тесты добавлены ранее (раздел 15). Снимки пока не выведены в UI и не используются для авто-failover. Необходимо проверить фактическую сборку Android binding и поведение на устройстве; CI run #736 для commit `67d587b` на момент этой записи ещё выполняется.
+- Даже при успешной сборке эти события пока нельзя считать полным TUN счётчиком. Сначала требуется runtime-проверка coverage direct/bypass, DNS, служебных потоков, повторного подключения и Reset. Авто-failover по скорости остаётся отключённым.
