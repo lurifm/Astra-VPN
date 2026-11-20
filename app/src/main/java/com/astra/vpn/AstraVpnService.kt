@@ -131,23 +131,31 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun serviceStop() = stopTunnel()
 
     override fun serviceReload() {
-        val config = activeConfig ?: return
-        val server = commandServer ?: return
-        runCatching { server.startOrReloadService(config, OverrideOptions()) }
-            .onSuccess {
-                startTrafficMonitor()
-                if (tunDescriptor == null) {
-                    publishState(STATE_CONNECTING)
-                    awaitTunCreation()
-                } else {
-                    publishState(STATE_CONNECTED)
+        // Serialize reload with stop/revoke and TUN callbacks. Without this guard,
+        // a reload that captured the old CommandServer could run while shutdown
+        // is closing it, then publish CONNECTING or schedule a timeout afterward.
+        synchronized(lifecycleLock) {
+            if (stopping) return
+            val config = activeConfig ?: return
+            val server = commandServer ?: return
+            runCatching { server.startOrReloadService(config, OverrideOptions()) }
+                .onSuccess {
+                    if (stopping || commandServer !== server) return@onSuccess
+                    startTrafficMonitor()
+                    if (tunDescriptor == null) {
+                        publishState(STATE_CONNECTING)
+                        awaitTunCreation()
+                    } else {
+                        publishState(STATE_CONNECTED)
+                    }
                 }
-            }
-            .onFailure { error ->
-                Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
-                stopTunnel()
-                publishState(STATE_ERROR, "Не удалось обновить VPN. Проверь конфигурацию сервера.")
-            }
+                .onFailure { error ->
+                    if (stopping || commandServer !== server) return@onFailure
+                    Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
+                    stopTunnel()
+                    publishState(STATE_ERROR, "Не удалось обновить VPN. Проверь конфигурацию сервера.")
+                }
+        }
     }
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
