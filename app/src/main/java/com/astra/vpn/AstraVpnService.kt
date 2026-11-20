@@ -60,6 +60,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_UPDATE_RECOVERY) {
+            val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
+                .getBoolean(PREF_RECOVERY_ENABLED, false)
+            val link = intent.getStringExtra(EXTRA_PROFILE_LINK)
+            runCatching { ProfileStore(this).setRecoveryProfile(if (enabled) link else null) }
+                .onFailure { Log.w(TAG, "Не удалось обновить профиль восстановления") }
+            return if (enabled) START_STICKY else START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             runCatching { ProfileStore(this).setRecoveryProfile(null) }
                 .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
@@ -397,6 +405,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     companion object {
         const val ACTION_START = "com.astra.vpn.action.START"
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
+        const val ACTION_UPDATE_RECOVERY = "com.astra.vpn.action.UPDATE_RECOVERY"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
         const val ACTION_TRAFFIC = "com.astra.vpn.action.TRAFFIC"
         const val EXTRA_TRAFFIC_JSON = "com.astra.vpn.extra.TRAFFIC_JSON"
