@@ -68,7 +68,14 @@ class ProfileStore(context: Context) {
 
     fun recoveryProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val encrypted = prefs.getString(RECOVERY_PROFILE_KEY, null) ?: return@synchronized null
-        decryptStored(encrypted)
+        val link = decryptStored(encrypted)
+        if (link !in all()) {
+            check(prefs.edit().remove(RECOVERY_PROFILE_KEY).commit()) {
+                "Не удалось очистить устаревший профиль восстановления"
+            }
+            return@synchronized null
+        }
+        link
     }
 
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
@@ -412,7 +419,8 @@ class ProfileStore(context: Context) {
             throw ProfileStorageException(storageRecoveryMessage(), error)
         }
         val hasEncryptedRecords = prefs.all.keys.any {
-            it.startsWith(PROFILE_PREFIX) ||
+            it == RECOVERY_PROFILE_KEY ||
+                it.startsWith(PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_SOURCE_PREFIX)
         }
