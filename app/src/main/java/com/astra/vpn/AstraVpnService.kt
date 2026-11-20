@@ -132,6 +132,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 commandServer = server
             }
             server.start()
+            val requestStillActive = synchronized(lifecycleLock) {
+                !stopping && startRequestGeneration.isCurrent(requestToken) && commandServer === server
+            }
+            if (!requestStillActive) return START_NOT_STICKY
             server.startOrReloadService(config, OverrideOptions())
             synchronized(lifecycleLock) {
                 if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
