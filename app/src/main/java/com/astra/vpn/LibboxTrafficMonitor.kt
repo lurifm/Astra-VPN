@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.util.Log
+import android.os.SystemClock
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
 import io.nekohasekai.libbox.CommandClientOptions
@@ -15,7 +16,8 @@ internal class LibboxTrafficMonitor(
     private val onTrafficChanged: (Map<String, LibboxTrafficAccumulator.Totals>) -> Unit = {}
 ) {
     private val lock = java.lang.Object()
-    private val accumulator = LibboxTrafficAccumulator()
+    private val tracker = LibboxTrafficEventTracker()
+    private var lastPublishedAt = 0L
     private var client: CommandClient? = null
     private var worker: Thread? = null
     private var stopped = true
@@ -26,7 +28,8 @@ internal class LibboxTrafficMonitor(
             if (!stopped) return
             stopped = false
             disconnected = false
-            accumulator.reset()
+            tracker.reset()
+            lastPublishedAt = 0L
             val options = CommandClientOptions().apply {
                 addCommand(Libbox.CommandConnections)
             }
@@ -85,7 +88,8 @@ internal class LibboxTrafficMonitor(
             client = null
             worker = null
             disconnected = true
-            accumulator.reset()
+            tracker.reset()
+            lastPublishedAt = 0L
             lock.notifyAll()
         }
         oldWorker?.interrupt()
@@ -132,25 +136,38 @@ internal class LibboxTrafficMonitor(
             if (events == null) return
             val snapshot = synchronized(lock) {
                 if (stopped) return
-                if (events.reset) accumulator.reset()
+                val wasReset = events.reset
+                if (wasReset) tracker.reset()
                 val iterator = events.iterator()
                 while (iterator.hasNext()) {
                     val event = iterator.next() ?: continue
-                    // sing-box v1.14.3: New=0, Update=1, Closed=2.
-                    // Update events carry deltas; New/Closed carry snapshots.
-                    if (event.type != CONNECTION_EVENT_UPDATE) continue
-                    accumulator.add(event.connection?.outbound, event.uplinkDelta, event.downlinkDelta)
+                    val connection = event.connection
+                    when (event.type) {
+                        Libbox.ConnectionEventNew -> tracker.onNew(event.id, connection?.outbound)
+                        Libbox.ConnectionEventUpdate -> tracker.onUpdate(
+                            event.id,
+                            connection?.outbound,
+                            event.uplinkDelta,
+                            event.downlinkDelta
+                        )
+                        Libbox.ConnectionEventClosed -> tracker.onClosed(event.id)
+                    }
                 }
-                accumulator.snapshot()
+                val now = SystemClock.elapsedRealtime()
+                val shouldPublish = wasReset || lastPublishedAt == 0L || now - lastPublishedAt >= PUBLISH_INTERVAL_MS
+                if (shouldPublish) lastPublishedAt = now
+                if (shouldPublish) tracker.snapshot() else null
             }
-            runCatching { onTrafficChanged(snapshot) }
-                .onFailure { Log.w(TAG, "traffic observer callback failed (${it.javaClass.simpleName})") }
+            if (snapshot != null) {
+                runCatching { onTrafficChanged(snapshot) }
+                    .onFailure { Log.w(TAG, "traffic observer callback failed (${it.javaClass.simpleName})") }
+            }
         }
     }
 
     companion object {
         private const val TAG = "LibboxTrafficMonitor"
-        private const val CONNECTION_EVENT_UPDATE = 1
+        private const val PUBLISH_INTERVAL_MS = 1_000L
         private const val INITIAL_RETRY_DELAY_MS = 1_000L
         private const val MAX_RETRY_DELAY_MS = 30_000L
     }
