@@ -3054,6 +3054,7 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
             .putExtra(AstraVpnService.EXTRA_CONFIG, config)
+            .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, activeProfile)
             .putExtra(AstraVpnService.EXTRA_PROFILE_NAME, activeProfile?.let { profileName(it) } ?: "Сервер не выбран")
             .putExtra(AstraVpnService.EXTRA_PROTOCOL, activeProfile?.let { protocolName(it) } ?: "—")
         try {
@@ -4578,6 +4579,19 @@ class MainActivity : Activity() {
         panel.addView(backupImportEntry)
 
         addSectionLabel("✦  ЗАЩИТА СОЕДИНЕНИЯ")
+        val vpnRecovery = android.widget.Switch(this).apply {
+            text = "Восстанавливать VPN после сбоя приложения"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = settingsPrefs.getBoolean("vpn_recovery_enabled", false)
+        }
+        panel.addView(vpnRecovery)
+        panel.addView(TextView(this).apply {
+            text = "При системном перезапуске процесса Astra попробует восстановить последний сервер. Требуется ранее выданное разрешение Android. После force-stop или перезагрузки телефона потребуется открыть приложение вручную."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(0, dp(2), 0, dp(8))
+        })
         val lockdownEntry = TextView(this).apply {
             text = "🛡️  Системная блокировка без VPN"
             textSize = 14f
@@ -4735,7 +4749,17 @@ class MainActivity : Activity() {
                     .putBoolean("update_on_open", updateOnOpen.isChecked)
                     .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
                     .putBoolean("battery_saver_mode", batterySaver.isChecked)
+                    .putBoolean("vpn_recovery_enabled", vpnRecovery.isChecked)
                     .apply()
+                runCatching {
+                    ProfileStore(this@MainActivity).setRecoveryProfile(
+                        if (vpnRecovery.isChecked) activeProfile else null
+                    )
+                }.onFailure {
+                    Toast.makeText(this@MainActivity, "Не удалось сохранить защищённый профиль восстановления", Toast.LENGTH_LONG).show()
+                    settingsPrefs.edit().putBoolean("vpn_recovery_enabled", false).apply()
+                    vpnRecovery.isChecked = false
+                }
                 if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
                 SubscriptionRefreshScheduler.sync(this@MainActivity)
                 renderProfiles()
