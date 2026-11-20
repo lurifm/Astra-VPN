@@ -341,3 +341,13 @@ CI для последнего набора изменений необходи�
 - Добавлены `LibboxTrafficEventTrackerTest` проверки для запоминания outbound, смены outbound, закрытия соединения, неизвестных ID и reset.
 - Последние изменения: `56862f5` устраняет повторное lifecycle-управление monitor; `82ed2b3` добавляет event-ID attribution и throttling. CI run #746 для HEAD `05bf685` завершился FAILURE: Kotlin сравнивал `Int` event.type с gomobile-константами `Long`. Исправлено явным `.toInt()` для New/Update/Closed. CI run #748 для HEAD `971799c` завершился SUCCESS: unit tests, debug APK build, APK verification и artifact upload прошли.
 - Авто-failover по скорости остаётся выключенным: текущий монитор — экспериментальный источник outbound-scoped статистики, его полнота и корректность на устройстве ещё не подтверждены.
+
+
+## 19. Диагностика outbound-трафика в интерфейсе (20 ноября 2026)
+
+- В диалог «Настройки → Инструменты → Мониторинг сети» добавлен отдельный блок «Трафик VPN по outbound (частично)».
+- Блок читает последний JSON snapshot из SharedPreferences astra_libbox_traffic, выводит upload/download по outbound tag, сумму полученных дельт и возраст snapshot.
+- Добавлено явное пояснение: это connection-event deltas libbox по outbound, возможен неполный учёт direct/bypass и служебного трафика; эти числа не являются общим VPN/TUN счётчиком.
+- Значение переключателя авто-failover по умолчанию изменено на false. Существующее явное пользовательское значение сохраняется; общие Android TrafficStats по-прежнему передаются в policy с trafficIsVpnScoped=false и не могут вызвать failover.
+- Изменение UI находится в commit a84c6de. CI run #750 для этого commit всё ещё выполнялся при последней проверке: unit tests были в процессе, debug APK build и APK verification ещё не стартовали. Не считать этот commit проверенным до завершения run.
+- Физическая проверка на Android остаётся обязательной: подключить VPN, сгенерировать TCP/UDP трафик, проверить обновление snapshot, смену профиля, direct/bypass, Reset и остановку туннеля. Нельзя делать вывод о полноте статистики по одному UI snapshot.
