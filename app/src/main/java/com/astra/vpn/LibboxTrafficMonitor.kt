@@ -22,37 +22,41 @@ internal class LibboxTrafficMonitor(
     private var worker: Thread? = null
     private var stopped = true
     private var disconnected = false
+    // Invalidates callbacks from a previous client after stop/restart.
+    private var generation = 0L
 
     fun start() {
         synchronized(lock) {
             if (!stopped) return
             stopped = false
             disconnected = false
+            generation += 1L
+            val activeGeneration = generation
             tracker.reset()
             lastPublishedAt = 0L
             val options = CommandClientOptions().apply {
                 addCommand(Libbox.CommandConnections)
             }
-            val newClient = CommandClient(TrafficHandler(), options)
+            val newClient = CommandClient(TrafficHandler(activeGeneration), options)
             client = newClient
-            worker = Thread({ runConnectionLoop(newClient) }, "Astra-LibboxTraffic").apply {
+            worker = Thread({ runConnectionLoop(newClient, activeGeneration) }, "Astra-LibboxTraffic").apply {
                 isDaemon = true
                 start()
             }
         }
     }
 
-    private fun runConnectionLoop(activeClient: CommandClient) {
+    private fun runConnectionLoop(activeClient: CommandClient, activeGeneration: Long) {
         var retryDelayMs = INITIAL_RETRY_DELAY_MS
-        while (isActive(activeClient)) {
+        while (isActive(activeClient, activeGeneration)) {
             try {
                 // connect() establishes the command channel and starts stream readers.
                 activeClient.connect()
                 synchronized(lock) {
-                    while (!stopped && client === activeClient && !disconnected) {
+                    while (!stopped && generation == activeGeneration && client === activeClient && !disconnected) {
                         lock.wait()
                     }
-                    if (stopped || client !== activeClient) return
+                    if (stopped || generation != activeGeneration || client !== activeClient) return
                     disconnected = false
                 }
                 retryDelayMs = INITIAL_RETRY_DELAY_MS
@@ -63,7 +67,7 @@ internal class LibboxTrafficMonitor(
                 Log.w(TAG, "libbox traffic subscription failed (${error.javaClass.simpleName})")
             }
 
-            if (!isActive(activeClient)) return
+            if (!isActive(activeClient, activeGeneration)) return
             try {
                 Thread.sleep(retryDelayMs)
             } catch (error: InterruptedException) {
@@ -74,8 +78,8 @@ internal class LibboxTrafficMonitor(
         }
     }
 
-    private fun isActive(candidate: CommandClient): Boolean =
-        synchronized(lock) { !stopped && client === candidate }
+    private fun isActive(candidate: CommandClient, candidateGeneration: Long): Boolean =
+        synchronized(lock) { !stopped && generation == candidateGeneration && client === candidate }
 
     fun stop() {
         val oldClient: CommandClient?
@@ -83,6 +87,7 @@ internal class LibboxTrafficMonitor(
         synchronized(lock) {
             if (stopped) return
             stopped = true
+            generation += 1L
             oldClient = client
             oldWorker = worker
             client = null
@@ -104,9 +109,10 @@ internal class LibboxTrafficMonitor(
         }
     }
 
-    private inner class TrafficHandler : CommandClientHandler {
+    private inner class TrafficHandler(private val ownerGeneration: Long) : CommandClientHandler {
         override fun connected() {
             synchronized(lock) {
+                if (stopped || generation != ownerGeneration) return
                 disconnected = false
                 lock.notifyAll()
             }
@@ -114,7 +120,7 @@ internal class LibboxTrafficMonitor(
 
         override fun disconnected(message: String?) {
             synchronized(lock) {
-                if (stopped) return
+                if (stopped || generation != ownerGeneration) return
                 disconnected = true
                 lock.notifyAll()
             }
@@ -135,7 +141,7 @@ internal class LibboxTrafficMonitor(
         override fun writeConnectionEvents(events: ConnectionEvents?) {
             if (events == null) return
             val snapshot = synchronized(lock) {
-                if (stopped) return
+                if (stopped || generation != ownerGeneration) return
                 val wasReset = events.reset
                 if (wasReset) tracker.reset()
                 val iterator = events.iterator()
