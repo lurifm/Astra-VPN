@@ -261,6 +261,7 @@ class MainActivity : Activity() {
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
+                    waitingForUnderlyingNetwork = false
                     if (pendingFailoverSelection?.let { FailoverSelectionPolicy.isCommitted(it, activeProfile) } == true) {
                         pendingFailoverSelection = null
                     }
@@ -274,6 +275,7 @@ class MainActivity : Activity() {
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
+                    waitingForUnderlyingNetwork = false
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
@@ -3148,6 +3150,7 @@ class MainActivity : Activity() {
     }
 
     private fun startTunnel(config: String) {
+        waitingForUnderlyingNetwork = false
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
         // the same VPN Network object for the replacement sing-box configuration.
         tunnelHealthCheckGeneration.advance()
