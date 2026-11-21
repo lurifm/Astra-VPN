@@ -2471,7 +2471,7 @@ class MainActivity : Activity() {
                 contentDescription = "Выбрать сервер " + country + ", задержка " + ping
                 setOnClickListener {
                     if (selectedProfile != link) {
-                        selectedProfile = link; persistSelectedProfile(); renderProfiles()
+                        selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
                         if (connected) connectSelectedProfile()
                     }
                 }
