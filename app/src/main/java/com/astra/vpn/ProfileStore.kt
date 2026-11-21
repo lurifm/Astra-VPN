@@ -92,6 +92,27 @@ class ProfileStore(context: Context) {
      * Stores the exact profile that was active when banking automation paused the tunnel.
      * The proxy URI remains encrypted; timestamp is non-sensitive local state.
      */
+    /** Exact profile currently running in AstraVpnService; encrypted at rest. */
+    fun setActiveTunnelProfile(link: String?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val editor = prefs.edit()
+        if (link.isNullOrBlank()) editor.remove(ACTIVE_TUNNEL_PROFILE_KEY)
+        else {
+            require(all().contains(link)) { "Активный профиль не найден" }
+            editor.putString(ACTIVE_TUNNEL_PROFILE_KEY, encrypt(link))
+        }
+        check(editor.commit()) { "Не удалось сохранить активный профиль VPN" }
+    }
+
+    fun activeTunnelProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val encrypted = prefs.getString(ACTIVE_TUNNEL_PROFILE_KEY, null) ?: return@synchronized null
+        val link = decryptStored(encrypted)
+        if (link !in all()) {
+            check(prefs.edit().remove(ACTIVE_TUNNEL_PROFILE_KEY).commit()) { "Не удалось очистить устаревший активный профиль" }
+            return@synchronized null
+        }
+        link
+    }
+
     fun setBankPauseSnapshot(profileLink: String?, pausedAtEpochMillis: Long = System.currentTimeMillis()) =
         synchronized(SUBSCRIPTION_MUTATION_LOCK) {
             val editor = prefs.edit()
@@ -518,6 +539,7 @@ class ProfileStore(context: Context) {
     companion object {
         private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
         private const val BANK_PAUSE_PROFILE_KEY = "bank_pause_profile_encrypted"
+        private const val ACTIVE_TUNNEL_PROFILE_KEY = "active_tunnel_profile_encrypted"
         private const val BANK_PAUSE_AT_KEY = "bank_pause_at"
         private const val SELECTED_PROFILE_KEY = "selected_profile_encrypted"
         private const val PROFILE_PREFIX = "profile_"

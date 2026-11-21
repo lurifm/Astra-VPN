@@ -167,6 +167,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             )
         }
         if (intent?.action == ACTION_STOP) {
+            // Manual stop must never leave a resumable banking snapshot behind.
+            runCatching {
+                val stateStore = BankingAutomationStateStore(this)
+                val state = stateStore.read()
+                if (state.autoPausedByBanking) stateStore.write(state.onManualDisconnect())
+                ProfileStore(this).clearBankPauseSnapshot()
+                ProfileStore(this).setActiveTunnelProfile(null)
+            }.onFailure { Log.w(TAG, "Не удалось отменить банковское восстановление при ручном отключении", it) }
             // Serialize the user's disconnect with TUN-created callbacks. Otherwise
             // a callback could commit a staged recovery profile after this clear
             // but before stopTunnel() acquires lifecycleLock.
@@ -286,6 +294,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         ) {
                             cancelTunTimeoutLocked()
                             commitRecoveryProfileLocked()
+                            runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
+                                .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                             publishState(STATE_CONNECTED)
                             completeBankingAutoResumeLocked()
                         } else {
@@ -338,6 +348,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     )
                 ) {
                     commitRecoveryProfileLocked()
+                    runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
+                        .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                     publishState(STATE_CONNECTED)
                     completeBankingAutoResumeLocked()
                 } else {
@@ -513,6 +525,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 )
             ) {
                 commitRecoveryProfileLocked()
+                runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
+                    .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                 publishState(STATE_CONNECTED)
                 completeBankingAutoResumeLocked()
             }

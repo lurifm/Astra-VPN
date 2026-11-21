@@ -19,8 +19,8 @@ import android.util.Log
 /**
  * User-started foreground observer for banking automation.
  *
- * This service only reports a conservative foreground-package observation.
- * It does not pause, stop, or restart the VPN tunnel by itself.
+ * User-started foreground observer and executor for conservative banking transitions.
+ * It never guesses on ambiguous UsageEvents and persists state before issuing VPN commands.
  */
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -39,12 +39,15 @@ internal class BankingForegroundMonitorService : Service() {
             // a foreground change. Null means unknown (transition, split-screen,
             // missing Usage Access), never proof that a banking app was closed.
             observationPolicy.observe(observed)?.let { stablePackage ->
+                val observedAt = System.currentTimeMillis()
                 sendBroadcast(
                     Intent(ACTION_OBSERVATION)
                         .setPackage(packageName)
                         .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
-                        .putExtra(EXTRA_OBSERVED_AT, System.currentTimeMillis())
+                        .putExtra(EXTRA_OBSERVED_AT, observedAt)
                 )
+                runCatching { executeBankingTransition(stablePackage, observedAt) }
+                    .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
             }
             handler.postDelayed(this, POLL_INTERVAL_MS)
         }
@@ -75,9 +78,105 @@ internal class BankingForegroundMonitorService : Service() {
                     lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
                     handler.post(poll)
                 }
-                return START_NOT_STICKY
+                return START_STICKY
             }
             else -> return START_NOT_STICKY
+        }
+    }
+
+    private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
+        val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
+        if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
+            !UsageAccessPermission.hasAccess(this)
+        ) return
+        val banks = settings.getStringSet("banking_app_packages", emptySet())
+            ?.toSet().orEmpty()
+        if (banks.isEmpty()) return
+
+        val vpnPrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
+        val vpnConnected = vpnPrefs.getString(AstraVpnService.PREF_STATE, null) ==
+            AstraVpnService.STATE_CONNECTED
+        val profileStore = ProfileStore(this)
+        val snapshot = profileStore.bankPauseSnapshot()
+        val activeLink = profileStore.activeTunnelProfile()
+        val stateStore = BankingAutomationStateStore(this)
+        val state = stateStore.read()
+        val now = System.currentTimeMillis()
+        val plan = BankingAutomationTransitionEngine.evaluate(
+            state,
+            BankingAutomationTransitionEngine.Input(
+                foregroundPackage = foregroundPackage,
+                bankPackages = banks,
+                vpnConnected = vpnConnected,
+                usageAccessGranted = true,
+                observationAtEpochMillis = observedAt,
+                nowEpochMillis = now,
+                savedProfileAvailable = if (state.autoPausedByBanking) snapshot != null
+                    else !activeLink.isNullOrBlank() && activeLink in profileStore.all()
+            )
+        )
+
+        when (plan.command) {
+            BankingAutomationTransitionEngine.Command.SAVE_PROFILE_AND_PAUSE -> {
+                val link = activeLink ?: return
+                // Commit encrypted exact profile first, then durable transition state,
+                // then issue the service command. Any failure leaves the tunnel untouched.
+                profileStore.setBankPauseSnapshot(link, now)
+                stateStore.write(plan.nextState)
+                val gate = BankingVpnCommandPolicy.decide(
+                    BankingVpnCommandPolicy.Input(
+                        requestedPause = true, requestedResume = false,
+                        vpnConnected = vpnConnected,
+                        activeProfileLink = link,
+                        activeProfileExists = link in profileStore.all(),
+                        snapshotProfileLink = profileStore.bankPauseSnapshot()?.profileLink,
+                        snapshotProfileExists = profileStore.bankPauseSnapshot() != null,
+                        state = plan.nextState,
+                        observationFresh = now >= observedAt &&
+                            now - observedAt <= BankingAutomationTransitionEngine.MAX_OBSERVATION_AGE_MS,
+                        foregroundPackage = foregroundPackage,
+                        bankPackages = banks,
+                        usageAccessGranted = true
+                    )
+                )
+                if (gate == BankingVpnCommandPolicy.Command.PAUSE_ACTIVE_TUNNEL) {
+                    startService(Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_AUTO_PAUSE))
+                } else {
+                    stateStore.write(state)
+                    profileStore.clearBankPauseSnapshot()
+                }
+            }
+            BankingAutomationTransitionEngine.Command.RESUME_SAVED_PROFILE -> {
+                val saved = snapshot?.profileLink ?: return
+                val gate = BankingVpnCommandPolicy.decide(
+                    BankingVpnCommandPolicy.Input(
+                        requestedPause = false, requestedResume = true,
+                        vpnConnected = vpnConnected,
+                        activeProfileLink = activeLink,
+                        activeProfileExists = activeLink != null && activeLink in profileStore.all(),
+                        snapshotProfileLink = saved,
+                        snapshotProfileExists = saved in profileStore.all(),
+                        state = state,
+                        observationFresh = now >= observedAt &&
+                            now - observedAt <= BankingAutomationTransitionEngine.MAX_OBSERVATION_AGE_MS,
+                        foregroundPackage = foregroundPackage,
+                        bankPackages = banks,
+                        usageAccessGranted = true
+                    )
+                )
+                if (gate == BankingVpnCommandPolicy.Command.RESUME_SNAPSHOT) {
+                    startForegroundService(
+                        Intent(this, AstraVpnService::class.java)
+                            .setAction(AstraVpnService.ACTION_AUTO_RESUME)
+                            .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, saved)
+                    )
+                }
+            }
+            BankingAutomationTransitionEngine.Command.CLEAR_SNAPSHOT -> {
+                stateStore.write(plan.nextState)
+                profileStore.clearBankPauseSnapshot()
+            }
+            BankingAutomationTransitionEngine.Command.NONE -> Unit
         }
     }
 
