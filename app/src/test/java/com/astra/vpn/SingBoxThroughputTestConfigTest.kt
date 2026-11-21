@@ -7,11 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SingBoxThroughputTestConfigTest {
-    private val profile = "vless://00000000-0000-4000-8000-000000000001@example.com:443?encryption=none&security=tls&sni=example.com#probe"
+    private val source = JSONObject()
+        .put("outbounds", org.json.JSONArray()
+            .put(JSONObject().put("type", "vless").put("tag", "proxy").put("server", "example.com").put("server_port", 443))
+            .put(JSONObject().put("type", "direct").put("tag", "direct")))
+        .put("dns", JSONObject().put("servers", org.json.JSONArray()))
 
     @Test
     fun createsLoopbackOnlyMixedInboundWithoutTun() {
-        val result = SingBoxThroughputTestConfig.build(profile, 18080)
+        val result = SingBoxThroughputTestConfig.buildFromSource(source, 18080)
         val config = JSONObject(result.json)
         val inbounds = config.getJSONArray("inbounds")
         val inbound = inbounds.getJSONObject(0)
@@ -28,7 +32,7 @@ class SingBoxThroughputTestConfigTest {
 
     @Test
     fun routesProbeInboundToOnlyTheSelectedProxyOutbound() {
-        val config = JSONObject(SingBoxThroughputTestConfig.build(profile, 18081).json)
+        val config = JSONObject(SingBoxThroughputTestConfig.buildFromSource(source, 18081).json)
         val outbounds = config.getJSONArray("outbounds")
         assertEquals(2, outbounds.length())
         assertEquals(SingBoxThroughputTestConfig.OUTBOUND_TAG, outbounds.getJSONObject(0).getString("tag"))
@@ -47,6 +51,6 @@ class SingBoxThroughputTestConfigTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsInvalidLocalPort() {
-        SingBoxThroughputTestConfig.build(profile, 0)
+        SingBoxThroughputTestConfig.buildFromSource(source, 0)
     }
 }
