@@ -31,11 +31,19 @@ internal object BankingVpnCommandPolicy {
         if (input.requestedPause && !input.requestedResume) {
             if (input.foregroundPackage !in input.bankPackages ||
                 !input.vpnConnected ||
-                input.state.autoPausedByBanking ||
                 input.state.userDisconnectRequested ||
                 !input.activeProfileExists ||
                 input.activeProfileLink.isNullOrBlank()
             ) return Command.REJECT
+            if (input.state.autoPausedByBanking) {
+                // Idempotent retry is permitted only for the exact already-saved
+                // profile. A different active profile must never be stopped.
+                if (!input.state.wasConnectedBeforePause ||
+                    !input.state.savedProfileAvailable ||
+                    !input.snapshotProfileExists ||
+                    input.snapshotProfileLink != input.activeProfileLink
+                ) return Command.REJECT
+            }
             return Command.PAUSE_ACTIVE_TUNNEL
         }
 

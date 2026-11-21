@@ -1756,3 +1756,13 @@ CI run для последнего коммита необходимо пров�
 - Removed obsolete `lastEmitted` bookkeeping from the foreground observation debounce policy; stable observations are intentionally re-published for retry handling.
 - The server list already uses 48dp minimum targets for favorite/share actions; the audit found these smaller controls as remaining inconsistencies.
 - Narrow-screen and large-font visual checks still require emulator/physical-device validation.
+
+
+## 89. Idempotent retry for a committed-but-not-executed banking pause
+
+- Fixed a concrete retry gap: the monitor commits `autoPausedByBanking=true` before sending `ACTION_AUTO_PAUSE`. If the service start/command is rejected while the VPN remains live, the old policy suppressed all later pause attempts because the state already looked paused.
+- The pure policy and transition engine now re-issue the pause plan only while a fresh stable bank observation remains active, Android still confirms a live VPN transport, the original pre-pause connection fact is retained, and the encrypted exact-profile snapshot remains available.
+- The command gate allows this idempotent retry only when the saved snapshot URI exactly matches the currently active profile. Manual disconnect and mismatched/missing snapshot continue to reject the command.
+- Retry preserves the original transition ID and snapshot intent. The VPN service's existing lifecycle guard still serializes the actual tunnel stop.
+- Added regression tests for transition-engine retry and exact-snapshot gate checks.
+- This closes the observed pause dispatch retry gap; it is not a full service ACK protocol. A process/device integration test is still required, especially for ACTION_AUTO_PAUSE delivery and failed AUTO_RESUME starts.

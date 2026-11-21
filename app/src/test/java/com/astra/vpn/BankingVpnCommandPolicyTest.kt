@@ -34,11 +34,15 @@ class BankingVpnCommandPolicyTest {
             BankingVpnCommandPolicy.decide(input(connected = false)))
     }
 
-    @Test fun pauseCannotOverrideManualDisconnectOrExistingPause() {
+    @Test fun pauseCannotOverrideManualDisconnectAndRetryRequiresExactSnapshot() {
         assertEquals(BankingVpnCommandPolicy.Command.REJECT,
             BankingVpnCommandPolicy.decide(input(state = BankingAutomationState().onManualDisconnect())))
-        assertEquals(BankingVpnCommandPolicy.Command.REJECT,
+        assertEquals(BankingVpnCommandPolicy.Command.PAUSE_ACTIVE_TUNNEL,
             BankingVpnCommandPolicy.decide(input(state = paused)))
+        assertEquals(BankingVpnCommandPolicy.Command.REJECT,
+            BankingVpnCommandPolicy.decide(input(state = paused, snapshotLink = "vless://other")))
+        assertEquals(BankingVpnCommandPolicy.Command.REJECT,
+            BankingVpnCommandPolicy.decide(input(state = paused, snapshotExists = false)))
     }
 
     @Test fun resumeRequiresFreshNonBankObservationAndExistingSnapshot() {
