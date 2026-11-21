@@ -3150,13 +3150,13 @@ class MainActivity : Activity() {
     }
 
     private fun connectSelectedProfile() {
-        // A deliberate new connection/profile selection supersedes any pending
-        // banking auto-resume, including a stale snapshot from a prior process.
-        applyManualBankingOverride(connecting = true)
         // Consent UI is asynchronous: block duplicate starts before the service
         // has had a chance to publish STATE_CONNECTING.
         if (connecting || pendingConfig != null) return
         val link = selectedProfile ?: return
+        // A deliberate new connection/profile selection supersedes any pending
+        // banking auto-resume, including a stale snapshot from a prior process.
+        applyManualBankingOverride(connecting = true)
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
             rollbackPendingFailoverSelection()
             // Config/parser diagnostics may include the original proxy URI and credentials.
