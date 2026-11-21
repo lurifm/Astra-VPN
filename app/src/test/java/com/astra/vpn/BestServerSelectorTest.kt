@@ -47,6 +47,7 @@ class BestServerSelectorTest {
     fun returnsNullWhenNoServerResponded() {
         assertNull(BestServerSelector.select(listOf("vless://offline"), emptyMap()))
     }
+
     @Test
     fun prefersMoreStableServerWhenLatencyIsClose() {
         val selected = BestServerSelector.select(
@@ -97,7 +98,6 @@ class BestServerSelectorTest {
         assertEquals("vless://node", selected)
     }
 
-
     @Test
     fun extremeLatencyCannotWrapIntoBestScore() {
         val selected = BestServerSelector.select(
@@ -105,5 +105,35 @@ class BestServerSelectorTest {
             mapOf("hysteria2://extreme" to Long.MAX_VALUE, "vless://normal" to 100L)
         )
         assertEquals("vless://normal", selected)
+    }
+
+    @Test
+    fun freshThroughputRefinesCloseLatencyCandidates() {
+        val now = 1_800_000_000_000L
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://low-speed", "vless://high-speed"),
+            latencyMs = mapOf("vless://low-speed" to 50L, "vless://high-speed" to 55L),
+            throughputSamples = mapOf(
+                "vless://low-speed" to ThroughputSample(2.0, 1.0, now),
+                "vless://high-speed" to ThroughputSample(300.0, 150.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals("vless://high-speed", selected)
+    }
+
+    @Test
+    fun staleThroughputCannotChangeLatencySelectionOrHideLargeLatencyGap() {
+        val now = 1_800_000_000_000L
+        val selected = BestServerSelector.select(
+            profiles = listOf("vless://slow-latency", "vless://fast-latency"),
+            latencyMs = mapOf("vless://slow-latency" to 150L, "vless://fast-latency" to 40L),
+            throughputSamples = mapOf(
+                "vless://slow-latency" to ThroughputSample(1_000.0, 1_000.0, now),
+                "vless://fast-latency" to ThroughputSample(1.0, 1.0, now - ThroughputFreshnessPolicy.MAX_AGE_MS - 1L)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals("vless://fast-latency", selected)
     }
 }
