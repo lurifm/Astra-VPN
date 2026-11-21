@@ -37,4 +37,5 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
