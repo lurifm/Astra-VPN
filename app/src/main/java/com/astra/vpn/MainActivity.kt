@@ -2547,8 +2547,22 @@ class MainActivity : Activity() {
             val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val flag = CountryFlagResolver.flagFor(name)
             val country = CountryFlagResolver.countryNameForFlag(flag).ifBlank { name }
-            val ping = latencyMs[link]?.let { it.toString() + " мс" } ?: "— мс"
+            val measuredLatency = latencyMs[link]
+            val ping = measuredLatency?.let { "$it мс" } ?: "— мс"
             val selected = link == selectedProfile
+            val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
+            val healthColor = when {
+                activeAndFailed -> RED
+                measuredLatency != null && measuredLatency <= 100L -> GREEN
+                measuredLatency != null -> AMBER
+                else -> MUTED
+            }
+            val healthLabel = when {
+                activeAndFailed -> "НЕ ОТВЕЧАЕТ"
+                measuredLatency != null && measuredLatency <= 100L -> "СТАБИЛЬНЫЙ"
+                measuredLatency != null -> "ВЫСОКАЯ ЗАДЕРЖКА"
+                else -> "НЕ ПРОВЕРЕН"
+            }
             val tile = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(7), dp(8))
                 background = rounded(if (selected) 0xFF282B3A.toInt() else 0xFF151B2D.toInt(), 15).apply {
@@ -2556,7 +2570,7 @@ class MainActivity : Activity() {
                 }
                 isClickable = true; isFocusable = true
                 foreground = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x40FFFFFF), null, null)
-                contentDescription = "Выбрать сервер " + country + ", задержка " + ping
+                contentDescription = "Выбрать сервер $country. Состояние: $healthLabel. Задержка $ping"
                 setOnClickListener {
                     if (selectedProfile != link) {
                         selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
@@ -2566,8 +2580,21 @@ class MainActivity : Activity() {
             }
             tile.addView(TextView(this@MainActivity).apply { text = flag.ifBlank { "✦" }; textSize = 10f; setTextColor(0xFFC7D2F0.toInt()); maxLines = 1 })
             tile.addView(TextView(this@MainActivity).apply { text = country; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-            tile.addView(TextView(this@MainActivity).apply { text = ping; textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (latencyMs[link] != null) 0xFFE8C77C.toInt() else MUTED) })
-            tiles.addView(tile, LinearLayout.LayoutParams(0, dp(76), 1f).apply { if (index > 0) leftMargin = dp(6) })
+            tile.addView(TextView(this@MainActivity).apply {
+                text = "●  $healthLabel"
+                textSize = 8f
+                letterSpacing = .035f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(healthColor)
+                maxLines = 1
+            })
+            tile.addView(TextView(this@MainActivity).apply {
+                text = ping
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(healthColor)
+            })
+            tiles.addView(tile, LinearLayout.LayoutParams(0, dp(82), 1f).apply { if (index > 0) leftMargin = dp(6) })
         }
         quickSwitchContainer.addView(tiles, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
     }
