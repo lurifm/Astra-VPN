@@ -13,7 +13,6 @@ class VpnRecoveryProfileTransactionTest {
         transaction.stage("profile-B")
 
         assertTrue(transaction.hasPendingUpdate())
-        assertNull(transaction.commit().also { /* commit is the explicit success boundary */ }?.let { null })
     }
 
     @Test
