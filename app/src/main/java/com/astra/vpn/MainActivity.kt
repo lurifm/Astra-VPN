@@ -3796,22 +3796,45 @@ class MainActivity : Activity() {
 
     /** True only when Android has a validated, unsuspended physical Internet path. */
     private fun hasValidatedPhysicalNetwork(connectivity: ConnectivityManager): Boolean {
+        fun isUsableUnderlay(capabilities: NetworkCapabilities?): Boolean {
+            if (capabilities == null) return false
+            val notSuspended = Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            return NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
+                isVpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                isNotSuspended = notSuspended
+            )
+        }
+
+        // Prefer the exact underlay selected by AstraPlatform for sing-box.
+        // A secondary connected network must not make a broken default route
+        // look healthy and permit false tunnel-failure accounting.
+        val selectedUnderlay = AstraPlatform.currentPhysicalNetwork
+        if (selectedUnderlay != null) {
+            return isUsableUnderlay(
+                runCatching { connectivity.getNetworkCapabilities(selectedUnderlay) }.getOrNull()
+            )
+        }
+
+        // During initial startup the platform callback may not have selected
+        // an underlay yet; allow discovery until that authoritative handle exists.
         return connectivity.allNetworks.any { network ->
-            val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
-                ?: return@any false
-            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            ) return@any false
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-            ) return@any false
-            true
+            isUsableUnderlay(runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull())
         }
     }
 
     private fun underlyingNetworkCapabilities(): NetworkCapabilities? {
         val connectivity = getSystemService(ConnectivityManager::class.java)
+        val selectedUnderlay = AstraPlatform.currentPhysicalNetwork
+        val selectedCapabilities = selectedUnderlay?.let {
+            runCatching { connectivity.getNetworkCapabilities(it) }.getOrNull()
+        }
+        if (selectedCapabilities != null &&
+            !selectedCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        ) return selectedCapabilities
+
         val activeNetwork = connectivity.activeNetwork
         val activeCapabilities = activeNetwork?.let(connectivity::getNetworkCapabilities)
 
