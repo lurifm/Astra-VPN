@@ -124,7 +124,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     configurationAccepted && tunDescriptor != null &&
                     state != null &&
                     BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
-                    command?.transitionId == requestedTransitionId &&
+                    command != null &&
+                    command.transitionId == requestedTransitionId &&
                     command.command == BankingAutomationCommandRecord.Command.PAUSE &&
                     command.status == BankingAutomationCommandRecord.Status.PENDING &&
                     !activeProfileLink.isNullOrBlank() &&
@@ -150,7 +151,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val allowed = UsageAccessPermission.hasAccess(this) &&
                 state != null &&
                 BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
-                command?.transitionId == requestedTransitionId &&
+                command != null &&
+                command.transitionId == requestedTransitionId &&
                 command.command == BankingAutomationCommandRecord.Command.RESUME &&
                 command.status == BankingAutomationCommandRecord.Status.PENDING &&
                 !requestedLink.isNullOrBlank() &&
