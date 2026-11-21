@@ -437,6 +437,10 @@ class MainActivity : Activity() {
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
+                    // A user stop or a terminal failover failure can end in
+                    // DISCONNECTED rather than ERROR. Do not leave a provisional
+                    // automatic selection pinned after its replacement tunnel is gone.
+                    rollbackPendingFailoverSelection()
                     waitingForUnderlyingNetwork = false
                     waitingForVpnRoute = false
                     tunnelHealthCheckGeneration.advance()
