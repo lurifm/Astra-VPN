@@ -136,4 +136,39 @@ class BestServerSelectorTest {
         )
         assertEquals("vless://fast-latency", selected)
     }
+    @Test
+    fun highThroughputCannotOverrideMateriallyWorseReliabilityScore() {
+        val now = 1_800_000_000_000L
+        val stable = "vless://stable"
+        val fastButUnstable = "vless://fast-but-unstable"
+        val selected = BestServerSelector.select(
+            profiles = listOf(fastButUnstable, stable),
+            latencyMs = mapOf(fastButUnstable to 50L, stable to 60L),
+            recentFailures = mapOf(fastButUnstable to 3),
+            throughputSamples = mapOf(
+                fastButUnstable to ThroughputSample(1_000.0, 1_000.0, now),
+                stable to ThroughputSample(2.0, 1.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals(stable, selected)
+    }
+
+    @Test
+    fun throughputStillRefinesCandidatesWithEqualReliabilityScore() {
+        val now = 1_800_000_000_000L
+        val low = "vless://low-speed"
+        val high = "vless://high-speed"
+        val selected = BestServerSelector.select(
+            profiles = listOf(low, high),
+            latencyMs = mapOf(low to 50L, high to 50L),
+            throughputSamples = mapOf(
+                low to ThroughputSample(2.0, 1.0, now),
+                high to ThroughputSample(300.0, 150.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals(high, selected)
+    }
+
 }
