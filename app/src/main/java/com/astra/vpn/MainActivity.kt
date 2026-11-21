@@ -652,7 +652,9 @@ class MainActivity : Activity() {
                 if (disconnecting) {
                     return@setOnClickListener
                 }
-                if (connected && selectedProfile == activeProfile) {
+                if (pendingConfig != null) {
+                    cancelPendingConnect()
+                } else if (connected && selectedProfile == activeProfile) {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
                     connectActionLabel.text = "Отключаем…"
@@ -3502,6 +3504,10 @@ class MainActivity : Activity() {
             stopTunnel()
             return
         }
+        if (pendingConfig != null) {
+            cancelPendingConnect()
+            return
+        }
         if (connecting) {
             Toast.makeText(this, "Подключение уже выполняется", Toast.LENGTH_SHORT).show()
             return
@@ -3864,6 +3870,24 @@ class MainActivity : Activity() {
         }
         updateProtectionLabels()
         renderProfiles()
+    }
+
+    /**
+     * Cancels a start that is still waiting for Android's VPN consent result.
+     * Clearing the captured config makes a late RESULT_OK harmless.
+     */
+    private fun cancelPendingConnect() {
+        if (pendingConfig == null) return
+        pendingConfig = null
+        pendingProfile = null
+        cancelConnectRetry(resetAttempts = true)
+        connecting = false
+        disconnecting = false
+        status.text = if (connected) "Подключено" else "Отключено"
+        status.setTextColor(if (connected) GREEN else MUTED)
+        updateProtectionLabels()
+        renderProfiles()
+        Toast.makeText(this, "Подключение отменено", Toast.LENGTH_SHORT).show()
     }
 
     private fun stopTunnel() {
