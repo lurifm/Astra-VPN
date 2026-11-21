@@ -7,4 +7,11 @@ package com.astra.vpn
 internal object NetworkRecoveryPolicy {
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
+
+    fun isValidatedPhysicalUnderlay(
+        isVpn: Boolean,
+        hasInternet: Boolean,
+        isValidated: Boolean,
+        isNotSuspended: Boolean
+    ): Boolean = !isVpn && hasInternet && isValidated && isNotSuspended
 }
