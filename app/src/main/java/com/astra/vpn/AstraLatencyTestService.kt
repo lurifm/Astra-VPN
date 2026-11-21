@@ -92,9 +92,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             var createdClient: CommandClient? = null
             try {
                 if (stopped.get()) return@execute
-                val platform = AstraPlatform(this, { descriptor ->
-                    runCatching { descriptor.close() }
+                val platform = AstraPlatform(this, { _ ->
                     failIfActive("Проверка неожиданно запросила VPN-интерфейс")
+                    false
                 }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
                 val commandServer = CommandServer(this, platform)
                 createdServer = commandServer
