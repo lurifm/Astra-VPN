@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.TrafficStats
 import android.telephony.TelephonyManager
 import android.os.Handler
@@ -258,6 +259,60 @@ class MainActivity : Activity() {
     private var lastGeoConnectedState: Boolean? = null
     private var brandTapCount = 0
     private var brandTapWindowStartedAt = 0L
+    // Observe physical Wi-Fi/mobile/Ethernet changes directly instead of waiting
+    // for the periodic monitor tick. This callback never treats the VPN transport
+    // itself as an underlay and is registered only while the Activity is visible.
+    private var physicalNetworkCallbackRegistered = false
+    private val physicalNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) = onPhysicalNetworkChanged()
+        override fun onLost(network: android.net.Network) = onPhysicalNetworkChanged()
+        override fun onCapabilitiesChanged(
+            network: android.net.Network,
+            networkCapabilities: NetworkCapabilities
+        ) = onPhysicalNetworkChanged()
+    }
+
+    private fun onPhysicalNetworkChanged() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            monitorHandler.post { onPhysicalNetworkChanged() }
+            return
+        }
+        // Invalidate cached presentation/probe timing immediately. The health
+        // checker re-evaluates all physical networks before deciding to probe.
+        lastNetworkLabelAt = 0L
+        lastHealthCheckAt = 0L
+        updateNetworkLabel()
+        if (connected) {
+            scheduleTunnelHealthCheck()
+        }
+    }
+
+    private fun registerPhysicalNetworkCallback() {
+        if (physicalNetworkCallbackRegistered) return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .build()
+        runCatching {
+            getSystemService(ConnectivityManager::class.java)
+                .registerNetworkCallback(request, physicalNetworkCallback)
+            physicalNetworkCallbackRegistered = true
+        }.onFailure {
+            android.util.Log.w("AstraVPN", "Не удалось зарегистрировать мониторинг физической сети", it)
+        }
+    }
+
+    private fun unregisterPhysicalNetworkCallback() {
+        if (!physicalNetworkCallbackRegistered) return
+        runCatching {
+            getSystemService(ConnectivityManager::class.java)
+                .unregisterNetworkCallback(physicalNetworkCallback)
+        }
+        physicalNetworkCallbackRegistered = false
+    }
+
     private val monitorTick = object : Runnable {
         override fun run() {
             updateTrafficMonitor()
@@ -3355,6 +3410,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        registerPhysicalNetworkCallback()
         monitorHandler.removeCallbacks(monitorTick)
         monitorHandler.post(monitorTick)
         if (!receiverRegistered) {
@@ -3584,6 +3640,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        unregisterPhysicalNetworkCallback()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
