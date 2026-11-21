@@ -1593,3 +1593,13 @@ CI run для последнего коммита необходимо пров�
 - ProfileStore получил отдельное AES-GCM/Android Keystore-хранилище снимка профиля для банковской паузы. Оно не переиспользует recovery-profile и не пишет URI/credentials в открытые SharedPreferences.
 - Добавлены unit tests для основных переходов и защитных условий.
 - ВАЖНО: это пока policy/storage foundation, а не работающая функция. Foreground monitor service, Usage Access onboarding/toggle, команды AUTO_PAUSE/AUTO_RESUME в AstraVpnService, обработка ручного отключения и физические проверки ещё не реализованы. Следующий блок — отдельный monitor service и безопасные команды VPN-сервиса, затем UI настройки и device testing.
+
+
+## 73. Отдельный foreground-монитор Usage Access (22 ноября 2026)
+
+- Добавлен BankingForegroundMonitorService, запускаемый только явной командой ACTION_START. В обычном запуске Astra он самопроизвольно не стартует.
+- Проверка Usage Access выполняется через AppOpsManager; при отсутствии разрешения монитор немедленно завершает работу.
+- Сервис работает как foreground service специального назначения с постоянным уведомлением и опрашивает UsageEvents раз в секунду.
+- Передаёт package foreground-приложения внутренним broadcast-ом; при split-screen/multi-resume возвращает null вместо догадки. Это observation-only этап: сервис пока не отключает и не включает VPN.
+- Добавлена manifest-регистрация специального foreground service.
+- Следующий блок: подключить monitor к экрану настроек/списку банковских пакетов, затем к policy и командам безопасной паузы/возобновления. Требуется проверка Android 12–15, в том числе поведения UsageEvents при остановке/смерти приложения и ограничения запуска FGS.

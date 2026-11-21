@@ -98,6 +98,16 @@
                 android:value="Isolated per-profile proxy throughput measurement" />
         </service>
 
+        <!-- Explicitly started only after the user enables banking automation and grants Usage Access. -->
+        <service
+            android:name=".BankingForegroundMonitorService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled foreground application observation for banking VPN automation" />
+        </service>
+
         <service
             android:name=".AstraVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
