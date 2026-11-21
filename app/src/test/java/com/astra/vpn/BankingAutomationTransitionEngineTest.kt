@@ -28,13 +28,6 @@ class BankingAutomationTransitionEngineTest {
         assertEquals(true, result.nextState.wasConnectedBeforePause)
     }
 
-    @Test fun committedPauseIntentRetriesWhenBankStillForegroundAndVpnStillLive() {
-        val paused = BankingAutomationState().beginAutomaticPause(true, true)
-        val result = BankingAutomationTransitionEngine.evaluate(paused, input())
-        assertEquals(BankingAutomationTransitionEngine.Command.SAVE_PROFILE_AND_PAUSE, result.command)
-        assertEquals(paused, result.nextState)
-    }
-
     @Test fun cannotPauseIfExactProfileSnapshotWasNotSaved() {
         val state = BankingAutomationState()
         val result = BankingAutomationTransitionEngine.evaluate(state, input(snapshot = false))

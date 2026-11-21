@@ -1773,3 +1773,10 @@ CI run для последнего коммита необходимо пров�
 - Clock rollback fails closed (waits until wall-clock time catches up), rather than causing repeated rapid dispatches.
 - Added unit tests for first attempt, cooldown boundary, expiry and clock rollback.
 - This is dispatch throttling, not a success acknowledgement: the encrypted snapshot and durable pause state remain the source of truth until TUN-ready. Physical Android testing is still required.
+
+## 91. Remove obsolete banking pause retry expectation
+
+- CI run 1175 compiled production and test Kotlin sources successfully, then ran 422 unit tests with one failure: `BankingAutomationTransitionEngineTest.committedPauseIntentRetriesWhenBankStillForegroundAndVpnStillLive`.
+- That test asserted the earlier unsafe pause-retry behavior that section 89 explicitly withdrew. The transition engine intentionally does not retry a committed pause while any bank app is foreground; it cannot prove the same originating app/episode without durable origin identity or a pending/ACK token.
+- Removed the contradictory test rather than reintroducing the unsafe behavior. The existing `secondBankKeepsTunnelPaused` regression test remains.
+- No runtime behavior changed in this correction. Safe pause retry and service acknowledgements remain future work; physical Android testing is still required.
