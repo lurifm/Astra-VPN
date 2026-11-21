@@ -40,6 +40,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val timeoutRunnable = Runnable { fail("Проверка скорости превысила лимит времени") }
     private val started = AtomicBoolean(false)
+    private val measurementStarted = AtomicBoolean(false)
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var commandServer: CommandServer? = null
     @Volatile private var commandClient: CommandClient? = null
@@ -97,9 +98,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 val options = CommandClientOptions().apply { addCommand(Libbox.CommandGroup) }
                 val client = CommandClient(object : CommandClientHandler {
                     override fun connected() {
-                        if (stopped.get()) return
-                        worker.execute {
-                            if (!stopped.get()) runMeasurement()
+                        if (stopped.get() || !measurementStarted.compareAndSet(false, true)) return
+                        runCatching {
+                            worker.execute {
+                                if (!stopped.get()) runMeasurement()
+                            }
                         }
                     }
                     override fun disconnected(message: String?) {
@@ -247,7 +250,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
         mainHandler.removeCallbacks(timeoutRunnable)
-        activeConnection?.disconnect()
+        val connection = activeConnection
         activeConnection = null
         worker.shutdownNow()
         val client = commandClient
@@ -255,6 +258,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         commandClient = null
         commandServer = null
         Thread({
+            runCatching { connection?.disconnect() }
             runCatching { client?.disconnect() }
             runCatching { server?.closeService() }
             runCatching { server?.close() }
