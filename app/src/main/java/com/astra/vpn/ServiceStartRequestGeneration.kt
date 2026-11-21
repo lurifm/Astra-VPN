@@ -19,5 +19,8 @@ internal class ServiceStartRequestGeneration {
     }
 
     @Synchronized
+    fun current(): Long = generation
+
+    @Synchronized
     fun isCurrent(candidate: Long): Boolean = generation == candidate
 }
