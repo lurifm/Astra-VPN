@@ -82,6 +82,7 @@ class MainActivity : Activity() {
     private lateinit var countryFilter: Spinner
     private lateinit var serverCountLabel: TextView
     private lateinit var pingCheckButton: TextView
+    private lateinit var throughputCheckButton: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
     private lateinit var connectActionLabel: TextView
@@ -94,6 +95,45 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val throughputHistory by lazy { ThroughputHistoryStore(this) }
+    private val throughputSamples = java.util.concurrent.ConcurrentHashMap<String, ThroughputSample>()
+    @Volatile private var throughputProbeInFlight = false
+    @Volatile private var activeThroughputSessionId: String? = null
+    @Volatile private var activeThroughputProfile: String? = null
+    private var throughputReceiverRegistered = false
+    private val throughputReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AstraThroughputProbeService.ACTION_RESULT &&
+                intent?.action != AstraThroughputProbeService.ACTION_ERROR) return
+            val session = intent.getStringExtra(AstraThroughputProbeService.EXTRA_SESSION)
+            if (session.isNullOrBlank() || session != activeThroughputSessionId) return
+            val profile = activeThroughputProfile
+            activeThroughputSessionId = null
+            activeThroughputProfile = null
+            throughputProbeInFlight = false
+            if (intent.action == AstraThroughputProbeService.ACTION_RESULT && profile != null) {
+                val parsed = runCatching {
+                    val json = JSONObject(intent.getStringExtra(AstraThroughputProbeService.EXTRA_RESULT) ?: error("empty"))
+                    ThroughputSample(
+                        json.getDouble("downloadMbps"),
+                        json.getDouble("uploadMbps"),
+                        json.getLong("measuredAt")
+                    )
+                }.getOrNull()
+                if (parsed != null && runCatching { throughputHistory.put(profile, parsed) }.isSuccess) {
+                    throughputSamples[profile] = parsed
+                    Toast.makeText(this@MainActivity,
+                        "Скорость: ↓ ${String.format(java.util.Locale.US, "%.1f", parsed.downloadMbps)} / ↑ ${String.format(java.util.Locale.US, "%.1f", parsed.uploadMbps)} Мбит/с",
+                        Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "Результат измерения скорости некорректен", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this@MainActivity, "Не удалось измерить скорость сервера", Toast.LENGTH_SHORT).show()
+            }
+            renderProfiles()
+        }
+    }
     // Monotonic timestamps prevent auto-failover from trusting an old ping after network conditions change.
     private val latencyMeasuredAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
@@ -334,6 +374,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
+        runCatching {
+            val filter = IntentFilter().apply {
+                addAction(AstraThroughputProbeService.ACTION_RESULT)
+                addAction(AstraThroughputProbeService.ACTION_ERROR)
+            }
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(throughputReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            else @Suppress("DEPRECATION") registerReceiver(throughputReceiver, filter)
+            throughputReceiverRegistered = true
+        }
         // Restore only the user's selected node. Actual VPN connectivity is
         // independently verified against Android's live VPN transport in onStart().
         selectedProfile = runCatching { profileStore.selectedProfile() }.getOrNull()
@@ -559,6 +608,22 @@ class MainActivity : Activity() {
             )
             setOnClickListener { refreshSubscriptions() }
         }
+        throughputCheckButton = TextView(this).apply {
+            text = "⇅ Скорость"
+            contentDescription = "Измерить скорость выбранного сервера"
+            textSize = 12f
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            setPadding(dp(9), 0, dp(9), 0)
+            isClickable = true
+            isFocusable = true
+            background = rounded(0x1A9AA6BF, 12)
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40A9B8FF), null, null
+            )
+            setOnClickListener { if (throughputProbeInFlight) cancelThroughputProbe() else startThroughputProbe() }
+        }
         pingCheckButton = TextView(this).apply {
             text = "◷ Пинг"
             contentDescription = "Вручную проверить задержку всех серверов"
@@ -599,6 +664,7 @@ class MainActivity : Activity() {
         }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
+        listHeader.addView(throughputCheckButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply { leftMargin = dp(5) })
         listHeader.addView(pingCheckButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
             leftMargin = dp(5)
         })
@@ -1646,6 +1712,10 @@ class MainActivity : Activity() {
         return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
     }
     private fun renderProfiles() {
+        if (::throughputCheckButton.isInitialized) {
+            throughputCheckButton.text = if (throughputProbeInFlight) "× Стоп" else "⇅ Скорость"
+            throughputCheckButton.contentDescription = if (throughputProbeInFlight) "Отменить измерение скорости" else "Измерить скорость выбранного сервера"
+        }
         if (::pingCheckButton.isInitialized) {
             pingCheckButton.text = if (latencyTestInFlight) "× Отмена" else "◷ Пинг"
             pingCheckButton.contentDescription = if (latencyTestInFlight) "Отменить проверку задержки серверов" else "Вручную проверить задержку всех серверов"
@@ -2139,6 +2209,8 @@ class MainActivity : Activity() {
                                 }
                                 pingInfo.remove(link)
                                 latencyMs.remove(link)
+                                throughputSamples.remove(link)
+                                runCatching { throughputHistory.remove(link) }
                                 if (selectedProfile == link) selectedProfile = null
                                 renderProfiles()
                                 Toast.makeText(this@MainActivity, "Сервер удалён", Toast.LENGTH_SHORT).show()
@@ -2245,6 +2317,17 @@ class MainActivity : Activity() {
             }
             details.addView(protocolText)
             details.addView(meta)
+            throughputHistory.get(link)?.let { sample ->
+                throughputSamples[link] = sample
+                details.addView(TextView(this).apply {
+                    text = "↓ ${String.format(java.util.Locale.US, "%.1f", sample.downloadMbps)}  ·  ↑ ${String.format(java.util.Locale.US, "%.1f", sample.uploadMbps)} Мбит/с"
+                    textSize = 10f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(LIGHT_ACCENT)
+                    contentDescription = "Измеренная скорость: загрузка ${sample.downloadMbps} мегабит в секунду, отдача ${sample.uploadMbps} мегабит в секунду"
+                    setPadding(dp(2), dp(4), 0, 0)
+                })
+            }
             val favoriteButton = TextView(this).apply {
                 text = if (link in favorites) "★" else "☆"
                 textSize = 22f
@@ -2412,6 +2495,69 @@ class MainActivity : Activity() {
         ms <= 100L -> GREEN
         // High latency is degraded quality, not proof of server failure.
         else -> AMBER
+    }
+
+
+    /** Measure only the explicitly selected profile; never run several bandwidth tests at once. */
+    private fun startThroughputProbe() {
+        if (throughputProbeInFlight) return
+        if (latencyTestInFlight || selectingFastest) {
+            Toast.makeText(this, "Дождись завершения проверки пинга", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val profile = selectedProfile ?: run {
+            Toast.makeText(this, "Сначала выбери сервер", Toast.LENGTH_SHORT).show()
+            return
+        }
+        throughputProbeInFlight = true
+        val session = java.util.UUID.randomUUID().toString()
+        activeThroughputSessionId = session
+        activeThroughputProfile = profile
+        renderProfiles()
+        Toast.makeText(this, "Измеряем скорость выбранного сервера…", Toast.LENGTH_SHORT).show()
+        pingExecutor.execute {
+            val prepared = runCatching {
+                val network = networkForLatencyProbe()
+                    ?: error("Физическая сеть недоступна")
+                val port = java.net.ServerSocket(0).use { it.localPort }
+                val config = SingBoxThroughputTestConfig.build(profile, port).json
+                Triple(network, port, config)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || activeThroughputSessionId != session) return@runOnUiThread
+                prepared.onSuccess { (network, port, config) ->
+                    runCatching {
+                        AstraThroughputProbeService.start(this, config, network, profile, port, session)
+                    }.onFailure {
+                        activeThroughputSessionId = null
+                        activeThroughputProfile = null
+                        throughputProbeInFlight = false
+                        renderProfiles()
+                        Toast.makeText(this, "Не удалось запустить измерение скорости", Toast.LENGTH_SHORT).show()
+                    }
+                }.onFailure {
+                    activeThroughputSessionId = null
+                    activeThroughputProfile = null
+                    throughputProbeInFlight = false
+                    renderProfiles()
+                    Toast.makeText(this, "Не удалось подготовить проверку скорости", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun cancelThroughputProbe(showToast: Boolean = true) {
+        val session = activeThroughputSessionId ?: return
+        activeThroughputSessionId = null
+        activeThroughputProfile = null
+        throughputProbeInFlight = false
+        runCatching {
+            startService(Intent(this, AstraThroughputProbeService::class.java)
+                .setAction(AstraThroughputProbeService.ACTION_STOP)
+                .putExtra(AstraThroughputProbeService.EXTRA_SESSION, session))
+        }
+        renderProfiles()
+        if (showToast) Toast.makeText(this, "Измерение скорости отменено", Toast.LENGTH_SHORT).show()
     }
 
     private fun cancelLatencyCheck() {
@@ -5758,6 +5904,11 @@ class MainActivity : Activity() {
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         outboundTrafficRefresh = null
+        if (activeThroughputSessionId != null) cancelThroughputProbe(showToast = false)
+        if (throughputReceiverRegistered) {
+            runCatching { unregisterReceiver(throughputReceiver) }
+            throughputReceiverRegistered = false
+        }
         if (receiverRegistered) {
             runCatching { unregisterReceiver(vpnStateReceiver) }
             receiverRegistered = false
