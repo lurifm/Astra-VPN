@@ -101,6 +101,14 @@ class MainActivity : Activity() {
     @Volatile private var activeThroughputSessionId: String? = null
     @Volatile private var activeThroughputProfile: String? = null
     private var throughputReceiverRegistered = false
+    private val throughputBatchQueue = java.util.ArrayDeque<String>()
+    private val throughputBatchHandler = Handler(Looper.getMainLooper())
+    private var throughputBatchTask: Runnable? = null
+    @Volatile private var throughputBatchActive = false
+    private var throughputBatchGeneration = 0L
+    private var throughputBatchTotal = 0
+    private var throughputBatchCompleted = 0
+    private var fastestSelectionCandidates: List<String> = emptyList()
     private val throughputReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AstraThroughputProbeService.ACTION_RESULT &&
@@ -110,7 +118,7 @@ class MainActivity : Activity() {
             val profile = activeThroughputProfile
             activeThroughputSessionId = null
             activeThroughputProfile = null
-            throughputProbeInFlight = false
+            var sampleSaved = false
             if (intent.action == AstraThroughputProbeService.ACTION_RESULT && profile != null) {
                 val parsed = runCatching {
                     val json = JSONObject(intent.getStringExtra(AstraThroughputProbeService.EXTRA_RESULT) ?: error("empty"))
@@ -122,14 +130,23 @@ class MainActivity : Activity() {
                 }.getOrNull()
                 if (parsed != null && runCatching { throughputHistory.put(profile, parsed) }.isSuccess) {
                     throughputSamples[profile] = parsed
-                    Toast.makeText(this@MainActivity,
-                        "Скорость: ↓ ${String.format(java.util.Locale.US, "%.1f", parsed.downloadMbps)} / ↑ ${String.format(java.util.Locale.US, "%.1f", parsed.uploadMbps)} Мбит/с",
+                    sampleSaved = true
+                }
+            }
+            if (throughputBatchActive) {
+                throughputBatchCompleted++
+                throughputProbeInFlight = true
+                scheduleNextThroughputBatchProbe()
+            } else {
+                throughputProbeInFlight = false
+                if (sampleSaved) {
+                    val sample = profile?.let { throughputSamples[it] }
+                    if (sample != null) Toast.makeText(this@MainActivity,
+                        "Скорость: ↓ ${String.format(java.util.Locale.US, "%.1f", sample.downloadMbps)} / ↑ ${String.format(java.util.Locale.US, "%.1f", sample.uploadMbps)} Мбит/с",
                         Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(this@MainActivity, "Результат измерения скорости некорректен", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Не удалось измерить скорость сервера", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(this@MainActivity, "Не удалось измерить скорость сервера", Toast.LENGTH_SHORT).show()
             }
             renderProfiles()
         }
@@ -1714,7 +1731,11 @@ class MainActivity : Activity() {
     private fun renderProfiles() {
         if (::throughputCheckButton.isInitialized) {
             throughputCheckButton.text = if (throughputProbeInFlight) "× Стоп" else "⇅ Скорость"
-            throughputCheckButton.contentDescription = if (throughputProbeInFlight) "Отменить измерение скорости" else "Измерить скорость выбранного сервера"
+            throughputCheckButton.contentDescription = when {
+                throughputBatchActive -> "Отменить автоматическое сравнение скорости серверов, проверено $throughputBatchCompleted из $throughputBatchTotal"
+                throughputProbeInFlight -> "Отменить измерение скорости"
+                else -> "Измерить скорость выбранного сервера"
+            }
         }
         if (::pingCheckButton.isInitialized) {
             pingCheckButton.text = if (latencyTestInFlight) "× Отмена" else "◷ Пинг"
@@ -2498,7 +2519,7 @@ class MainActivity : Activity() {
     }
 
 
-    /** Measure only the explicitly selected profile; never run several bandwidth tests at once. */
+    /** Manual check for the selected profile. */
     private fun startThroughputProbe() {
         if (throughputProbeInFlight) return
         if (latencyTestInFlight || selectingFastest) {
@@ -2509,12 +2530,16 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Сначала выбери сервер", Toast.LENGTH_SHORT).show()
             return
         }
-        throughputProbeInFlight = true
+        Toast.makeText(this, "Измеряем скорость выбранного сервера…", Toast.LENGTH_SHORT).show()
+        startThroughputProbeForProfile(profile, fastMode = false)
+    }
+
+    private fun startThroughputProbeForProfile(profile: String, fastMode: Boolean) {
         val session = java.util.UUID.randomUUID().toString()
         activeThroughputSessionId = session
         activeThroughputProfile = profile
+        throughputProbeInFlight = true
         renderProfiles()
-        Toast.makeText(this, "Измеряем скорость выбранного сервера…", Toast.LENGTH_SHORT).show()
         pingExecutor.execute {
             val prepared = runCatching {
                 val network = networkForLatencyProbe()
@@ -2527,31 +2552,135 @@ class MainActivity : Activity() {
                 if (isFinishing || isDestroyed || activeThroughputSessionId != session) return@runOnUiThread
                 prepared.onSuccess { (network, port, config) ->
                     runCatching {
-                        AstraThroughputProbeService.start(this, config, network, profile, port, session)
+                        AstraThroughputProbeService.start(
+                            this, config, network, profile, port, session, fastMode = fastMode
+                        )
                     }.onFailure {
-                        activeThroughputSessionId = null
-                        activeThroughputProfile = null
-                        throughputProbeInFlight = false
-                        renderProfiles()
-                        Toast.makeText(this, "Не удалось запустить измерение скорости", Toast.LENGTH_SHORT).show()
+                        handleThroughputProbeStartFailure(session)
                     }
                 }.onFailure {
-                    activeThroughputSessionId = null
-                    activeThroughputProfile = null
-                    throughputProbeInFlight = false
-                    renderProfiles()
-                    Toast.makeText(this, "Не удалось подготовить проверку скорости", Toast.LENGTH_SHORT).show()
+                    handleThroughputProbeStartFailure(session)
                 }
             }
         }
     }
 
-    private fun cancelThroughputProbe(showToast: Boolean = true, refreshUi: Boolean = true) {
-        val session = activeThroughputSessionId ?: return
+    private fun handleThroughputProbeStartFailure(session: String) {
+        if (activeThroughputSessionId != session) return
         activeThroughputSessionId = null
         activeThroughputProfile = null
+        if (throughputBatchActive) {
+            throughputBatchCompleted++
+            throughputProbeInFlight = true
+            scheduleNextThroughputBatchProbe()
+        } else {
+            throughputProbeInFlight = false
+            Toast.makeText(this, "Не удалось подготовить измерение скорости", Toast.LENGTH_SHORT).show()
+        }
+        if (!isFinishing && !isDestroyed) renderProfiles()
+    }
+
+    private fun startThroughputBatchForFastest(profiles: List<String>) {
+        fastestSelectionCandidates = profiles
+        val fresh = throughputHistory.getFresh(profiles)
+        throughputSamples.putAll(fresh)
+        throughputBatchQueue.clear()
+        throughputBatchQueue.addAll(
+            ThroughputBatchPlanner.plan(profiles, latencyMs, fresh, ThroughputBatchPlanner.DEFAULT_LIMIT)
+        )
+        if (throughputBatchQueue.isEmpty()) {
+            finishFastestSelection()
+            return
+        }
+        throughputBatchGeneration++
+        throughputBatchActive = true
+        throughputBatchTotal = throughputBatchQueue.size
+        throughputBatchCompleted = 0
+        throughputProbeInFlight = true
+        Toast.makeText(
+            this,
+            "Сравниваем скорость до $throughputBatchTotal лучших серверов по пингу…",
+            Toast.LENGTH_LONG
+        ).show()
+        startNextThroughputBatchProbe()
+    }
+
+    private fun startNextThroughputBatchProbe() {
+        if (!throughputBatchActive) return
+        val profile = throughputBatchQueue.pollFirst()
+        if (profile == null) {
+            throughputBatchActive = false
+            throughputProbeInFlight = false
+            finishFastestSelection()
+            return
+        }
+        throughputProbeInFlight = true
+        throughputCheckButton.contentDescription =
+            "Проверка скорости: ${throughputBatchCompleted + 1} из $throughputBatchTotal"
+        startThroughputProbeForProfile(profile, fastMode = true)
+    }
+
+    private fun scheduleNextThroughputBatchProbe() {
+        val generation = throughputBatchGeneration
+        throughputBatchTask?.let(throughputBatchHandler::removeCallbacks)
+        val task = Runnable {
+            throughputBatchTask = null
+            if (throughputBatchActive && generation == throughputBatchGeneration) {
+                startNextThroughputBatchProbe()
+            }
+        }
+        throughputBatchTask = task
+        throughputBatchHandler.postDelayed(task, 500L)
+    }
+
+    private fun finishFastestSelection() {
+        selectingFastest = false
+        val candidates = fastestSelectionCandidates
+        val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
+            candidates, latencyMs, { profile -> latencyHistory.samples(profile) }
+        )
+        val fastest = BestServerSelector.select(
+            profiles = candidates,
+            latencyMs = timeAdjustedLatencies,
+            recentFailures = recentServerFailureCounts(candidates),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
+            throughputSamples = throughputHistory.getFresh(candidates)
+        )
+        if (fastest != null) {
+            selectedProfile = fastest
+            status.text = "Выбрана быстрая орбита"
+            status.setTextColor(GREEN)
+            selectedInfo.text = profileSummary(fastest)
+            Toast.makeText(this, "Выбрана орбита: " + profileName(fastest), Toast.LENGTH_LONG).show()
+            if (tilePendingStart) {
+                tilePendingStart = false
+                connectSelectedProfile()
+            }
+        } else {
+            tilePendingStart = false
+            Toast.makeText(this, "Не удалось получить результаты проверки. Это не означает, что серверы не работают.", Toast.LENGTH_LONG).show()
+        }
+        if (!isFinishing && !isDestroyed) renderProfiles()
+    }
+
+    private fun cancelThroughputProbe(showToast: Boolean = true, refreshUi: Boolean = true) {
+        val session = activeThroughputSessionId
+        val wasBatch = throughputBatchActive
+        if (session == null && !wasBatch) return
+        activeThroughputSessionId = null
+        activeThroughputProfile = null
+        throughputBatchGeneration++
+        throughputBatchTask?.let(throughputBatchHandler::removeCallbacks)
+        throughputBatchTask = null
+        throughputBatchQueue.clear()
+        throughputBatchActive = false
         throughputProbeInFlight = false
-        runCatching {
+        if (wasBatch) {
+            selectingFastest = false
+            pendingFastestSelection = false
+            tilePendingStart = false
+        }
+        if (session != null) runCatching {
             startService(Intent(this, AstraThroughputProbeService::class.java)
                 .setAction(AstraThroughputProbeService.ACTION_STOP)
                 .putExtra(AstraThroughputProbeService.EXTRA_SESSION, session))
@@ -3180,32 +3309,7 @@ class MainActivity : Activity() {
         // node may still return a valid result before the final snapshot.
         if (pendingFastestSelection && finished) {
             pendingFastestSelection = false
-            selectingFastest = false
-            val fastestCandidates = urlTestProfileMap.values.toList()
-            val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
-                fastestCandidates, latencyMs, { profile -> latencyHistory.samples(profile) }
-            )
-            val fastest = BestServerSelector.select(
-                profiles = fastestCandidates,
-                latencyMs = timeAdjustedLatencies,
-                recentFailures = recentServerFailureCounts(fastestCandidates),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(fastestCandidates),
-            throughputSamples = throughputHistory.getFresh(fastestCandidates)
-            )
-            if (fastest != null) {
-                selectedProfile = fastest
-                status.text = "Выбрана быстрая орбита"
-                status.setTextColor(GREEN)
-                selectedInfo.text = profileSummary(fastest)
-                Toast.makeText(this, "Выбрана орбита: " + profileName(fastest), Toast.LENGTH_LONG).show()
-                if (tilePendingStart) {
-                    tilePendingStart = false
-                    connectSelectedProfile()
-                }
-            } else {
-                tilePendingStart = false
-                Toast.makeText(this, "Не удалось получить результаты проверки. Это не означает, что серверы не работают.", Toast.LENGTH_LONG).show()
-            }
+            startThroughputBatchForFastest(urlTestProfileMap.values.toList())
         }
         // Coalesce bursts of partial latency results into one list rebuild.
         // This keeps ping badges responsive without repeatedly recreating every
@@ -5907,7 +6011,10 @@ class MainActivity : Activity() {
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         outboundTrafficRefresh = null
-        if (activeThroughputSessionId != null) cancelThroughputProbe(showToast = false, refreshUi = false)
+        if (activeThroughputSessionId != null || throughputBatchActive) {
+            cancelThroughputProbe(showToast = false, refreshUi = false)
+        }
+        throughputBatchHandler.removeCallbacksAndMessages(null)
         if (throughputReceiverRegistered) {
             runCatching { unregisterReceiver(throughputReceiver) }
             throughputReceiverRegistered = false
