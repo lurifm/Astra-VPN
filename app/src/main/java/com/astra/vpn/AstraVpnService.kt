@@ -46,7 +46,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     val message = "sing-box не создал VPN-интерфейс за отведённое время"
                     Log.e(TAG, message)
                     stopTunnel()
-                    publishState(STATE_ERROR, message)
+                    publishState(STATE_ERROR, message, retryable = true)
                 }
             }
         }
@@ -400,7 +400,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         )
     }
 
-    private fun publishState(state: String, error: String? = null) {
+    private fun publishState(state: String, error: String? = null, retryable: Boolean = false) {
         // Save the latest state so the Activity can restore its UI after
         // recreation instead of depending on a broadcast it may have missed.
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
@@ -423,6 +423,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
+        if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
         sendBroadcast(intent)
         runCatching {
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -450,6 +451,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
         const val EXTRA_STATE = "com.astra.vpn.extra.STATE"
         const val EXTRA_ERROR = "com.astra.vpn.extra.ERROR"
+        const val EXTRA_RETRYABLE = "com.astra.vpn.extra.RETRYABLE"
         const val STATE_CONNECTED = "connected"
         const val STATE_CONNECTING = "connecting"
         const val STATE_DISCONNECTED = "disconnected"
