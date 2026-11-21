@@ -3629,6 +3629,20 @@ class MainActivity : Activity() {
                             lastHealthCheckAt = 0L
                             return@runOnUiThread
                         }
+                        // The physical underlay may disappear while the HTTPS probe is
+                        // in flight. Its timeout is then a network-handover event, not
+                        // evidence that the VPN server failed; never count it toward failover.
+                        if (!NetworkRecoveryPolicy.shouldProbeTunnel(
+                                hasValidatedPhysicalNetwork(connectivity)
+                            )
+                        ) {
+                            waitingForUnderlyingNetwork = true
+                            tunnelInternetOk = null
+                            lastHealthCheckAt = 0L
+                            updateProtectionLabels()
+                            return@runOnUiThread
+                        }
+                        waitingForUnderlyingNetwork = false
                         tunnelInternetOk = ok
                         if (ok) {
                             consecutiveHealthFailures = 0
