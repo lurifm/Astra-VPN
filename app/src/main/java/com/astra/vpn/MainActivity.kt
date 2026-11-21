@@ -3413,31 +3413,62 @@ class MainActivity : Activity() {
     }
 
     private fun maybeAutoSpeedFailover() {
-        if (!connected || connecting || selectingFastest || !settingsPrefs.getBoolean("auto_speed_failover", false)) return
+        // Speed-based switching shares the same global retry budget as tunnel-health
+        // failover. This prevents two independent detectors from creating a switch loop.
+        if (!connected || connecting || selectingFastest || pendingFailoverSelection != null ||
+            !settingsPrefs.getBoolean("auto_speed_failover", false)
+        ) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!autoFailoverBudget.canAttempt(now)) {
+            status.text = "Автопереключения временно приостановлены"
+            status.setTextColor(AMBER)
+            updateProtectionLabels()
+            return
+        }
+
         val current = activeProfile ?: selectedProfile
         val profiles = safeProfiles() ?: return
         val candidates = profiles.filterNot { it == current }
         val freshLatencies = LatencyFreshnessPolicy.freshLatencies(
-            latencyMs, latencyMeasuredAt, android.os.SystemClock.elapsedRealtime(), candidates
+            latencyMs, latencyMeasuredAt, now, candidates
         )
+        val measuredCandidates = candidates.filter { freshLatencies.containsKey(it) }
         val adjusted = TimeOfDayServerOptimizer.adjustedLatencies(
-            candidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
+            measuredCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
-            profiles = candidates,
+            profiles = measuredCandidates,
             latencyMs = adjusted,
-            recentFailures = recentServerFailureCounts(candidates),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates)
+            recentFailures = recentServerFailureCounts(measuredCandidates),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates)
         )
         if (alternate == null) {
-            Toast.makeText(this, "Скорость заметно снизилась, но нет измеренного резервного сервера. Проверь орбиты.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "Скорость заметно снизилась, но нет свежих измерений резервных серверов. Проверь орбиты.",
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
+
+        // Reserve the shared budget before mutating selection or starting a connection.
+        if (!autoFailoverBudget.recordAttempt(now)) return
+        lastAutoFailoverAt = now
+        pendingFailoverSelection = FailoverSelectionTransaction(
+            previousProfile = current,
+            targetProfile = alternate
+        )
         selectedProfile = alternate
         selectedInfo.text = profileSummary(alternate)
         status.text = "Скорость снизилась · меняем орбиту…"
         status.setTextColor(AMBER)
-        Toast.makeText(this, "Скорость упала более чем на 50%. Переключаемся на " + profileName(alternate), Toast.LENGTH_LONG).show()
+        updateConnectionCardAppearance("switching")
+        Toast.makeText(
+            this,
+            "Скорость упала более чем на 50%. Переключаемся на " + profileName(alternate),
+            Toast.LENGTH_LONG
+        ).show()
         connectSelectedProfile()
     }
 
