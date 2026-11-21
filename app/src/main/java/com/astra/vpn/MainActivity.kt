@@ -286,6 +286,12 @@ class MainActivity : Activity() {
         // against the newly selected Wi-Fi/mobile path, even if Android reuses
         // the same VPN Network object during the handover.
         tunnelHealthCheckGeneration.advance()
+        // Failure streaks belong to one physical route. Never carry failed
+        // probes from a lost Wi-Fi/cellular path into the replacement network:
+        // the first timeout after handover must not trigger premature failover.
+        consecutiveHealthFailures = 0
+        tunnelInternetOk = null
+        updateProtectionLabels()
         updateNetworkLabel()
         if (connected) {
             scheduleTunnelHealthCheck()
