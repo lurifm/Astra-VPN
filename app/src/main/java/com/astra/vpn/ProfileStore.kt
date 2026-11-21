@@ -23,6 +23,11 @@ import javax.crypto.spec.GCMParameterSpec
  */
 class ProfileStorageException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+data class BankPauseSnapshot(
+    val profileLink: String,
+    val pausedAtEpochMillis: Long
+)
+
 data class SubscriptionSummary(
     val sourceUrl: String,
     val title: String,
@@ -83,6 +88,34 @@ class ProfileStore(context: Context) {
      * The complete proxy URI is encrypted with Android Keystore; credentials
      * are never written to plaintext preferences.
      */
+    /**
+     * Stores the exact profile that was active when banking automation paused the tunnel.
+     * The proxy URI remains encrypted; timestamp is non-sensitive local state.
+     */
+    fun setBankPauseSnapshot(profileLink: String?, pausedAtEpochMillis: Long = System.currentTimeMillis()) =
+        synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+            val editor = prefs.edit()
+            if (profileLink.isNullOrBlank()) {
+                editor.remove(BANK_PAUSE_PROFILE_KEY).remove(BANK_PAUSE_AT_KEY)
+            } else {
+                require(all().contains(profileLink)) { "Профиль для автоматического восстановления не найден" }
+                require(pausedAtEpochMillis > 0L) { "Некорректное время автоматической паузы" }
+                editor.putString(BANK_PAUSE_PROFILE_KEY, encrypt(profileLink))
+                    .putLong(BANK_PAUSE_AT_KEY, pausedAtEpochMillis)
+            }
+            check(editor.commit()) { "Не удалось сохранить состояние автоматической паузы" }
+        }
+
+    fun bankPauseSnapshot(): BankPauseSnapshot? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val encrypted = prefs.getString(BANK_PAUSE_PROFILE_KEY, null) ?: return@synchronized null
+        val link = decryptStored(encrypted)
+        val pausedAt = prefs.getLong(BANK_PAUSE_AT_KEY, 0L)
+        if (pausedAt <= 0L || link !in all()) return@synchronized null
+        BankPauseSnapshot(link, pausedAt)
+    }
+
+    fun clearBankPauseSnapshot() = setBankPauseSnapshot(null)
+
     fun setSelectedProfile(link: String?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val current = prefs.getString(SELECTED_PROFILE_KEY, null)?.let(::decryptStored)
         if (current == link) return@synchronized
@@ -460,7 +493,7 @@ class ProfileStore(context: Context) {
             throw ProfileStorageException(storageRecoveryMessage(), error)
         }
         val hasEncryptedRecords = prefs.all.keys.any {
-            it == RECOVERY_PROFILE_KEY ||
+            it == RECOVERY_PROFILE_KEY ||\n                it == BANK_PAUSE_PROFILE_KEY ||
                 it.startsWith(PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_SOURCE_PREFIX)
@@ -482,7 +515,7 @@ class ProfileStore(context: Context) {
     }
 
     companion object {
-        private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
+        private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"\n        private const val BANK_PAUSE_PROFILE_KEY = "bank_pause_profile_encrypted"\n        private const val BANK_PAUSE_AT_KEY = "bank_pause_at"
         private const val SELECTED_PROFILE_KEY = "selected_profile_encrypted"
         private const val PROFILE_PREFIX = "profile_"
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
