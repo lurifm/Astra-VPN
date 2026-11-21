@@ -12,7 +12,8 @@ internal object ThroughputBatchPlanner {
         profiles: List<String>,
         latencyMs: Map<String, Long>,
         freshSamples: Map<String, ThroughputSample>,
-        limit: Int = DEFAULT_LIMIT
+        limit: Int = DEFAULT_LIMIT,
+        nowEpochMs: Long = System.currentTimeMillis()
     ): List<String> {
         if (limit <= 0) return emptyList()
         // A subscription can contain the same URI more than once. Probe each
@@ -23,7 +24,9 @@ internal object ThroughputBatchPlanner {
                 profile.isNotBlank() &&
                     seen.add(profile) &&
                     (latencyMs[profile] ?: 0L) > 0L &&
-                    profile !in freshSamples
+                    freshSamples[profile]?.let {
+                        ThroughputFreshnessPolicy.isFresh(it, nowEpochMs)
+                    } != true
             }
             .sortedWith(compareBy<IndexedValue<String>> { latencyMs[it.value] ?: Long.MAX_VALUE }
                 .thenBy { it.index })
