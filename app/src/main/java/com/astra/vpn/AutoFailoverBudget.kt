@@ -21,14 +21,16 @@ internal class AutoFailoverBudget(
     @Synchronized
     fun canAttempt(now: Long): Boolean {
         if (now < 0L) return false
-        if (lastObservedAt != Long.MIN_VALUE && now < lastObservedAt) {
-            // Monotonic timestamps should not move backwards; fail closed and
-            // discard the old window if a corrupted/test clock does so.
+        val clockMovedBackwards = lastObservedAt != Long.MIN_VALUE && now < lastObservedAt
+        if (clockMovedBackwards) {
+            // Monotonic timestamps should not move backwards. Discard the old
+            // window and fail closed for this observation; the next timestamp
+            // can start a fresh window without permanently locking failover.
             attempts.clear()
         }
         lastObservedAt = now
         prune(now)
-        return attempts.size < maxAttempts
+        return !clockMovedBackwards && attempts.size < maxAttempts
     }
 
     @Synchronized
