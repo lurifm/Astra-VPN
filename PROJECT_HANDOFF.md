@@ -1320,3 +1320,12 @@ CI run для последнего коммита необходимо пров�
 - Это предотвращает перенос серии timeout с потерянного Wi-Fi/сотового маршрута на новый underlay и преждевременный auto-failover после handover.
 - Уже выполняющийся health-check по-прежнему инвалидируется generation token; проверка нового маршрута запускается заново.
 - Изменение: commit 9cfa98a9. Требуется Android device test на Wi-Fi↔cellular handover.
+
+
+## Ограничение времени end-to-end health-check туннеля (21 ноября 2026)
+
+- `TunnelHealthChecker` ранее выполнял два HTTPS endpoint последовательно с независимыми connect/read timeout по 3,5 секунды; при отказе обоих суммарное ожидание могло достигать примерно 14 секунд.
+- Теперь используется единый монотонный бюджет 10 секунд на оба endpoint. Оставшееся время делится между connect/read и оставшимися endpoint; перед fallback timeout пересчитывается по текущему остатку.
+- Добавлена чистая `TunnelHealthTimeoutPolicy` и unit-тесты распределения бюджета, истечения времени и минимального socket timeout.
+- Изменены `TunnelHealthChecker.kt` и `TunnelHealthCheckerTest.kt`; коммиты `c9e9d88c`, `fe40cb75`, `6c8c3c65`.
+- Ограничения `HttpsURLConnection` на DNS и timeout отдельных операций не дают математической гарантии жёсткого wall-clock дедлайна при всех сетевых реализациях; необходима проверка на Android устройстве и CI.
