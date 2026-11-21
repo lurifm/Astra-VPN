@@ -120,7 +120,14 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     }
                     override fun setDefaultLogLevel(level: Int) = Unit
                     override fun clearLogs() = Unit
-                                                                                                                                }, options)
+                    override fun writeLogs(messageList: LogIterator) = Unit
+                    override fun writeStatus(message: StatusMessage?) = Unit
+                    override fun writeGroups(message: OutboundGroupIterator) = Unit
+                    override fun writeOutbounds(message: OutboundGroupItemIterator) = Unit
+                    override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
+                    override fun updateClashMode(newMode: String) = Unit
+                    override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
+                }, options)
                 localClient = client
                 commandClient = client
                 if (!stopped.get()) client.connect()
@@ -290,13 +297,6 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     override fun triggerNativeCrash() = Unit
     override fun writeDebugMessage(message: String?) = Unit
     override fun connectSSHAgent(): Int = -1
-    override fun writeLogs(messageList: LogIterator) = Unit
-    override fun writeStatus(message: StatusMessage?) = Unit
-    override fun writeGroups(message: OutboundGroupIterator) = Unit
-    override fun writeOutbounds(message: OutboundGroupItemIterator) = Unit
-    override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
-    override fun updateClashMode(newMode: String) = Unit
-    override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
 
     override fun onDestroy() {
         finish()
