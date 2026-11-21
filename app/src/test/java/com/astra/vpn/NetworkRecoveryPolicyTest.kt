@@ -21,6 +21,22 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun failedAndroidUnderlayUpdateBlocksPublishingNewRoute() {
+        assertFalse(NetworkRecoveryPolicy.shouldPublishUnderlay(true, true, false))
+    }
+
+    @Test
+    fun successfulAndroidUnderlayUpdateAllowsPublishingNewRoute() {
+        assertTrue(NetworkRecoveryPolicy.shouldPublishUnderlay(true, true, true))
+    }
+
+    @Test
+    fun unchangedOrExternallyManagedUnderlayDoesNotRequireUpdate() {
+        assertTrue(NetworkRecoveryPolicy.shouldPublishUnderlay(true, false, false))
+        assertTrue(NetworkRecoveryPolicy.shouldPublishUnderlay(false, true, false))
+    }
+
+    @Test
     fun validatedPhysicalUnderlayIsAccepted() {
         assertTrue(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, true, true))
     }
