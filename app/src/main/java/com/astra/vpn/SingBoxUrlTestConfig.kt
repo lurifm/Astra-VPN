@@ -34,8 +34,7 @@ internal object SingBoxUrlTestConfig {
 
         profiles.forEach { link ->
             // Reuse the same protocol parser and validation as normal connection setup.
-            val singleConfig = JSONObject(SingBoxConfigBuilder.build(link))
-            val proxy = singleConfig.getJSONArray("outbounds").getJSONObject(0)
+            val proxy = SingBoxConfigBuilder.buildProxyOutbound(link)
             val tag = outboundTag(link)
             require(!profileMap.containsKey(tag)) { "Коллизия идентификаторов серверов" }
             proxy.put("tag", tag)
