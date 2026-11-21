@@ -10,6 +10,8 @@ class BankingAutomationCommandLedgerCodecTest {
         assertEquals(pause, BankingAutomationCommandLedgerCodec.decode(BankingAutomationCommandLedgerCodec.encode(pause)))
         val resume = pause.copy(command = BankingAutomationCommandRecord.Command.RESUME, status = BankingAutomationCommandRecord.Status.COMPLETED)
         assertEquals(resume, BankingAutomationCommandLedgerCodec.decode(BankingAutomationCommandLedgerCodec.encode(resume)))
+        val cancelled = pause.copy(status = BankingAutomationCommandRecord.Status.CANCELLED)
+        assertEquals(cancelled, BankingAutomationCommandLedgerCodec.decode(BankingAutomationCommandLedgerCodec.encode(cancelled)))
     }
     @Test fun rejectsMalformedAndUnsupportedRecords() {
         listOf(null, "", "2|1|PAUSE|com.example.bank|PENDING", "1|0|PAUSE|com.example.bank|PENDING", "1|1|UNKNOWN|com.example.bank|PENDING", "1|1|PAUSE||PENDING", "1|1|PAUSE|com.example.bank|UNKNOWN", "1|1|PAUSE|com.example.bank").forEach { assertNull(BankingAutomationCommandLedgerCodec.decode(it)) }
