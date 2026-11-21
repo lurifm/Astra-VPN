@@ -3518,7 +3518,7 @@ class MainActivity : Activity() {
         if (!connected) {
             vpnTrafficRateTracker.reset()
             lastVpnTrafficSnapshotAt = 0L
-            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = false, trafficIsVpnScoped = true)
+            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = false, trafficIsVpnScoped = false)
             monitorVpnSpeed.text = "VPN ↓ — / ↑ — Мбит/с · не подключено"
             return
         }
@@ -3555,7 +3555,7 @@ class MainActivity : Activity() {
             java.util.Locale.US,
             "↓ %.2f / ↑ %.2f Мбит/с  ·  %s",
             rate.downloadMbps, rate.uploadMbps,
-            if (rate.sampleAgeMs > 3_000L) "нет свежего трафика" else "через VPN"
+            if (rate.sampleAgeMs > 3_000L) "нет свежих событий" else "оценка по событиям sing-box"
         )
         if (speedDropPolicy.update(
                 rate.downloadMbps, nowElapsed, vpnConnected = true, trafficIsVpnScoped = true
