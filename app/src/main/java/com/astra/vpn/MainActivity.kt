@@ -182,6 +182,7 @@ class MainActivity : Activity() {
     @Volatile private var waitingForUnderlyingNetwork = false
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
+    private val autoFailoverBudget = AutoFailoverBudget(maxAttempts = 3, windowMs = 10 * 60_000L)
     private val speedDropPolicy = SpeedDropFailoverPolicy(maxSampleGapMs = 5_000L)
     private val vpnTrafficRateTracker = VpnTrafficRateTracker()
     private var lastVpnTrafficSnapshotAt = 0L
@@ -3586,6 +3587,12 @@ class MainActivity : Activity() {
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
+        if (!autoFailoverBudget.canAttempt(now)) {
+            status.text = "Автопереключения временно приостановлены"
+            status.setTextColor(AMBER)
+            updateProtectionLabels()
+            return
+        }
         val profiles = safeProfiles() ?: return
         val current = activeProfile ?: selectedProfile
         // A failed end-to-end health check invalidates the cached ping result
@@ -3638,6 +3645,7 @@ class MainActivity : Activity() {
             renderProfiles()
             return
         }
+        if (!autoFailoverBudget.recordAttempt(now)) return
         lastAutoFailoverAt = now
         consecutiveHealthFailures = 0
         pendingFailoverSelection = FailoverSelectionTransaction(previousProfile = current, targetProfile = alternate)
