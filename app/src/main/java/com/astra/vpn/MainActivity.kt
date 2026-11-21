@@ -95,12 +95,6 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private lateinit var quickSwitchContainer: LinearLayout
     private lateinit var orbitMetricsLabel: TextView
-    private val orbitDurationTick = object : Runnable {
-        override fun run() {
-            updateOrbitMetrics()
-            if (connected && !isFinishing && !isDestroyed) monitorHandler.postDelayed(this, 1_000L)
-        }
-    }
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
@@ -372,6 +366,7 @@ class MainActivity : Activity() {
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
+                    settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = false
@@ -3435,6 +3430,11 @@ class MainActivity : Activity() {
         // A saved flag alone is insufficient: Android may have revoked the
         // tunnel while the Activity was in the background.
         connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        if (connected && settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L) <= 0L) {
+            settingsPrefs.edit().putLong(KEY_VPN_CONNECTED_SINCE, System.currentTimeMillis()).apply()
+        } else if (!connected) {
+            settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
+        }
         disconnecting = connected && settingsPrefs.getBoolean("vpn_disconnect_requested", false)
         if (!connected) settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
         when {
