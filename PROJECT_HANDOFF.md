@@ -849,3 +849,12 @@ CI для последнего набора изменений необходи�
 - `AstraLatencyTestService` явно отклоняет неожиданное создание TUN; освобождение fd централизовано в `AstraPlatform`, поэтому callback не закрывает его второй раз.
 - Изменены `AstraPlatform.kt`, `AstraVpnService.kt`, `AstraLatencyTestService.kt`. Коммиты: `1fb7cb0`, `a29c7d6`, `96bdac0`.
 - Это усиливает контракт владения fd на границе Android ↔ libbox; проверка Kotlin compile, unit tests, debug APK и artifact upload ожидает CI текущего HEAD. Дополнительно требуется Android-проверка быстрой смены профиля/Disconnect во время `openTun()` и проверка, что отклонённый устаревший fd не приводит к ложному CONNECTED.
+
+
+## 73. Отдельная политика принятия TUN-дескриптора и тесты (21 ноября 2026)
+
+- Логику передачи владения TUN-дескриптором из `AstraPlatform` в `AstraVpnService` вынесено в чистую JVM-политику `TunDescriptorOwnershipPolicy`.
+- Дескриптор принимается только когда сервис не находится в stopping и lifecycle token текущий. Все остальные комбинации отклоняются; закрытие отклонённого дескриптора остаётся ответственностью `AstraPlatform.openTun()`.
+- Добавлены четыре JVM-теста: актуальный работающий lifecycle, stopping, устаревший lifecycle, одновременно stopping и устаревший lifecycle. `AstraVpnService.handleTunCreated()` использует политику напрямую.
+- Коммиты: `6be9dab` (интеграция), `6e095d6` (policy), `7f3eea4` (tests).
+- Требуется CI текущего HEAD и Android smoke test. JVM-тесты проверяют матрицу принятия, но не заменяют проверку реального ParcelFileDescriptor/libbox.
