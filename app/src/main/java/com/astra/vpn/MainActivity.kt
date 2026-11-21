@@ -591,7 +591,7 @@ class MainActivity : Activity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         val starButtonFrame = android.widget.FrameLayout(this).apply {
-            addView(OrbitHeroView(this), android.widget.FrameLayout.LayoutParams(
+            addView(OrbitHeroView(this@MainActivity), android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             ))
             addView(connectButton, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
