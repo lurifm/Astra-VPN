@@ -27,6 +27,7 @@ internal object TimeOfDayServerOptimizer {
                 if (sample.timestampMs <= 0L ||
                     sample.timestampMs > now ||
                     now - sample.timestampMs < MIN_HISTORICAL_AGE_MS ||
+                    now - sample.timestampMs > MAX_HISTORICAL_AGE_MS ||
                     sample.latencyMs <= 0L
                 ) {
                     return@filter false
@@ -56,6 +57,8 @@ internal object TimeOfDayServerOptimizer {
     private const val MIN_MATCHING_SAMPLES = 2
     private const val MAX_HISTORY_SAMPLES = 6
     private const val MIN_HISTORICAL_AGE_MS = 60_000L
+    // Do not let seasonal/obsolete measurements influence today's ranking.
+    private const val MAX_HISTORICAL_AGE_MS = 35L * 24L * 60L * 60L * 1_000L
     private const val CURRENT_WEIGHT = 0.7
     private const val HISTORY_WEIGHT = 0.3
 }
