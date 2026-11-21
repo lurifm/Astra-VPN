@@ -306,26 +306,43 @@ class AstraPlatform(
         val selectedNetwork = resolveUnderlyingNetwork(network)
         if (selectedNetwork == null) {
             if (manageVpnUnderlyingNetworks && lastUnderlyingNetwork != null) {
-                runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
-                    .onFailure { Log.w(TAG, "Не удалось обновить базовую сеть VPN", it) }
-                lastUnderlyingNetwork = null
+                val cleared = runCatching { vpnService.setUnderlyingNetworks(emptyArray()) }
+                    .onFailure { Log.w(TAG, "Не удалось очистить базовую сеть VPN", it) }
+                    .isSuccess
+                // Retain the previous handle after a failed Android update so a
+                // later callback can retry instead of pretending it was cleared.
+                if (cleared) lastUnderlyingNetwork = null
             }
             if (protectSockets) currentPhysicalNetwork = null
             notifyNoDefaultInterfaceIfChanged(listener)
             return
         }
 
-        // Publish the exact underlay chosen by the active VPN process so
-        // latency checks launched from MainActivity can reuse it.
-        if (protectSockets) currentPhysicalNetwork = selectedNetwork
-
-        // Update Android only when the physical underlay actually changes.
-        // Connectivity callbacks can arrive in bursts during Wi-Fi/mobile handover.
-        if (manageVpnUnderlyingNetworks && lastUnderlyingNetwork != selectedNetwork) {
+        // Android's VPN underlay and sing-box's interface metadata must move
+        // together. Do not publish the new route to probes/libbox if Android
+        // rejected setUnderlyingNetworks(); the next network callback retries.
+        val updateRequired = manageVpnUnderlyingNetworks && lastUnderlyingNetwork != selectedNetwork
+        val updateSucceeded = if (updateRequired) {
             runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
                 .onSuccess { lastUnderlyingNetwork = selectedNetwork }
                 .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
+                .isSuccess
+        } else {
+            true
         }
+        if (!NetworkRecoveryPolicy.shouldPublishUnderlay(
+                managesAndroidUnderlay = manageVpnUnderlyingNetworks,
+                updateRequired = updateRequired,
+                updateSucceeded = updateSucceeded
+            )
+        ) {
+            if (protectSockets) currentPhysicalNetwork = null
+            notifyNoDefaultInterfaceIfChanged(listener)
+            return
+        }
+
+        // Publish only after Android accepted the same physical underlay.
+        if (protectSockets) currentPhysicalNetwork = selectedNetwork
 
         val properties = runCatching { connectivity.getLinkProperties(selectedNetwork) }.getOrNull()
         val name = properties?.interfaceName
