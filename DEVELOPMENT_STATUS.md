@@ -103,3 +103,10 @@
 - Добавлены тесты для INTERNET + VALIDATED + NOT_SUSPENDED и исключения VPN/captive portal/suspended network.
 - Изменения: `NetworkRecoveryPolicy.kt`, `NetworkRecoveryPolicyTest.kt`, `MainActivity.kt`. Коммиты: `8ee4bd7c`, `1e73c0ce`, `08d42c80`.
 - CI и проверка на физическом Android-устройстве ещё не подтверждены.
+
+
+## Атомарность обновления физического маршрута (21 ноября 2026)
+
+- `AstraPlatform` больше не публикует новый underlay в sing-box и latency probes, пока Android не подтвердил `setUnderlyingNetworks()` без ошибки. Ошибка очистки также не стирает локальную запись о предыдущем underlay, чтобы повторный callback мог повторить операцию.
+- Добавлены unit-тесты решения о публикации маршрута. Изменены `AstraPlatform.kt`, `NetworkRecoveryPolicy.kt`, `NetworkRecoveryPolicyTest.kt`.
+- Коммиты: `f21d7245`, `4746f8cf`, `058b0d36`. CI и реальное переключение сети на устройстве ещё не подтверждены.
