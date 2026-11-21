@@ -2671,6 +2671,10 @@ class MainActivity : Activity() {
                 contentDescription = "Выбрать сервер $country. Состояние: $healthLabel. Задержка $ping"
                 setOnClickListener {
                     if (selectedProfile != link) {
+                        // The pending consent belongs to the previously selected profile.
+                        // Cancel it before changing selection so RESULT_OK cannot start
+                        // a server that no longer matches the UI selection.
+                        if (pendingConfig != null) cancelPendingConnect()
                         selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
                         if (connected) connectSelectedProfile()
                     }
@@ -4996,7 +5000,10 @@ class MainActivity : Activity() {
             .setView(content)
             .setPositiveButton("Выбрать") { _, _ ->
                 val profile = profiles.take(36)[chosen]
-                if (selectedProfile != profile) cancelConnectRetry(resetAttempts = true)
+                if (selectedProfile != profile) {
+                    cancelConnectRetry(resetAttempts = true)
+                    if (pendingConfig != null) cancelPendingConnect()
+                }
                 selectedProfile = profile
                 selectedInfo.text = profileSummary(profile)
                 renderProfiles()
