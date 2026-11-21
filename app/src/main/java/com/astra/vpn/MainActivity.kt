@@ -89,6 +89,7 @@ class MainActivity : Activity() {
     private lateinit var connectionCard: LinearLayout
     private lateinit var constellationView: ConstellationView
     private lateinit var starBurstView: StarBurstView
+    private lateinit var starButtonFrame: android.widget.FrameLayout
     private lateinit var connectionIndicator: View
     private var connectionVisualState: String? = null
     private var starPulseAnimator: android.animation.ValueAnimator? = null
@@ -620,7 +621,7 @@ class MainActivity : Activity() {
             contentDescription = "Анимация запуска: расширяющееся световое кольцо"
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        val starButtonFrame = android.widget.FrameLayout(this).apply {
+        starButtonFrame = android.widget.FrameLayout(this).apply {
             addView(OrbitHeroView(this@MainActivity), android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             ))
@@ -2529,6 +2530,7 @@ class MainActivity : Activity() {
         }
         orbitNameLabel.contentDescription = "Выбранный сервер: $country"
         orbitMetaLabel.contentDescription = "Протокол ${protocolName(link)}, задержка $latency"
+        updateConnectButtonServerHealth()
     }
 
     private fun renderQuickSwitch(profiles: List<String>) {
@@ -6075,6 +6077,31 @@ class MainActivity : Activity() {
             connectButton.scaleX = 1f
             connectButton.scaleY = 1f
             connectButton.elevation = dp(4).toFloat()
+        }
+    }
+
+    /**
+     * The star's fill communicates the selected server's live health:
+     * green = measured latency <= 100 ms, amber = measured latency > 100 ms,
+     * red = the established VPN tunnel failed its health probe.
+     * Missing ping data is deliberately neutral, never treated as offline.
+     */
+    private fun updateConnectButtonServerHealth() {
+        if (!::connectButton.isInitialized) return
+        val selected = selectedProfile
+        val measured = selected?.let { latencyMs[it] }
+        val healthColor = when {
+            connected && tunnelInternetOk == false -> RED
+            connected && measured != null && measured > 100L -> AMBER
+            connected && measured != null && measured in 1L..100L -> GREEN
+            else -> null
+        } ?: return
+        connectButton.backgroundTintList =
+            android.content.res.ColorStateList.valueOf(healthColor)
+        connectButton.contentDescription = when (healthColor) {
+            RED -> "VPN-сервер не отвечает на проверку соединения"
+            AMBER -> "VPN-сервер работает с повышенной задержкой: ${measured} миллисекунд"
+            else -> "VPN-сервер работает, задержка ${measured} миллисекунд"
         }
     }
 
