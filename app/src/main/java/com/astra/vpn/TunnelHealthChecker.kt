@@ -1,6 +1,5 @@
 package com.astra.vpn
 
-import java.net.HttpURLConnection
 import java.net.URL
 import android.net.Network
 import javax.net.ssl.HttpsURLConnection
@@ -22,12 +21,21 @@ object TunnelHealthChecker {
     internal fun isReachableStatusCode(code: Int): Boolean = code in 200..399
 
     fun check(vpnNetwork: Network): Boolean {
-        for (endpoint in endpoints) {
+        // One total budget covers both fallback endpoints. Independent connect/read
+        // limits could otherwise take ~14s when both endpoints stall.
+        val deadline = System.nanoTime() / 1_000_000L + TOTAL_TIMEOUT_MS
+        for ((index, endpoint) in endpoints.withIndex()) {
+            val remaining = deadline - System.nanoTime() / 1_000_000L
+            val phaseTimeout = TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(
+                remainingMs = remaining,
+                endpointsRemaining = endpoints.size - index
+            )
+            if (phaseTimeout <= 0) return false
             val reachable = runCatching {
                 val connection = (vpnNetwork.openConnection(URL(endpoint)) as HttpsURLConnection).apply {
                     requestMethod = "GET"
-                    connectTimeout = 3_500
-                    readTimeout = 3_500
+                    connectTimeout = phaseTimeout
+                    readTimeout = phaseTimeout
                     instanceFollowRedirects = false
                     useCaches = false
                     setRequestProperty("Cache-Control", "no-cache")
@@ -44,4 +52,5 @@ object TunnelHealthChecker {
         }
         return false
     }
+    private const val TOTAL_TIMEOUT_MS = 10_000L
 }
