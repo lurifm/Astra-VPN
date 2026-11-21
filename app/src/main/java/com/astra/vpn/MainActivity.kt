@@ -264,6 +264,15 @@ class MainActivity : Activity() {
     // for the periodic monitor tick. This callback never treats the VPN transport
     // itself as an underlay and is registered only while the Activity is visible.
     private var physicalNetworkCallbackRegistered = false
+    // React immediately when Battery Saver changes while the Activity is visible.
+    private var batterySaverReceiverRegistered = false
+    private val batterySaverReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) return
+            val powerManager = getSystemService(android.os.PowerManager::class.java)
+            setHeroAnimationsAllowed(!powerManager.isPowerSaveMode)
+        }
+    }
     private val physicalNetworkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) = onPhysicalNetworkChanged()
         override fun onLost(network: android.net.Network) = onPhysicalNetworkChanged()
@@ -3428,6 +3437,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         setHeroAnimationsAllowed(!getSystemService(android.os.PowerManager::class.java).isPowerSaveMode)
+        registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
         monitorHandler.removeCallbacks(monitorTick)
         monitorHandler.post(monitorTick)
@@ -3659,6 +3669,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         setHeroAnimationsAllowed(false)
+        unregisterBatterySaverReceiver()
         unregisterPhysicalNetworkCallback()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
@@ -3667,6 +3678,28 @@ class MainActivity : Activity() {
         // A latency test can finish while the app is backgrounded; unregistering
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
         super.onStop()
+    }
+
+    private fun registerBatterySaverReceiver() {
+        if (batterySaverReceiverRegistered) return
+        val filter = IntentFilter(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(batterySaverReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(batterySaverReceiver, filter)
+            }
+            batterySaverReceiverRegistered = true
+        }.onFailure {
+            android.util.Log.w("AstraVPN", "Не удалось подписаться на смену Battery Saver", it)
+        }
+    }
+
+    private fun unregisterBatterySaverReceiver() {
+        if (!batterySaverReceiverRegistered) return
+        runCatching { unregisterReceiver(batterySaverReceiver) }
+        batterySaverReceiverRegistered = false
     }
 
     /** Keep decorative motion out of the background and respect Android Battery Saver. */
