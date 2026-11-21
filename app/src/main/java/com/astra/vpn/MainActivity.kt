@@ -111,6 +111,7 @@ class MainActivity : Activity() {
     private var selectingFastest = false
     private var tilePendingStart = false
     private var selectedProfile: String? = null
+    private var pendingFailoverSelection: FailoverSelectionTransaction? = null
     private var persistedSelectionSnapshot: String? = null
     private var selectionPersistenceReady = false
     private var activeProfile: String? = null
@@ -259,6 +260,9 @@ class MainActivity : Activity() {
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
+                    if (pendingFailoverSelection?.let { FailoverSelectionPolicy.isCommitted(it, activeProfile) } == true) {
+                        pendingFailoverSelection = null
+                    }
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = true
@@ -279,6 +283,7 @@ class MainActivity : Activity() {
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
+                    rollbackPendingFailoverSelection()
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
@@ -3117,6 +3122,27 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
+    /** Restore the last known-good selection if an automatic failover attempt fails. */
+    private fun rollbackPendingFailoverSelection() {
+        val pending = pendingFailoverSelection ?: return
+        val failedProfile = activeProfile ?: selectedProfile
+        val restored = FailoverSelectionPolicy.rollback(
+            pending = pending,
+            currentSelection = selectedProfile,
+            failedProfile = failedProfile
+        )
+        selectedProfile = restored
+        pendingFailoverSelection = null
+        if (activeProfile == pending.targetProfile) activeProfile = null
+        runCatching {
+            profileStore.setRecoveryProfile(
+                if (settingsPrefs.getBoolean("vpn_recovery_enabled", false)) restored else null
+            )
+        }
+        persistSelectedProfileIfChanged()
+        if (::selectedInfo.isInitialized) selectedInfo.text = restored?.let(::profileSummary) ?: "Сервер не выбран"
+    }
+
     private fun startTunnel(config: String) {
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
         // the same VPN Network object for the replacement sing-box configuration.
@@ -3578,6 +3604,7 @@ class MainActivity : Activity() {
         }
         lastAutoFailoverAt = now
         consecutiveHealthFailures = 0
+        pendingFailoverSelection = FailoverSelectionTransaction(previousProfile = current, targetProfile = alternate)
         selectedProfile = alternate
         selectedInfo.text = profileSummary(alternate)
         status.text = "Переключаем сервер…"
