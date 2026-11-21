@@ -553,6 +553,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
         if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
         sendBroadcast(intent)
+        // Activity broadcasts are not guaranteed to be observed while the app
+        // process/UI is absent. Refresh launcher and Quick Settings surfaces here
+        // from the same authoritative persisted state.
+        runCatching { AstraHomeWidgetProvider.refreshAll(this) }
+            .onFailure { Log.w(TAG, "Не удалось обновить виджет VPN", it) }
+        AstraQuickSettingsTileService.requestSync(this)
         runCatching {
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.notify(

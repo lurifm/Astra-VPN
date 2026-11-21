@@ -1459,3 +1459,11 @@ CI run для последнего коммита необходимо пров�
 - Теперь Activity по-прежнему показывает «Отключено», если Android VPN отсутствует, но удаляет маркер только если сохранённое состояние сервиса уже DISCONNECTED. CONNECTED/CONNECTING/ERROR/unknown сохраняют маркер до терминального подтверждения либо новой явной команды подключения (которая и так удаляет его в startTunnel()).
 - В DisconnectRequestPolicy добавлено отдельное правило и три regression tests для persisted state; существующая политика очистки по terminal service broadcast сохранена.
 - Изменены MainActivity.kt, DisconnectRequestPolicy.kt, DisconnectRequestPolicyTest.kt и этот handoff. Физический сценарий с убийством процесса во время отключения требует проверки на Android.
+
+
+## 58. Синхронизация Quick Settings и виджета из VPN-сервиса (22 ноября 2026)
+
+- Аудит показал, что виджет рабочего стола и Quick Settings tile обновлялись главным образом через BroadcastReceiver в MainActivity. Когда Activity не существует/процесс UI остановлен, сервис продолжает VPN-сессию, но внешние элементы управления могли показывать устаревшее состояние.
+- Теперь AstraVpnService.publishState() после сохранения authoritative state напрямую обновляет все экземпляры домашнего виджета и вызывает TileService.requestListeningState() для Quick Settings tile.
+- Сам tile по-прежнему читает состояние из SharedPreferences в onStartListening(), поэтому обновление не дублирует состояние и не зависит от устаревших полей Activity. Запрос синхронизации ограничен API 24+ и защищён runCatching.
+- Изменены AstraQuickSettingsTileService.kt, AstraVpnService.kt и этот handoff. Проверка реального поведения панели быстрых настроек/лаунчера требует Android-устройства; CI проверит компиляцию и unit tests.

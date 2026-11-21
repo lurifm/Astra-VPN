@@ -1,11 +1,27 @@
 package com.astra.vpn
 
 import android.content.Intent
+import android.content.ComponentName
+import android.content.Context
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 
 /** Quick Settings shortcut. The Activity owns permission prompts and VPN state transitions. */
 class AstraQuickSettingsTileService : TileService() {
+    companion object {
+        /** Ask Android to refresh the tile from the latest persisted service state. */
+        fun requestSync(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+            runCatching {
+                TileService.requestListeningState(
+                    context,
+                    ComponentName(context, AstraQuickSettingsTileService::class.java)
+                )
+            }
+        }
+    }
+
     override fun onStartListening() {
         super.onStartListening()
         syncTile()
