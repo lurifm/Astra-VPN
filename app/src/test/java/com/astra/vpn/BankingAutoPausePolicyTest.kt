@@ -12,10 +12,11 @@ class BankingAutoPausePolicyTest {
         wasConnected: Boolean = true,
         profileAvailable: Boolean = true,
         userDisconnect: Boolean = false,
-        usageAccess: Boolean = true
+        usageAccess: Boolean = true,
+        observationFresh: Boolean = true
     ) = BankingAutoPausePolicy.State(
         foreground, banks, connected, autoPaused, wasConnected,
-        profileAvailable, userDisconnect, usageAccess
+        profileAvailable, userDisconnect, usageAccess, observationFresh
     )
 
     @Test fun pausesOnlyWhenBankIsForegroundAndVpnIsConnected() {
@@ -54,6 +55,27 @@ class BankingAutoPausePolicyTest {
                 foreground = "com.example.secondbank",
                 banks = setOf("com.example.bank", "com.example.secondbank"),
                 autoPaused = true
+            )))
+    }
+
+    @Test fun staleObservationCannotPauseOrResumeVpn() {
+        assertEquals(BankingAutoPausePolicy.Action.NONE,
+            BankingAutoPausePolicy.decide(state(observationFresh = false)))
+        assertEquals(BankingAutoPausePolicy.Action.NONE,
+            BankingAutoPausePolicy.decide(state(
+                foreground = "com.android.launcher",
+                autoPaused = true,
+                observationFresh = false
+            )))
+    }
+
+    @Test fun staleObservationDoesNotCancelPendingResumeAsIfManualActionOccurred() {
+        assertEquals(BankingAutoPausePolicy.Action.NONE,
+            BankingAutoPausePolicy.decide(state(
+                foreground = "com.android.launcher",
+                autoPaused = true,
+                userDisconnect = false,
+                observationFresh = false
             )))
     }
 }

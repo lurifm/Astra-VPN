@@ -2,7 +2,10 @@ package com.astra.vpn
 
 /**
  * Pure decision policy for banking-app VPN pause/resume.
- * A null foreground observation is unknown, never proof that a bank closed.
+ *
+ * A foreground package is actionable only when the monitor has delivered a
+ * fresh, stable observation. Null, stale, or ambiguous observations are
+ * unknown and must never be interpreted as the bank having closed.
  */
 internal object BankingAutoPausePolicy {
     enum class Action { NONE, PAUSE_VPN, RESUME_VPN, CANCEL_AUTO_RESUME }
@@ -15,11 +18,12 @@ internal object BankingAutoPausePolicy {
         val wasConnectedBeforePause: Boolean,
         val savedProfileAvailable: Boolean,
         val userDisconnectRequested: Boolean,
-        val usageAccessGranted: Boolean
+        val usageAccessGranted: Boolean,
+        val observationFresh: Boolean = true
     )
 
     fun decide(state: State): Action {
-        if (!state.usageAccessGranted) return Action.NONE
+        if (!state.usageAccessGranted || !state.observationFresh) return Action.NONE
         val foreground = state.foregroundPackage ?: return Action.NONE
         if (foreground in state.bankPackages) {
             return if (state.vpnConnected && !state.autoPausedByBanking &&
