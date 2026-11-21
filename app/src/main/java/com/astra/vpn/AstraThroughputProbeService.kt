@@ -50,6 +50,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     @Volatile private var profileId: String? = null
     @Volatile private var listenPort: Int = 0
     @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var measurementTimeoutMs: Long = TOTAL_TIMEOUT_MS
+    @Volatile private var downloadByteLimit: Long = DOWNLOAD_BYTES
+    @Volatile private var uploadByteLimit: Long = UPLOAD_BYTES
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -62,6 +65,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         sessionId = intent?.getStringExtra(EXTRA_SESSION)
         profileId = intent?.getStringExtra(EXTRA_PROFILE)
         listenPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
+        if (intent?.getBooleanExtra(EXTRA_FAST_MODE, false) == true) {
+            measurementTimeoutMs = FAST_TIMEOUT_MS
+            downloadByteLimit = FAST_DOWNLOAD_BYTES
+            uploadByteLimit = FAST_UPLOAD_BYTES
+        }
         if (config.isNullOrBlank() || physicalNetwork == null ||
             profileId.isNullOrBlank() || listenPort !in 1..65535
         ) {
@@ -70,7 +78,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return START_NOT_STICKY
         }
 
-        mainHandler.postDelayed(timeoutRunnable, TOTAL_TIMEOUT_MS)
+        mainHandler.postDelayed(timeoutRunnable, measurementTimeoutMs)
         startForeground(
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Измерение скорости сервера")
@@ -145,7 +153,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private fun runMeasurement() {
         val network = physicalNetwork ?: return fail("Физическая сеть недоступна")
         val port = listenPort
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(TOTAL_TIMEOUT_MS)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(measurementTimeoutMs)
         try {
             val download = measureDownload(network, port, deadline)
             if (stopped.get()) return
@@ -172,7 +180,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     }
 
     private fun measureDownload(network: Network, port: Int, deadline: Long): Sample {
-        val url = URL("$DOWNLOAD_URL?bytes=$DOWNLOAD_BYTES&astra=${System.nanoTime()}")
+        val url = URL("$DOWNLOAD_URL?bytes=$downloadByteLimit&astra=${System.nanoTime()}")
         val connection = openConnection(network, url, port)
         try {
             connection.requestMethod = "GET"
@@ -191,7 +199,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     val read = input.read(buffer)
                     if (read < 0) break
                     total += read
-                    require(total <= DOWNLOAD_BYTES) { "download byte limit exceeded" }
+                    require(total <= downloadByteLimit) { "download byte limit exceeded" }
                 }
             }
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt).coerceAtLeast(1L)
@@ -204,7 +212,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     }
 
     private fun measureUpload(network: Network, port: Int, deadline: Long): Sample {
-        val payload = ByteArray(UPLOAD_BYTES.toInt()).also { SecureRandom().nextBytes(it) }
+        val payload = ByteArray(uploadByteLimit.toInt()).also { SecureRandom().nextBytes(it) }
         val url = URL(UPLOAD_URL)
         val connection = openConnection(network, url, port)
         try {
@@ -317,11 +325,15 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         const val EXTRA_SESSION = "com.astra.vpn.extra.THROUGHPUT_SESSION"
         const val EXTRA_RESULT = "com.astra.vpn.extra.THROUGHPUT_RESULT"
         const val EXTRA_ERROR = "com.astra.vpn.extra.THROUGHPUT_ERROR"
+        const val EXTRA_FAST_MODE = "com.astra.vpn.extra.THROUGHPUT_FAST_MODE"
         private const val TAG = "AstraThroughputProbe"
         private const val NOTIFICATION_ID = 3
         private const val TOTAL_TIMEOUT_MS = 20_000L
         private const val DOWNLOAD_BYTES = 8_000_000L
         private const val UPLOAD_BYTES = 2_000_000L
+        private const val FAST_TIMEOUT_MS = 8_000L
+        private const val FAST_DOWNLOAD_BYTES = 2_000_000L
+        private const val FAST_UPLOAD_BYTES = 512_000L
         private const val DOWNLOAD_URL = "https://speed.cloudflare.com/__down"
         private const val UPLOAD_URL = "https://speed.cloudflare.com/__up"
 
@@ -331,7 +343,8 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             network: Network,
             profileId: String,
             port: Int,
-            sessionId: String
+            sessionId: String,
+            fastMode: Boolean = false
         ) {
             val intent = Intent(context, AstraThroughputProbeService::class.java)
                 .setAction(ACTION_START)
@@ -340,6 +353,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 .putExtra(EXTRA_PROFILE, profileId)
                 .putExtra(EXTRA_PORT, port)
                 .putExtra(EXTRA_SESSION, sessionId)
+                .putExtra(EXTRA_FAST_MODE, fastMode)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
             else context.startService(intent)
         }
