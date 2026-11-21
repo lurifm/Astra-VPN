@@ -515,7 +515,9 @@ class ProfileStore(context: Context) {
     }
 
     companion object {
-        private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"\n        private const val BANK_PAUSE_PROFILE_KEY = "bank_pause_profile_encrypted"\n        private const val BANK_PAUSE_AT_KEY = "bank_pause_at"
+        private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
+        private const val BANK_PAUSE_PROFILE_KEY = "bank_pause_profile_encrypted"
+        private const val BANK_PAUSE_AT_KEY = "bank_pause_at"
         private const val SELECTED_PROFILE_KEY = "selected_profile_encrypted"
         private const val PROFILE_PREFIX = "profile_"
         private const val SUBSCRIPTION_PROFILE_PREFIX = "subscription_profile_"
