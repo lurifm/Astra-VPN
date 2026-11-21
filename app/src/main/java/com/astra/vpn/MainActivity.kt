@@ -95,6 +95,7 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private lateinit var quickSwitchContainer: LinearLayout
     private lateinit var orbitMetricsLabel: TextView
+    private lateinit var orbitSpeedLabel: TextView
     private lateinit var orbitNameLabel: TextView
     private lateinit var orbitMetaLabel: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -631,15 +632,24 @@ class MainActivity : Activity() {
             bottomMargin = dp(2)
         })
         orbitMetricsLabel = TextView(this).apply {
-            text = "00:00:00  ·  ↓ — / ↑ — Мбит/с"
-            textSize = 12f
+            text = "00:00:00"
+            textSize = 25f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(0xFFB7C1D9.toInt())
-            setPadding(dp(4), dp(2), dp(4), dp(5))
-            contentDescription = "Длительность подключения и скорость через VPN"
+            setTextColor(0xFFFFD98A.toInt())
+            setPadding(dp(4), dp(5), dp(4), 0)
+            contentDescription = "Длительность VPN-подключения"
+        }
+        orbitSpeedLabel = TextView(this).apply {
+            text = "↓ — Мбит/с     ↑ — Мбит/с"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(0xFF9CA7C1.toInt())
+            setPadding(dp(4), 0, dp(4), dp(7))
+            contentDescription = "Скорость загрузки и отдачи через VPN"
         }
         connectCard.addView(orbitMetricsLabel, matchWidth())
+        connectCard.addView(orbitSpeedLabel, matchWidth())
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         quickSwitchContainer = LinearLayout(this).apply {
@@ -3918,8 +3928,10 @@ class MainActivity : Activity() {
         if (!::orbitMetricsLabel.isInitialized) return
         updateOrbitIdentity()
         if (!connected) {
-            orbitMetricsLabel.text = "00:00:00  ·  ↓ — / ↑ — Мбит/с"
+            orbitMetricsLabel.text = "00:00:00"
+            orbitSpeedLabel.text = "↓ — Мбит/с     ↑ — Мбит/с"
             orbitMetricsLabel.setTextColor(0xFF9AA6BF.toInt())
+            orbitSpeedLabel.setTextColor(0xFF9AA6BF.toInt())
             return
         }
         val startedAt = settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L)
@@ -3930,11 +3942,13 @@ class MainActivity : Activity() {
         val minutes = (elapsedSeconds % 3_600L) / 60L
         val seconds = elapsedSeconds % 60L
         val rate = vpnTrafficRateTracker.current(android.os.SystemClock.elapsedRealtime())
-        val speed = rate?.let {
-            "↓ ${String.format(java.util.Locale.US, "%.1f", it.downloadMbps)} / ↑ ${String.format(java.util.Locale.US, "%.1f", it.uploadMbps)} Мбит/с"
-        } ?: "↓ — / ↑ — Мбит/с"
-        orbitMetricsLabel.text = String.format(java.util.Locale.US, "%02d:%02d:%02d  ·  %s", hours, minutes, seconds, speed)
-        orbitMetricsLabel.setTextColor(if (rate != null && rate.sampleAgeMs <= 3_000L) 0xFFE8C77C.toInt() else 0xFF9AA6BF.toInt())
+        orbitMetricsLabel.text = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        orbitSpeedLabel.text = rate?.let {
+            "↓ ${String.format(java.util.Locale.US, "%.1f", it.downloadMbps)} Мбит/с     ↑ ${String.format(java.util.Locale.US, "%.1f", it.uploadMbps)} Мбит/с"
+        } ?: "↓ — Мбит/с     ↑ — Мбит/с"
+        val fresh = rate != null && rate.sampleAgeMs <= 3_000L
+        orbitMetricsLabel.setTextColor(0xFFFFD98A.toInt())
+        orbitSpeedLabel.setTextColor(if (fresh) 0xFFE8C77C.toInt() else 0xFF9AA6BF.toInt())
     }
 
     private fun updateVpnTrafficMonitor() {
