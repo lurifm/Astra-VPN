@@ -1275,3 +1275,13 @@ CI run для последнего коммита необходимо пров�
 - Добавлены unit-тесты: валидный underlay, VPN transport, отсутствие validation, suspended и отсутствие INTERNET.
 - Коммиты: `8ee4bd7c` (policy), `1e73c0ce` (tests), `08d42c80` (MainActivity).
 - Проверка не выполнялась на физическом устройстве. CI для коммитов этого блока ожидает результата.
+
+
+## 46. Атомарное обновление Android underlay и интерфейса sing-box (21 ноября 2026)
+
+- В `AstraPlatform.updateDefaultInterface()` обнаружено окно рассогласования: `currentPhysicalNetwork` и `InterfaceUpdateListener` публиковали новый физический маршрут даже если `VpnService.setUnderlyingNetworks()` завершался исключением. В таком случае проверки могли привязываться к сети, которую Android ещё не назначил VPN как underlay.
+- Теперь сначала выполняется Android update. Только после успеха новый underlay публикуется в `currentPhysicalNetwork` и передаётся sing-box. При ошибке публикация блокируется, sing-box получает состояние отсутствия интерфейса, а следующий callback может повторить назначение.
+- При очистке underlay `lastUnderlyingNetwork` сбрасывается только если `setUnderlyingNetworks(emptyArray())` завершился успешно; при ошибке handle сохраняется для повторной попытки.
+- Добавлена чистая политика `NetworkRecoveryPolicy.shouldPublishUnderlay()` и тесты на успешное/неуспешное назначение, неизменённый маршрут и режим без управления Android underlay.
+- Коммиты: `f21d7245` (policy), `4746f8cf` (tests), `058b0d36` (AstraPlatform).
+- Не проводилось испытание на реальном устройстве; результат CI ожидается.
