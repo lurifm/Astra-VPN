@@ -119,6 +119,10 @@ class MainActivity : Activity() {
     private var connected = false
     private var connecting = false
     private var disconnecting = false
+    private val connectRetryHandler = Handler(Looper.getMainLooper())
+    private var connectRetryTask: Runnable? = null
+    private var connectRetryGeneration = 0L
+    private var connectRetryAttempt = 0
     private var receiverRegistered = false
     private var outboundTrafficRefresh: (() -> Unit)? = null
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
@@ -262,6 +266,7 @@ class MainActivity : Activity() {
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
+                    cancelConnectRetry(resetAttempts = true)
                     waitingForUnderlyingNetwork = false
                     if (pendingFailoverSelection?.let { FailoverSelectionPolicy.isCommitted(it, activeProfile) } == true) {
                         pendingFailoverSelection = null
@@ -302,11 +307,14 @@ class MainActivity : Activity() {
                         ?.trim()
                         ?.takeIf { it.isNotEmpty() }
                     val message = reportedError ?: "VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету."
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle("Не удалось подключиться")
-                        .setMessage(message)
-                        .setPositiveButton("Понятно", null)
-                        .show()
+                    val retryable = intent.getBooleanExtra(AstraVpnService.EXTRA_RETRYABLE, false)
+                    if (!scheduleTransientConnectRetry(retryable)) {
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("Не удалось подключиться")
+                            .setMessage(message)
+                            .setPositiveButton("Понятно", null)
+                            .show()
+                    }
                 }
             }
             updateGeoLocationForState()
@@ -3150,7 +3158,37 @@ class MainActivity : Activity() {
         if (::selectedInfo.isInitialized) selectedInfo.text = restored?.let(::profileSummary) ?: "Сервер не выбран"
     }
 
+    /** Schedule only explicitly retryable transient failures; never retry arbitrary config errors. */
+    private fun scheduleTransientConnectRetry(retryable: Boolean): Boolean {
+        if (!retryable || isFinishing || isDestroyed || disconnecting || connected ||
+            settingsPrefs.getBoolean("vpn_disconnect_requested", false) || selectedProfile.isNullOrBlank()
+        ) return false
+        val delay = TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
+        connectRetryAttempt++
+        cancelConnectRetry(resetAttempts = false)
+        val generation = connectRetryGeneration
+        status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
+        status.setTextColor(AMBER)
+        connectRetryTask = Runnable {
+            if (generation != connectRetryGeneration || isFinishing || isDestroyed ||
+                disconnecting || connected || connecting ||
+                settingsPrefs.getBoolean("vpn_disconnect_requested", false)
+            ) return@Runnable
+            connectRetryTask = null
+            connectSelectedProfile()
+        }.also { connectRetryHandler.postDelayed(it, delay) }
+        updateProtectionLabels()
+        return true
+    }
+
+    private fun cancelConnectRetry(resetAttempts: Boolean) {
+        connectRetryGeneration = if (connectRetryGeneration == Long.MAX_VALUE) 0L else connectRetryGeneration + 1L
+        connectRetryTask?.let(connectRetryHandler::removeCallbacks)
+        connectRetryTask = null
+        if (resetAttempts) connectRetryAttempt = 0
+    }
     private fun startTunnel(config: String) {
+        cancelConnectRetry(resetAttempts = false)
         waitingForUnderlyingNetwork = false
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
         // the same VPN Network object for the replacement sing-box configuration.
@@ -3185,6 +3223,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopTunnel() {
+        cancelConnectRetry(resetAttempts = true)
         // Ignore repeated taps from the main button or Quick Settings tile while
         // the first stop request is still waiting for the service acknowledgement.
         if (disconnecting) return
