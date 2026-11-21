@@ -18,36 +18,47 @@ internal object BestServerSelector {
         throughputSamples: Map<String, ThroughputSample> = emptyMap(),
         nowEpochMs: Long = System.currentTimeMillis()
     ): String? {
-        return profiles.asSequence()
-            .mapNotNull { profile ->
-                val latency = latencyMs[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
-                val normalized = profile.trim().lowercase()
-                val protocolPenalty = when {
-                    normalized.startsWith("hysteria2://") || normalized.startsWith("hy2://") ||
-                        normalized.startsWith("tuic://") -> 0L
-                    normalized.startsWith("vless://") -> UDP_PREFERENCE_MS
-                    else -> UDP_PREFERENCE_MS / 2L
-                }
-                val failures = recentFailures[profile]?.coerceAtLeast(0) ?: 0
-                val stabilityPenalty = (failures.toLong() * FAILURE_PENALTY_MS)
-                    .coerceAtMost(MAX_FAILURE_PENALTY_MS)
-                val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
-                    .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
-                val baseScore = addPenalty(
-                    addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty),
-                    jitterPenalty
-                )
-                val throughputBonus = throughputSamples[profile]?.let {
-                    ThroughputFreshnessPolicy.selectionBonusMs(it, nowEpochMs)
-                } ?: 0L
-                val score = (baseScore - throughputBonus).coerceAtLeast(1L)
-                Candidate(profile, latency, score)
+        val candidates = profiles.mapNotNull { profile ->
+            val latency = latencyMs[profile]?.takeIf { it > 0L } ?: return@mapNotNull null
+            val normalized = profile.trim().lowercase()
+            val protocolPenalty = when {
+                normalized.startsWith("hysteria2://") || normalized.startsWith("hy2://") ||
+                    normalized.startsWith("tuic://") -> 0L
+                normalized.startsWith("vless://") -> UDP_PREFERENCE_MS
+                else -> UDP_PREFERENCE_MS / 2L
             }
-            .minWithOrNull(compareBy<Candidate> { it.score }.thenBy { it.latency })
-            ?.profile
+            val failures = recentFailures[profile]?.coerceAtLeast(0) ?: 0
+            val stabilityPenalty = (failures.toLong() * FAILURE_PENALTY_MS)
+                .coerceAtMost(MAX_FAILURE_PENALTY_MS)
+            val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
+                .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
+            val baseScore = addPenalty(
+                addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty),
+                jitterPenalty
+            )
+            val throughputBonus = throughputSamples[profile]?.let {
+                ThroughputFreshnessPolicy.selectionBonusMs(it, nowEpochMs)
+            } ?: 0L
+            Candidate(profile, latency, baseScore, throughputBonus)
+        }
+        if (candidates.isEmpty()) return null
+
+        // Throughput is only a tie-break refinement: it may never push a
+        // candidate below the best latency/reliability score before bonus.
+        val bestBaseScore = candidates.minOf { it.baseScore }
+        return candidates.minWithOrNull(
+            compareBy<Candidate> { (it.baseScore - it.throughputBonus).coerceAtLeast(bestBaseScore) }
+                .thenByDescending { it.throughputBonus }
+                .thenBy { it.latency }
+        )?.profile
     }
 
-    private data class Candidate(val profile: String, val latency: Long, val score: Long)
+    private data class Candidate(
+        val profile: String,
+        val latency: Long,
+        val baseScore: Long,
+        val throughputBonus: Long
+    )
 
     /** Keep an extreme/corrupt latency sample from wrapping the score negative. */
     private fun addPenalty(latency: Long, penalty: Long): Long =
