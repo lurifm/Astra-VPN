@@ -3673,6 +3673,10 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        // A health probe may finish after the Activity moves to the background.
+        // It must not trigger UI failover or act on a route no longer monitored here.
+        tunnelHealthCheckGeneration.advance()
+        lastHealthCheckAt = 0L
         setHeroAnimationsAllowed(false)
         unregisterBatterySaverReceiver()
         unregisterPhysicalNetworkCallback()
