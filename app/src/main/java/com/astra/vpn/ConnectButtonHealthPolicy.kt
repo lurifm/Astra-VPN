@@ -12,6 +12,6 @@ internal object ConnectButtonHealthPolicy {
         if (!connected) return Color.SILVER
         if (tunnelInternetOk == false) return Color.RED
         if (latencyMs == null || latencyMs <= 0L) return Color.AMBER
-        return if (latencyMs <= 200L) Color.GREEN else Color.AMBER
+        return if (latencyMs < 200L) Color.GREEN else Color.AMBER
     }
 }
