@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Network
 import android.net.VpnService
 import android.os.Build
-import android.os.IBinder
 import android.util.Log
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
@@ -29,7 +28,6 @@ import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.roundToLong
 
 /**
  * Runs one bounded throughput measurement through one imported proxy.
@@ -45,6 +43,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     @Volatile private var sessionId: String? = null
     @Volatile private var profileId: String? = null
     @Volatile private var listenPort: Int = 0
+    @Volatile private var activeConnection: HttpURLConnection? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -84,6 +83,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 )
                 val server = CommandServer(this, platform)
                 localServer = server
+                commandServer = server
                 server.start()
                 if (stopped.get()) return@execute
                 server.startOrReloadService(config, OverrideOptions())
@@ -172,6 +172,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return Sample(total, elapsed, total * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
         }
     }
 
@@ -201,7 +202,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             }
             val status = connection.responseCode
             require(status in 200..299) { "Upload endpoint returned HTTP $status" }
-            runCatching { connection.inputStream.use { it.copyTo(java.io.OutputStream.nullOutputStream()) } }
+            runCatching { connection.inputStream.close() }
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt).coerceAtLeast(1L)
             return Sample(payload.size.toLong(), elapsed, payload.size * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
@@ -214,6 +215,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         return (network.openConnection(url, proxy) as HttpURLConnection).apply {
             instanceFollowRedirects = false
             useCaches = false
+            activeConnection = this
         }
     }
 
@@ -239,6 +241,8 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
+        activeConnection?.disconnect()
+        activeConnection = null
         worker.shutdownNow()
         val client = commandClient
         val server = commandServer
@@ -273,8 +277,6 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         worker.shutdownNow()
         super.onDestroy()
     }
-
-    private data class SampleSummary(val mbps: Double, val bytes: Long, val durationMs: Long)
 
     companion object {
         const val ACTION_START = "com.astra.vpn.action.START_THROUGHPUT_PROBE"
