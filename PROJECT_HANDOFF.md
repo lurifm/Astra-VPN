@@ -943,3 +943,19 @@ CI run для последнего коммита необходимо пров�
 - `6275fc7` — разделение pure JSON transform и native validation.
 - `0cfdab6` — JVM-тесты без загрузки libbox JNI.
 - `fe37dd5` — тестовая зависимость org.json; последний проверенный успешный CI.
+
+
+## 16. Сервис ограниченного per-profile throughput probe (21 ноября 2026)
+
+- Добавлен `AstraThroughputProbeService` в отдельном Android-процессе `:throughput`, зарегистрирован как foreground service типа `specialUse`.
+- Сервис запускает временный libbox engine с конфигурацией из `SingBoxThroughputTestConfig`. Тестовые HTTP(S)-запросы идут через loopback mixed proxy `127.0.0.1:<port>`, а физическая сеть передаётся явно через `Network.openConnection(url, proxy)`. Основной TUN не создаётся и не перезапускается.
+- Реализованы bounded Cloudflare speed endpoints: download GET `/__down?bytes=8000000` (лимит 8 MB) и upload POST `/__up` (лимит 2 MB случайных данных). Cloudflare публикует описание своих speed-test endpoints в проекте `cloudflare/speedtest`; это внешний измерительный endpoint, не гарантия пропускной способности всего интернета.
+- Скорость рассчитывается как фактически принятые/отправленные байты × 8 / длительность, результат отдаётся отдельно для download и upload в Mbps вместе с объёмами и временем.
+- Установлен общий watchdog 20 секунд, сетевые connect/read timeout привязаны к оставшемуся deadline, передача проверяет отмену и deadline. Текущий HTTP connection отключается при остановке; native libbox cleanup и сетевое закрытие выполняются вне main thread.
+- Startup и измерение работают на разных executor'ах, чтобы callback подключения не зависел от блокирующего вызова запуска libbox. Callback подключения защищён от повторного старта измерения.
+- Результат/ошибка публикуются package-scoped broadcast с session ID; сервис имеет API `start(...)` и `ACTION_STOP`.
+- GitHub Actions run #948 для HEAD `d55fe9c`: **SUCCESS** — unit tests, debug APK build, APK verification и artifact upload завершились успешно.
+
+**Ограничения текущего этапа:** сервис пока не подключён к экрану серверов/кнопке проверки, нет пакетного планировщика всех профилей, выбора свободного loopback-порта и сохранения/отображения истории throughput. Вызов сервиса требует заранее сформированной однопрофильной конфигурации, физической `Network`, уникального порта и session ID. Результаты ещё не используются в `BestServerSelector` или авто-failover. Реальная проверка на Android-устройстве не выполнена; отдельно нужно проверить поведение HTTPS CONNECT через sing-box mixed inbound и доступность публичных endpoint из мобильных сетей.
+
+Коммиты этапа: `caa6aea`, `c0323ce`, `705bc7a`, `7864154`, `108d955`, `66b75c4`, `4a42c54`, `fcd3467`, `1330277`, `d55fe9c`.
