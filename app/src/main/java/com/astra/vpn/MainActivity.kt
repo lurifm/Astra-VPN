@@ -248,6 +248,7 @@ class MainActivity : Activity() {
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
     @Volatile private var waitingForUnderlyingNetwork = false
+    @Volatile private var waitingForVpnRoute = false
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
     private val autoFailoverBudget = AutoFailoverBudget(maxAttempts = 3, windowMs = 10 * 60_000L)
@@ -385,6 +386,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_CONNECTING -> {
                     cancelConnectRetry(resetAttempts = false)
                     tunnelHealthCheckGeneration.advance()
+                    waitingForVpnRoute = false
                     disconnecting = false
                     connected = false
                     connecting = true
@@ -396,6 +398,7 @@ class MainActivity : Activity() {
                 AstraVpnService.STATE_CONNECTED -> {
                     cancelConnectRetry(resetAttempts = true)
                     waitingForUnderlyingNetwork = false
+                    waitingForVpnRoute = false
                     if (pendingFailoverSelection?.let { FailoverSelectionPolicy.isCommitted(it, activeProfile) } == true) {
                         pendingFailoverSelection = null
                     }
@@ -413,6 +416,7 @@ class MainActivity : Activity() {
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
                     waitingForUnderlyingNetwork = false
+                    waitingForVpnRoute = false
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
@@ -4193,10 +4197,16 @@ class MainActivity : Activity() {
         val vpnNetwork = connectivity.activeNetwork
         val vpnCapabilities = vpnNetwork?.let(connectivity::getNetworkCapabilities)
         if (vpnNetwork == null || vpnCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
-            tunnelInternetOk = false
+            // During Android's VPN handover activeNetwork can briefly be absent
+            // or still point at the physical route. This is not a completed
+            // end-to-end failure and must not paint the protection state red.
+            waitingForVpnRoute = true
+            tunnelInternetOk = null
+            lastHealthCheckAt = 0L
             updateProtectionLabels()
             return
         }
+        waitingForVpnRoute = false
         // Use monotonic time so wall-clock changes cannot stall or spam health probes.
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
@@ -4346,6 +4356,7 @@ class MainActivity : Activity() {
             connecting -> "◌ Проверяем VPN-подключение…" to AMBER
             !connected -> "○ Защита выключена" to MUTED
             waitingForUnderlyingNetwork -> "◌ Ожидаем восстановления Wi-Fi или мобильного интернета…" to AMBER
+            waitingForVpnRoute -> "◌ Ожидаем восстановления VPN-маршрута…" to AMBER
             tunnelInternetOk == true -> "🛡 Защита активна · интернет через VPN работает" to GREEN
             tunnelInternetOk == false -> "⚠ VPN включён, но интернет через него не работает. Защита не подтверждена" to RED
             else -> "◌ VPN-туннель создан · проверяем доступ в интернет…" to AMBER
