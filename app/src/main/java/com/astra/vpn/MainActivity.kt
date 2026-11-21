@@ -668,6 +668,7 @@ class MainActivity : Activity() {
                     status.text = "Отключаем VPN…"
                     status.setTextColor(AMBER)
                     connectActionLabel.text = "Отключаем…"
+                    applyManualBankingOverride(connecting = false)
                     stopTunnel()
                 } else {
                     status.text = "Подготавливаем подключение…"
@@ -1814,7 +1815,10 @@ class MainActivity : Activity() {
                         // invalidate the captured config; otherwise a late RESULT_OK could
                         // start a profile that has already been deleted.
                         if (pendingConfig != null && removesPendingProfile) cancelPendingConnect()
-                        if (removesActiveProfile) stopTunnel()
+                        if (removesActiveProfile) {
+                            cancelBankingResumeForRemovedProfile()
+                            stopTunnel()
+                        }
                         if (removesActiveProfile) activeProfile = null
                         if (selectedProfile?.let { it in removed } == true) selectedProfile = null
                         renderProfiles()
@@ -3146,6 +3150,9 @@ class MainActivity : Activity() {
     }
 
     private fun connectSelectedProfile() {
+        // A deliberate new connection/profile selection supersedes any pending
+        // banking auto-resume, including a stale snapshot from a prior process.
+        applyManualBankingOverride(connecting = true)
         // Consent UI is asynchronous: block duplicate starts before the service
         // has had a chance to publish STATE_CONNECTING.
         if (connecting || pendingConfig != null) return
@@ -3541,6 +3548,7 @@ class MainActivity : Activity() {
 
     private fun handleQuickTileToggle() {
         if (connected) {
+            applyManualBankingOverride(connecting = false)
             stopTunnel()
             return
         }
@@ -3956,6 +3964,35 @@ class MainActivity : Activity() {
         updateProtectionLabels()
         renderProfiles()
         Toast.makeText(this, "Подключение отменено", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * A direct user action always wins over a pending automatic banking resume.
+     * State is committed before the encrypted profile snapshot is cleared, so
+     * a crash between the writes still leaves the fail-closed manual flag.
+     */
+    private fun applyManualBankingOverride(connecting: Boolean) {
+        runCatching {
+            val stateStore = BankingAutomationStateStore(this)
+            val state = stateStore.read()
+            stateStore.write(
+                if (connecting) state.onManualConnect() else state.onManualDisconnect()
+            )
+            ProfileStore(this).clearBankPauseSnapshot()
+        }.onFailure {
+            android.util.Log.e("AstraVPN", "Не удалось сохранить ручное переопределение банковской автопаузы", it)
+        }
+    }
+
+    /** A deleted active profile must never be resurrected by an old bank snapshot. */
+    private fun cancelBankingResumeForRemovedProfile() {
+        runCatching {
+            val stateStore = BankingAutomationStateStore(this)
+            stateStore.write(stateStore.read().cancelAutomaticResume())
+            ProfileStore(this).clearBankPauseSnapshot()
+        }.onFailure {
+            android.util.Log.e("AstraVPN", "Не удалось отменить восстановление удалённого профиля", it)
+        }
     }
 
     private fun stopTunnel() {
