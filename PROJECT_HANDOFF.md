@@ -839,3 +839,13 @@ CI для последнего набора изменений необходи�
 - Коммиты: `4ca90c7` (generation snapshot), `abfeb15` (tests), `65a8d8d` (service integration).
 - Run #901 для предыдущего HEAD `f36912ca12b557cc486aa3be93db917451bb8690` на последней проверке: COMPLETED; conclusion=cancelled . Новый CI обязателен для текущего кода.
 - Android-проверка: инициировать reload, быстро выбрать другой профиль/нажать Disconnect, затем дождаться старого callback; старый результат не должен публиковать CONNECTED, менять активную конфигурацию или останавливать новый туннель.
+
+
+## 72. Явное подтверждение владения Android TUN-дескриптором (21 ноября 2026)
+
+- Аудит `AstraPlatform.openTun()` выявил неоднозначность контракта: callback `onTunCreated` мог закрыть дескриптор, если его `CommandServer` уже устарел, но `openTun()` после возврата callback всё равно возвращал `descriptor.fd` в libbox. То есть libbox мог получить fd, который callback уже закрыл.
+- Callback теперь возвращает Boolean: `true` означает, что сервис принял владение дескриптором; `false` — lifecycle устарел и fd нельзя передавать обратно в libbox. При отказе или исключении `AstraPlatform` закрывает дескриптор и прерывает `openTun()` вместо возврата закрытого fd.
+- `AstraVpnService.handleTunCreated()` теперь возвращает `false` для stopping/устаревшего поколения и `true` только после принятия дескриптора, отмены TUN timeout, фиксации recovery-транзакции и публикации CONNECTED. При замене предыдущего TUN ошибки закрытия теперь логируются.
+- `AstraLatencyTestService` явно отклоняет неожиданное создание TUN; освобождение fd централизовано в `AstraPlatform`, поэтому callback не закрывает его второй раз.
+- Изменены `AstraPlatform.kt`, `AstraVpnService.kt`, `AstraLatencyTestService.kt`. Коммиты: `1fb7cb0`, `a29c7d6`, `96bdac0`.
+- Это усиливает контракт владения fd на границе Android ↔ libbox; проверка Kotlin compile, unit tests, debug APK и artifact upload ожидает CI текущего HEAD. Дополнительно требуется Android-проверка быстрой смены профиля/Disconnect во время `openTun()` и проверка, что отклонённый устаревший fd не приводит к ложному CONNECTED.
