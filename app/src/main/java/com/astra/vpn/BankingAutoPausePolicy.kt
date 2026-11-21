@@ -26,10 +26,8 @@ internal object BankingAutoPausePolicy {
         if (!state.usageAccessGranted || !state.observationFresh) return Action.NONE
         val foreground = state.foregroundPackage ?: return Action.NONE
         if (foreground in state.bankPackages) {
-            val pauseWasCommittedButTunnelStillLive = state.autoPausedByBanking &&
-                state.wasConnectedBeforePause && state.savedProfileAvailable
-            return if (state.vpnConnected && !state.userDisconnectRequested &&
-                (!state.autoPausedByBanking || pauseWasCommittedButTunnelStillLive)
+            return if (state.vpnConnected && !state.autoPausedByBanking &&
+                !state.userDisconnectRequested
             ) Action.PAUSE_VPN else Action.NONE
         }
         if (!state.autoPausedByBanking) return Action.NONE

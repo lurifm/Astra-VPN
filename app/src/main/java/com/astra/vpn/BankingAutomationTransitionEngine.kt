@@ -51,22 +51,12 @@ internal object BankingAutomationTransitionEngine {
                 // and committed the exact active profile snapshot.
                 if (!input.savedProfileAvailable) Result(Command.NONE, state)
                 else {
-                    // If the durable pause intent was committed but the service
-                    // rejected/did not receive AUTO_PAUSE, retry while the same
-                    // bank remains foreground and the live VPN is still confirmed.
-                    // Keep the original transition id and exact snapshot in this case.
-                    if (state.autoPausedByBanking && state.wasConnectedBeforePause &&
-                        state.savedProfileAvailable && !state.userDisconnectRequested
-                    ) {
-                        Result(Command.SAVE_PROFILE_AND_PAUSE, state)
-                    } else {
-                        val next = state.beginAutomaticPause(
-                            profileAvailable = true,
-                            vpnWasConnected = input.vpnConnected
-                        )
-                        if (next == state) Result(Command.NONE, state)
-                        else Result(Command.SAVE_PROFILE_AND_PAUSE, next)
-                    }
+                    val next = state.beginAutomaticPause(
+                        profileAvailable = true,
+                        vpnWasConnected = input.vpnConnected
+                    )
+                    if (next == state) Result(Command.NONE, state)
+                    else Result(Command.SAVE_PROFILE_AND_PAUSE, next)
                 }
             }
             BankingAutoPausePolicy.Action.RESUME_VPN -> {

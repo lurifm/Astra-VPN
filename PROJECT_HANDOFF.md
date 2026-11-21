@@ -1760,12 +1760,9 @@ CI run для последнего коммита необходимо пров�
 
 ## 89. Idempotent retry for a committed-but-not-executed banking pause
 
-- Fixed a concrete retry gap: the monitor commits `autoPausedByBanking=true` before sending `ACTION_AUTO_PAUSE`. If the service start/command is rejected while the VPN remains live, the old policy suppressed all later pause attempts because the state already looked paused.
-- The pure policy and transition engine now re-issue the pause plan only while a fresh stable bank observation remains active, Android still confirms a live VPN transport, the original pre-pause connection fact is retained, and the encrypted exact-profile snapshot remains available.
-- The command gate allows this idempotent retry only when the saved snapshot URI exactly matches the currently active profile. Manual disconnect and mismatched/missing snapshot continue to reject the command.
-- Retry preserves the original transition ID and snapshot intent. The VPN service's existing lifecycle guard still serializes the actual tunnel stop.
-- Added regression tests for transition-engine retry and exact-snapshot gate checks.
-- This closes the observed pause dispatch retry gap; it is not a full service ACK protocol. A process/device integration test is still required, especially for ACTION_AUTO_PAUSE delivery and failed AUTO_RESUME starts.
+- The first retry implementation was reverted after CI exposed a regression: while a second banking app was foreground, the generic state could not prove that it was the same bank-entry episode, so it incorrectly proposed another pause. The existing regression test `anotherBankDoesNotTriggerResume` caught this.
+- Safe retry of a committed-but-not-executed pause is deferred until the durable state records the originating foreground package (or an explicit command-pending/acknowledgement token). Do not retry based only on the fact that some bank package is foreground.
+- The independent bounded AUTO_RESUME retry cadence is implemented in section 90 below.
 
 
 ## 90. Bounded retry cadence for failed banking auto-resume dispatch
