@@ -39,3 +39,21 @@ class BankingAutomationStateTest {
         assertTrue(manual.transitionId > paused.transitionId)
     }
 }
+
+    @Test fun cancellingResumeKeepsManualDisconnectGuard() {
+        val manual = BankingAutomationState().onManualDisconnect()
+        val cancelled = manual.cancelAutomaticResume()
+        assertTrue(cancelled.userDisconnectRequested)
+        assertFalse(cancelled.autoPausedByBanking)
+        assertFalse(cancelled.savedProfileAvailable)
+    }
+
+    @Test fun manualOverrideClearsPreviousPauseAndSnapshotFlags() {
+        val paused = BankingAutomationState().beginAutomaticPause(true, true)
+        val manualConnect = paused.onManualConnect()
+        assertFalse(manualConnect.autoPausedByBanking)
+        assertFalse(manualConnect.wasConnectedBeforePause)
+        assertFalse(manualConnect.savedProfileAvailable)
+        assertFalse(manualConnect.userDisconnectRequested)
+    }
+}
