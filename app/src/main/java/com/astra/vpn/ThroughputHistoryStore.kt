@@ -21,9 +21,10 @@ internal class ThroughputHistoryStore(context: Context) {
             .put("downloadMbps", sample.downloadMbps)
             .put("uploadMbps", sample.uploadMbps)
             .put("measuredAt", sample.measuredAtEpochMs)
-        check(prefs.edit().putString(key(profile), value.toString()).commit()) {
-            "Не удалось сохранить результат измерения скорости"
-        }
+        // apply() updates the in-memory cache immediately and persists on a
+        // background thread; this method is also called from BroadcastReceiver
+        // callbacks on the main thread, so commit() would risk a UI stall.
+        prefs.edit().putString(key(profile), value.toString()).apply()
         prune()
     }
 
@@ -56,14 +57,12 @@ internal class ThroughputHistoryStore(context: Context) {
 
     @Synchronized
     fun remove(profile: String) {
-        check(prefs.edit().remove(key(profile)).commit()) {
-            "Не удалось удалить результат измерения скорости"
-        }
+        prefs.edit().remove(key(profile)).apply()
     }
 
     @Synchronized
     fun clear() {
-        check(prefs.edit().clear().commit()) { "Не удалось очистить историю скорости" }
+        prefs.edit().clear().apply()
     }
 
     private fun prune() {
@@ -84,7 +83,9 @@ internal class ThroughputHistoryStore(context: Context) {
                 editor.remove(storedKey)
             }
         }
-        check(editor.commit()) { "Не удалось очистить устаревшие измерения скорости" }
+        // SharedPreferences applies removals to its in-memory map immediately;
+        // disk I/O is delegated away from the caller/UI thread.
+        editor.apply()
     }
 
     private fun key(profile: String): String =
