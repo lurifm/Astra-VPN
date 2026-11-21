@@ -25,7 +25,40 @@ class ThroughputBatchPlannerTest {
                 profiles,
                 mapOf("vless://a" to 20L, "vless://b" to 30L, "vless://c" to 40L),
                 fresh,
-                limit = 5
+                limit = 5,
+                nowEpochMs = now
+            )
+        )
+    }
+
+    @Test
+    fun staleCachedSamplesDoNotSuppressANewThroughputProbe() {
+        val profile = "vless://stale"
+        val now = 1_800_000_000_000L
+        val stale = mapOf(profile to ThroughputSample(100.0, 50.0, now - 6 * 60 * 1000L))
+        assertEquals(
+            listOf(profile),
+            ThroughputBatchPlanner.plan(
+                profiles = listOf(profile),
+                latencyMs = mapOf(profile to 25L),
+                freshSamples = stale,
+                nowEpochMs = now
+            )
+        )
+    }
+
+    @Test
+    fun futureDatedCachedSamplesDoNotSuppressANewThroughputProbe() {
+        val profile = "vless://future"
+        val now = 1_800_000_000_000L
+        val future = mapOf(profile to ThroughputSample(100.0, 50.0, now + 60_000L))
+        assertEquals(
+            listOf(profile),
+            ThroughputBatchPlanner.plan(
+                profiles = listOf(profile),
+                latencyMs = mapOf(profile to 25L),
+                freshSamples = future,
+                nowEpochMs = now
             )
         )
     }
