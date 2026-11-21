@@ -25,6 +25,9 @@ import io.nekohasekai.libbox.SystemProxyStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Runs URLTest in an isolated process so it never reloads the active VPN tunnel. */
@@ -33,7 +36,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val worker = Executors.newSingleThreadExecutor()
     // URLTest calls are dispatched independently: a blocked native call for one
     // profile must not prevent other profiles from starting their own deadlines.
-    private val urlTestDispatcher = Executors.newFixedThreadPool(URL_TEST_DISPATCH_CONCURRENCY)
+    private val urlTestDispatcher = ThreadPoolExecutor(URL_TEST_DISPATCH_CONCURRENCY, URL_TEST_DISPATCH_CONCURRENCY, 0L, java.util.concurrent.TimeUnit.MILLISECONDS, ArrayBlockingQueue(URL_TEST_QUEUE_CAPACITY), ThreadPoolExecutor.AbortPolicy())
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
@@ -178,26 +181,34 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         return@post
                     }
                     expectedTags.forEach { outboundTag ->
-                        val deadline = Runnable { completeTimedOutTag(outboundTag) }
+                        val deadline = Runnable { completeUnmeasuredTag(outboundTag) }
                         perServerTimeouts[outboundTag] = deadline
                         handler.postDelayed(deadline, remainingMs)
                     }
                 }
                 // A bounded pool prevents one blocking native call from holding
                 // the single startup worker and keeps the number of threads finite.
+                // Bound active and queued native calls; a ten-second batch must not retain thousands of pending profiles.
+                val notDispatched = ArrayList<String>()
                 expectedTags.forEach { outboundTag ->
                     if (stopped.get()) return@forEach
-                    runCatching {
+                    try {
                         urlTestDispatcher.execute {
                             if (stopped.get()) return@execute
                             runCatching {
                                 activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
                             }.onFailure {
-                                handler.post { completeTimedOutTag(outboundTag) }
+                                handler.post { completeUnmeasuredTag(outboundTag) }
                             }
                         }
-                    }.onFailure {
-                        handler.post { completeTimedOutTag(outboundTag) }
+                    } catch (_: RejectedExecutionException) {
+                        notDispatched += outboundTag
+                    }
+                }
+                if (notDispatched.isNotEmpty()) {
+                    // Coalesce overflow into one handler message. Unmeasured is not offline.
+                    handler.post {
+                        if (!stopped.get()) notDispatched.forEach(::completeUnmeasuredTag)
                     }
                 }
             }
@@ -262,7 +273,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
     }
 
-    private fun completeTimedOutTag(tag: String) {
+    private fun completeUnmeasuredTag(tag: String) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
         perServerTimeouts.remove(tag)
         finishIfAllTagsCompleted()
@@ -414,6 +425,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val NOTIFICATION_ID = 2
         private const val BATCH_TIMEOUT_MS = 10_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
+        private const val URL_TEST_QUEUE_CAPACITY = 128
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
