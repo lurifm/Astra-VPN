@@ -38,7 +38,6 @@ class BankingAutomationStateTest {
         assertTrue(paused.transitionId > initial.transitionId)
         assertTrue(manual.transitionId > paused.transitionId)
     }
-}
 
     @Test fun cancellingResumeKeepsManualDisconnectGuard() {
         val manual = BankingAutomationState().onManualDisconnect()
