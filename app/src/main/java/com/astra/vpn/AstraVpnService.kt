@@ -69,7 +69,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 if (!enabled) {
                     recoveryProfileTransaction.cancel()
                     persistRecoveryProfile(null)
-                } else if (tunDescriptor != null && commandServer != null && !stopping) {
+                } else if (stopping) {
+                    recoveryProfileTransaction.cancel()
+                } else if (tunDescriptor != null && commandServer != null) {
                     recoveryProfileTransaction.cancel()
                     persistRecoveryProfile(link)
                 } else {
