@@ -7,8 +7,7 @@
     <string name="shortcut_open_long">Открыть Astra VPN</string>
     <string name="shortcut_connect">Подключить</string>
     <string name="shortcut_connect_long">Подключить Astra VPN к лучшему серверу</string>
-    <string name="service_checks_entry">🌐  Проверить YouTube, Telegram и ChatGPT</string>
-    <string name="network_security_entry">🔐  Состояние VPN и DNS</string>
+        <string name="network_security_entry">🔐  Состояние VPN и DNS</string>
     <string name="widget_title">Astra VPN</string>
     <string name="widget_connect">Подключить / отключить</string>
     <string name="widget_status_connected">Подключено</string>
