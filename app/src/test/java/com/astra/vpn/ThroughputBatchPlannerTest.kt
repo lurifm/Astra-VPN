@@ -51,4 +51,17 @@ class ThroughputBatchPlannerTest {
             ThroughputBatchPlanner.plan(listOf("vless://a"), mapOf("vless://a" to 20L), emptyMap(), 0)
         )
     }
+
+    @Test
+    fun duplicateAndBlankProfilesAreProbedAtMostOnce() {
+        val profiles = listOf("vless://duplicate", "", "vless://other", "vless://duplicate", "   ")
+        assertEquals(
+            listOf("vless://duplicate", "vless://other"),
+            ThroughputBatchPlanner.plan(
+                profiles,
+                mapOf("vless://duplicate" to 20L, "vless://other" to 30L),
+                emptyMap()
+            )
+        )
+    }
 }
