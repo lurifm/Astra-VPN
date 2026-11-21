@@ -252,9 +252,14 @@ class MainActivity : Activity() {
                 AstraVpnService.ACTION_STATE -> Unit
                 else -> return
             }
-            // Any authoritative service state supersedes a locally persisted stop request.
-            settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
-            when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
+            val serviceState = intent.getStringExtra(AstraVpnService.EXTRA_STATE)
+            // CONNECTING/CONNECTED may be delayed broadcasts from a request that
+            // was already in flight when the user pressed Disconnect. Only the
+            // terminal DISCONNECTED acknowledgement may clear that stop intent.
+            if (DisconnectRequestPolicy.shouldClearAfterServiceState(serviceState)) {
+                settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+            }
+            when (serviceState) {
                 AstraVpnService.STATE_CONNECTING -> {
                     cancelConnectRetry(resetAttempts = false)
                     tunnelHealthCheckGeneration.advance()
@@ -3213,6 +3218,8 @@ class MainActivity : Activity() {
         if (resetAttempts) connectRetryAttempt = 0
     }
     private fun startTunnel(config: String) {
+        // An explicit new start supersedes a previously persisted user stop request.
+        settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
         cancelConnectRetry(resetAttempts = false)
         waitingForUnderlyingNetwork = false
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
