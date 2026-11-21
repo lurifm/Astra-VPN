@@ -2502,6 +2502,14 @@ class MainActivity : Activity() {
         }
     }
 
+    /** UI health indicators only trust monotonic ping samples no older than five minutes. */
+    private fun freshLatencyMs(profile: String): Long? {
+        val measured = latencyMs[profile] ?: return null
+        val measuredAt = latencyMeasuredAt[profile] ?: return null
+        val age = android.os.SystemClock.elapsedRealtime() - measuredAt
+        return measured.takeIf { it > 0L && age in 0L..300_000L }
+    }
+
     private fun updateOrbitIdentity() {
         if (!::orbitNameLabel.isInitialized || !::orbitMetaLabel.isInitialized) return
         val link = selectedProfile
@@ -2520,7 +2528,7 @@ class MainActivity : Activity() {
         val flag = CountryFlagResolver.flagFor(serverName)
         val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
             ?: serverName
-        val latency = latencyMs[link]?.let { "$it мс" } ?: "PING НЕ ПРОВЕРЕН"
+        val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "PING НЕ ПРОВЕРЕН"
         orbitNameLabel.text = country
         orbitMetaLabel.text = buildString {
             append(protocolName(link).uppercase(java.util.Locale.ROOT))
@@ -2538,7 +2546,7 @@ class MainActivity : Activity() {
         while (quickSwitchContainer.childCount > 1) quickSwitchContainer.removeViewAt(1)
         if (profiles.isEmpty()) { quickSwitchContainer.visibility = View.GONE; return }
         quickSwitchContainer.visibility = View.VISIBLE
-        val candidates = profiles.distinct().sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }.thenBy { it }).take(3)
+        val candidates = profiles.distinct().sortedWith(compareBy<String> { freshLatencyMs(it) ?: Long.MAX_VALUE }.thenBy { it }).take(3)
         val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         candidates.forEachIndexed { index, link ->
             val uri = Uri.parse(link)
@@ -2547,7 +2555,7 @@ class MainActivity : Activity() {
             val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val flag = CountryFlagResolver.flagFor(name)
             val country = CountryFlagResolver.countryNameForFlag(flag).ifBlank { name }
-            val measuredLatency = latencyMs[link]
+            val measuredLatency = freshLatencyMs(link)
             val ping = measuredLatency?.let { "$it мс" } ?: "— мс"
             val selected = link == selectedProfile
             val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
@@ -6116,7 +6124,7 @@ class MainActivity : Activity() {
     private fun updateConnectButtonServerHealth() {
         if (!::connectButton.isInitialized) return
         val selected = selectedProfile
-        val measured = selected?.let { latencyMs[it] }
+        val measured = selected?.let { freshLatencyMs(it) }
         val healthColor = when {
             connected && tunnelInternetOk == false -> RED
             connected && measured != null && measured > 100L -> AMBER
