@@ -146,7 +146,9 @@ internal class BankingForegroundMonitorService : Service() {
                         activeProfileExists = link in profileStore.all(),
                         snapshotProfileLink = profileStore.bankPauseSnapshot()?.profileLink,
                         snapshotProfileExists = profileStore.bankPauseSnapshot() != null,
-                        state = plan.nextState,
+                        // Gate validates the pre-transition state; the durable next state
+                        // was already committed above for the VPN service's independent guard.
+                        state = state,
                         observationFresh = now >= observedAt &&
                             now - observedAt <= BankingAutomationTransitionEngine.MAX_OBSERVATION_AGE_MS,
                         foregroundPackage = foregroundPackage,
