@@ -26,6 +26,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.widget.CheckBox
@@ -1099,7 +1100,30 @@ class MainActivity : Activity() {
         root.addView(filterRow, matchWidth())
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
+        // targetSdk 35 enforces edge-to-edge on Android 15+. Keep the
+        // programmatic home screen clear of status/navigation bars and cutouts
+        // without changing its existing visual spacing on older Android versions.
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val topInset: Int
+            val bottomInset: Int
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val safe = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                topInset = safe.top
+                bottomInset = safe.bottom
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    topInset = insets.systemWindowInsetTop
+                    bottomInset = insets.systemWindowInsetBottom
+                }
+            }
+            view.setPadding(dp(18), dp(14) + topInset, dp(18), dp(14) + bottomInset)
+            insets
+        }
         setContentView(root)
+        root.requestApplyInsets()
         if (!settingsPrefs.getBoolean("onboarding_completed", false)) {
             root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding() }
         }

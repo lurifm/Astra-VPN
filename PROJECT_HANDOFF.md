@@ -1740,3 +1740,11 @@ CI run для последнего коммита необходимо пров�
 - The foreground observation policy now emits a package on every sample after two consecutive identical non-null samples, rather than only on the first package transition.
 - Purpose: allow the transition executor to retry a transiently rejected automatic resume after a previous service start fails. The VPN service's CONNECTING guard still prevents overlapping start requests; unknown/null observations reset stabilization and cannot be interpreted as bank closure.
 - Unit tests updated to assert repeated stable observations. This does not yet solve every pause-command acknowledgement race; do not mark banking automation production-ready without explicit service acknowledgements and physical-device tests.
+
+
+## 87. Android 15 edge-to-edge home-screen insets
+
+- `MainActivity` now applies status-bar, navigation-bar, and display-cutout safe insets to the root home-screen container.
+- This is important because the app targets SDK 35, where Android 15 enforces edge-to-edge; without insets, the programmatic header/content can draw underneath system bars.
+- Existing 14dp vertical spacing is preserved in addition to the system insets. Older Android versions use the compatible system-window inset values.
+- Needs visual verification on a real Android 15 device, gesture navigation, three-button navigation, and cutout screens.
