@@ -21,6 +21,13 @@ enum class VpnRecoveryDecision {
 }
 
 object VpnRecoveryPolicy {
+    /**
+     * A stale recovery-settings command must not resurrect a service after
+     * an explicit stop has already put its lifecycle into the stopping state.
+     */
+    fun shouldKeepServiceStickyForUpdate(recoveryEnabled: Boolean, stopping: Boolean): Boolean =
+        recoveryEnabled && !stopping
+
     fun decide(
         trigger: VpnRecoveryTrigger,
         recoveryEnabled: Boolean,
