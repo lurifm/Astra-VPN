@@ -360,6 +360,10 @@ class AstraPlatform(
             return
         }
 
+        // Any accepted state supersedes a pending retry (including an unchanged
+        // route); reset the retry budget for the next independent transition.
+        cancelUnderlayRetryLocked(resetAttempts = true)
+
         // Publish only after Android accepted the same physical underlay.
         if (protectSockets) currentPhysicalNetwork = selectedNetwork
 
