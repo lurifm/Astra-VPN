@@ -245,8 +245,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     publishState(STATE_CONNECTING)
                     awaitTunCreation()
                     Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
-                } else {
-                    publishState(STATE_CONNECTED)
                 }
             }
         } catch (error: Exception) {
