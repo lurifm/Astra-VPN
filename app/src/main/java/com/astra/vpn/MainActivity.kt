@@ -3427,6 +3427,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        setHeroAnimationsAllowed(!getSystemService(android.os.PowerManager::class.java).isPowerSaveMode)
         registerPhysicalNetworkCallback()
         monitorHandler.removeCallbacks(monitorTick)
         monitorHandler.post(monitorTick)
@@ -3657,6 +3658,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        setHeroAnimationsAllowed(false)
         unregisterPhysicalNetworkCallback()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
@@ -3665,6 +3667,29 @@ class MainActivity : Activity() {
         // A latency test can finish while the app is backgrounded; unregistering
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
         super.onStop()
+    }
+
+    /** Keep decorative motion out of the background and respect Android Battery Saver. */
+    private fun setHeroAnimationsAllowed(allowed: Boolean) {
+        if (::starButtonFrame.isInitialized) {
+            (0 until starButtonFrame.childCount).asSequence()
+                .mapNotNull { starButtonFrame.getChildAt(it) as? OrbitHeroView }
+                .firstOrNull()?.setAnimationAllowed(allowed)
+        }
+        if (::constellationView.isInitialized) {
+            constellationView.setActive(allowed && connectionVisualState == "connected")
+        }
+        if (!allowed && ::starPulseAnimator.isInitialized) stopStarPulse()
+        if (!allowed && ::window.isInitialized) {
+            val decor = window.decorView as? ViewGroup
+            if (decor != null) {
+                for (index in decor.childCount - 1 downTo 0) {
+                    if (decor.getChildAt(index) is NightShootingStarView) {
+                        decor.removeViewAt(index)
+                    }
+                }
+            }
+        }
     }
 
     /** Restore the last known-good selection if an automatic failover attempt fails. */
