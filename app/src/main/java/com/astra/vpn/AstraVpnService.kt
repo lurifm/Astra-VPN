@@ -562,13 +562,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun completeBankingAutoResumeLocked() {
         if (!bankingAutoResumePending) return
         runCatching {
-            ProfileStore(this).clearBankPauseSnapshot()
             val store = BankingAutomationStateStore(this)
             store.write(store.read().completeAutomaticResume())
+            // If encrypted snapshot cleanup fails, the completed state still prevents another resume.
+            ProfileStore(this).clearBankPauseSnapshot()
         }.onSuccess {
             bankingAutoResumePending = false
         }.onFailure {
-            Log.e(TAG, "Не удалось завершить банковское восстановление; snapshot сохранён для безопасной проверки", it)
+            Log.e(TAG, "Не удалось завершить очистку банковского snapshot", it)
         }
     }
 
