@@ -48,7 +48,15 @@ internal object BestServerSelector {
         // the best base score: doing so would let a much worse candidate tie
         // and win merely because it has a larger throughput bonus.
         return candidates.minWithOrNull(
-            compareBy<Candidate> { (it.baseScore - it.throughputBonus).coerceAtLeast(1L) }
+            compareBy<Candidate> {
+                // Subtract without overflow: a saturated Long.MAX_VALUE base score
+                // must never wrap negative and become the best possible candidate.
+                if (it.baseScore > it.throughputBonus) {
+                    it.baseScore - it.throughputBonus
+                } else {
+                    1L
+                }
+            }
                 .thenBy { it.baseScore }
                 .thenByDescending { it.throughputBonus }
                 .thenBy { it.latency }
