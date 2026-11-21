@@ -1656,3 +1656,12 @@ CI run для последнего коммита необходимо пров�
 - Важно: store и codec пока не подключены к реальному жизненному циклу MainActivity/VpnService/monitor. Автоматическая пауза и возобновление всё ещё НЕ реализованы.
 - Коммиты: `061ddb4` (codec/store/tests), `d785e08` (сохранение корректной idle-записи).
 - CI для финального HEAD необходимо перепроверить после push; тесты на физическом Android-устройстве не выполнялись.
+
+## 79. Manual override protection for banking automation (22 ноября 2026)
+
+- MainActivity now persists a manual banking-automation override before explicit disconnect from the hero button or Quick Settings tile.
+- A deliberate profile connection/switch clears a stale auto-pause snapshot and manual-disconnect guard before starting the selected profile.
+- Removing the active subscription profile cancels any pending banking auto-resume and clears its encrypted snapshot, without mislabeling this as a user disconnect.
+- Ordering is fail-closed: state transition is committed before encrypted snapshot cleanup; if the process dies between writes, `userDisconnectRequested` still blocks automatic resume.
+- Added state transition tests for cancellation/manual override.
+- This does not yet implement bank-observation orchestration or auto pause/resume commands in AstraVpnService. It closes a necessary manual-intervention safety gap first.
