@@ -88,9 +88,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             return if (keepSticky) START_STICKY else START_NOT_STICKY
         }
         if (intent?.action == ACTION_STOP) {
-            runCatching { ProfileStore(this).setRecoveryProfile(null) }
-                .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
-            stopTunnel()
+            // Serialize the user's disconnect with TUN-created callbacks. Otherwise
+            // a callback could commit a staged recovery profile after this clear
+            // but before stopTunnel() acquires lifecycleLock.
+            synchronized(lifecycleLock) {
+                recoveryProfileTransaction.cancel()
+                runCatching { ProfileStore(this).setRecoveryProfile(null) }
+                    .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
+                stopTunnel()
+            }
             return START_NOT_STICKY
         }
 
