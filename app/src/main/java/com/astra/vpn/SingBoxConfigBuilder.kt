@@ -70,27 +70,26 @@ object SingBoxConfigBuilder {
         serverLink: String,
         options: SingBoxAdvancedOptions = SingBoxAdvancedOptions()
     ): JSONObject {
-            val uri = Uri.parse(serverLink.trim())
-            val scheme = uri.scheme?.lowercase()
-                ?: error("У ссылки сервера отсутствует протокол")
-            val server = uri.host ?: error("В ссылке не указан адрес сервера")
-            val port = uri.port.takeIf { it in 1..65535 }
-                ?: error("В ссылке указан неверный порт")
-            val name = uri.fragment?.takeIf { it.isNotBlank() } ?: scheme.uppercase()
-    
-            val outbound = when (scheme) {
-                "vless" -> buildVless(uri, server, port)
-                "hysteria2", "hy2" -> buildHysteria2(uri, server, port)
-                "tuic" -> buildTuic(uri, server, port)
-                else -> error("Пока не поддерживается запуск протокола: $scheme")
-            }.put("tag", "proxy")
-            if (options.shouldEnableMultiplex(scheme)) {
-                outbound.put("multiplex", JSONObject()
-                    .put("enabled", true)
-                    .put("protocol", "smux")
-                    .put("max_connections", 4)
-                    .put("min_streams", 4))
-            }
+        val uri = Uri.parse(serverLink.trim())
+        val scheme = uri.scheme?.lowercase()
+            ?: error("У ссылки сервера отсутствует протокол")
+        val server = uri.host ?: error("В ссылке не указан адрес сервера")
+        val port = uri.port.takeIf { it in 1..65535 }
+            ?: error("В ссылке указан неверный порт")
+
+        val outbound = when (scheme) {
+            "vless" -> buildVless(uri, server, port)
+            "hysteria2", "hy2" -> buildHysteria2(uri, server, port)
+            "tuic" -> buildTuic(uri, server, port)
+            else -> error("Пока не поддерживается запуск протокола: $scheme")
+        }.put("tag", "proxy")
+        if (options.shouldEnableMultiplex(scheme)) {
+            outbound.put("multiplex", JSONObject()
+                .put("enabled", true)
+                .put("protocol", "smux")
+                .put("max_connections", 4)
+                .put("min_streams", 4))
+        }
         return outbound
     }
 
