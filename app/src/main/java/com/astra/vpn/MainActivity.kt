@@ -6219,9 +6219,9 @@ class MainActivity : Activity() {
     }
 
     /**
-     * User-facing setup for the separate banking-app monitor.
-     * This step deliberately starts observation only; tunnel automation is wired
-     * in a later change after pause/resume lifecycle handling is fully guarded.
+     * User-facing setup for the opt-in banking-app monitor and guarded VPN automation.
+     * The monitor is started only after Usage Access is granted; it fails closed
+     * if that access is later revoked.
      */
     private fun showBankingProtectionDialog() {
         val prefs = settingsPrefs
