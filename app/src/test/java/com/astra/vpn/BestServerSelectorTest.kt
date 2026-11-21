@@ -190,6 +190,23 @@ class BestServerSelectorTest {
     }
 
     @Test
+    fun throughputBonusCannotOverflowAnExtremeLatencyScore() {
+        val now = 1_800_000_000_000L
+        val extreme = "hysteria2://extreme"
+        val normal = "vless://normal"
+        val selected = BestServerSelector.select(
+            profiles = listOf(extreme, normal),
+            latencyMs = mapOf(extreme to Long.MAX_VALUE, normal to 100L),
+            throughputSamples = mapOf(
+                extreme to ThroughputSample(10_000.0, 10_000.0, now),
+                normal to ThroughputSample(1.0, 1.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals(normal, selected)
+    }
+
+    @Test
     fun throughputMayOvercomeOnlySmallBaseScoreGap() {
         val now = 1_800_000_000_000L
         val slightlySlower = "vless://slightly-slower"
