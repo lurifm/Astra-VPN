@@ -93,6 +93,7 @@ class MainActivity : Activity() {
     private var connectionVisualState: String? = null
     private var starPulseAnimator: android.animation.ValueAnimator? = null
     private lateinit var selectedInfo: TextView
+    private lateinit var quickSwitchContainer: LinearLayout
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
@@ -595,6 +596,25 @@ class MainActivity : Activity() {
         }
         connectCard.addView(starButtonFrame, LinearLayout.LayoutParams(dp(108), dp(108)))
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        quickSwitchContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF11172A.toInt(), 22).apply { setStroke(dp(1), 0xFF283653.toInt()) }
+        }
+        val quickSwitchHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        quickSwitchHeader.addView(TextView(this).apply {
+            text = "БЫСТРЫЙ ПЕРЕХОД"; textSize = 10f; letterSpacing = .14f
+            typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFF9CAAD0.toInt())
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        quickSwitchHeader.addView(TextView(this).apply {
+            text = "Все серверы  ›"; textSize = 11f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFC5D0FF.toInt()); gravity = Gravity.CENTER
+            setPadding(dp(8), dp(5), dp(2), dp(5)); isClickable = true; isFocusable = true
+            setOnClickListener { profileScroll.smoothScrollTo(0, 0) }
+        })
+        quickSwitchContainer.addView(quickSwitchHeader, matchWidth())
+        connectCard.addView(quickSwitchContainer, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
 
         val listHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2005,6 +2025,7 @@ class MainActivity : Activity() {
             connected -> "Переключить VPN на выбранный сервер"
             else -> "Подключить VPN к выбранному серверу"
         }
+        if (::quickSwitchContainer.isInitialized) renderQuickSwitch(profiles)
         if (selected != null && connected && selected == activeProfile) {
             selectedInfo.text = when (tunnelInternetOk) {
                 true -> "🛡 Защита проверена · интернет через VPN работает\n${profileSummary(selected)}"
@@ -2422,6 +2443,45 @@ class MainActivity : Activity() {
                 bottomMargin = dp(9)
             })
         }
+    }
+
+    private fun renderQuickSwitch(profiles: List<String>) {
+        if (!::quickSwitchContainer.isInitialized) return
+        while (quickSwitchContainer.childCount > 1) quickSwitchContainer.removeViewAt(1)
+        if (profiles.isEmpty()) { quickSwitchContainer.visibility = View.GONE; return }
+        quickSwitchContainer.visibility = View.VISIBLE
+        val candidates = profiles.distinct().sortedWith(compareBy<String> { latencyMs[it] ?: Long.MAX_VALUE }.thenBy { it }).take(3)
+        val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        candidates.forEachIndexed { index, link ->
+            val uri = Uri.parse(link)
+            val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+            val clean = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "")
+            val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
+            val flag = CountryFlagResolver.flagFor(name)
+            val country = CountryFlagResolver.countryNameForFlag(flag).ifBlank { name }
+            val ping = latencyMs[link]?.let { it.toString() + " мс" } ?: "— мс"
+            val selected = link == selectedProfile
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(7), dp(8))
+                background = rounded(if (selected) 0xFF282B3A.toInt() else 0xFF151B2D.toInt(), 15).apply {
+                    setStroke(dp(1), if (selected) 0xFFD6B66A.toInt() else 0xFF29334D.toInt())
+                }
+                isClickable = true; isFocusable = true
+                foreground = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x40FFFFFF), null, null)
+                contentDescription = "Выбрать сервер " + country + ", задержка " + ping
+                setOnClickListener {
+                    if (selectedProfile != link) {
+                        selectedProfile = link; persistSelectedProfile(); renderProfiles()
+                        if (connected) connectSelectedProfile()
+                    }
+                }
+            }
+            tile.addView(TextView(this@MainActivity).apply { text = flag.ifBlank { "✦" }; textSize = 10f; setTextColor(0xFFC7D2F0.toInt()); maxLines = 1 })
+            tile.addView(TextView(this@MainActivity).apply { text = country; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            tile.addView(TextView(this@MainActivity).apply { text = ping; textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (latencyMs[link] != null) 0xFFE8C77C.toInt() else MUTED) })
+            tiles.addView(tile, LinearLayout.LayoutParams(0, dp(76), 1f).apply { if (index > 0) leftMargin = dp(6) })
+        }
+        quickSwitchContainer.addView(tiles, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
     }
 
     private fun toggleFavoriteServer(link: String) {
