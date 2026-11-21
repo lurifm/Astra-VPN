@@ -8,6 +8,13 @@ internal object NetworkRecoveryPolicy {
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 
+    fun retryDelayMs(attempt: Int): Long? = when (attempt) {
+        0 -> 1_000L
+        1 -> 2_000L
+        2 -> 4_000L
+        else -> null
+    }
+
     fun shouldPublishUnderlay(
         managesAndroidUnderlay: Boolean,
         updateRequired: Boolean,
