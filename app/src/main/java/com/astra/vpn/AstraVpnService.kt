@@ -78,7 +78,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     recoveryProfileTransaction.stage(link)
                 }
             }
-            return if (enabled) START_STICKY else START_NOT_STICKY
+            val keepSticky = synchronized(lifecycleLock) {
+                VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(
+                    recoveryEnabled = enabled,
+                    stopping = stopping
+                )
+            }
+            return if (keepSticky) START_STICKY else START_NOT_STICKY
         }
         if (intent?.action == ACTION_STOP) {
             runCatching { ProfileStore(this).setRecoveryProfile(null) }
