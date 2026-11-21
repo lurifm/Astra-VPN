@@ -118,11 +118,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
             val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
             val requestedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
+            val command = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
             val allowed = synchronized(lifecycleLock) {
                 !stopping && commandServer != null && activeConfig != null &&
                     configurationAccepted && tunDescriptor != null &&
                     state != null &&
                     BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
+                    command?.transitionId == requestedTransitionId &&
+                    command.command == BankingAutomationCommandRecord.Command.PAUSE &&
+                    command.status == BankingAutomationCommandRecord.Status.PENDING &&
                     !activeProfileLink.isNullOrBlank() &&
                     snapshot?.profileLink == activeProfileLink
             }
@@ -132,6 +136,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             // Unlike ACTION_STOP, this deliberately preserves the recovery profile and bank snapshot.
             stopTunnel()
+            runCatching {
+                check(BankingAutomationCommandLedger(this).complete(requestedTransitionId, BankingAutomationCommandRecord.Command.PAUSE))
+            }.onFailure { Log.e(TAG, "Banking pause ACK persistence failed", it) }
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_AUTO_RESUME) {
@@ -139,9 +146,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
             val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
             val requestedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
+            val command = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
             val allowed = UsageAccessPermission.hasAccess(this) &&
                 state != null &&
                 BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
+                command?.transitionId == requestedTransitionId &&
+                command.command == BankingAutomationCommandRecord.Command.RESUME &&
+                command.status == BankingAutomationCommandRecord.Status.PENDING &&
                 !requestedLink.isNullOrBlank() &&
                 snapshot?.profileLink == requestedLink &&
                 runCatching { requestedLink in ProfileStore(this).all() }.getOrDefault(false) &&
@@ -598,6 +609,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         runCatching {
             store.write(currentState.completeAutomaticResume())
+            check(BankingAutomationCommandLedger(this).complete(pendingTransitionId, BankingAutomationCommandRecord.Command.RESUME))
             // If encrypted snapshot cleanup fails, the completed state still prevents another resume.
             ProfileStore(this).clearBankPauseSnapshot()
             getSharedPreferences("astra_settings", MODE_PRIVATE).edit()

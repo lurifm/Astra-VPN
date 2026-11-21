@@ -128,6 +128,8 @@ internal class BankingForegroundMonitorService : Service() {
     }
 
     private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
+        val ledger = BankingAutomationCommandLedger(this)
+        ledger.clearCompleted()
         val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
         if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
             !UsageAccessPermission.hasAccess(this)
@@ -199,6 +201,8 @@ internal class BankingForegroundMonitorService : Service() {
                     // A new bank-entry episode must not inherit a cooldown from an
                     // earlier failed resume attempt.
                     settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
+                    val command = BankingAutomationCommandRecord(plan.nextState.transitionId, BankingAutomationCommandRecord.Command.PAUSE, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
+                    if (!ledger.writePending(command)) return
                     startService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
@@ -236,6 +240,8 @@ internal class BankingForegroundMonitorService : Service() {
                             .putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now)
                             .commit()
                     ) return
+                    val command = BankingAutomationCommandRecord(state.transitionId, BankingAutomationCommandRecord.Command.RESUME, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
+                    if (!ledger.writePending(command)) return
                     startForegroundService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)

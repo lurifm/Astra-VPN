@@ -1792,3 +1792,13 @@ CI run для последнего коммита необходимо пров�
 - Добавлены unit tests для совпадающего, отсутствующего и устаревшего transition ID.
 - CI и физический Android end-to-end test обязательны; production-ready не заявлять.
 
+
+
+## 93. Durable banking command ledger and service acknowledgements
+
+- Added a strict versioned command envelope in SharedPreferences: transition ID, PAUSE/RESUME, originating foreground package and PENDING/COMPLETED status. It contains no profile URI or credentials.
+- Monitor commits PENDING synchronously before dispatching either command. A different unresolved command cannot overwrite it.
+- VPN service independently requires the exact pending envelope and matching command type/transition ID, in addition to existing state, snapshot, TUN and permission gates.
+- PAUSE is acknowledged after stopTunnel closes the TUN and publishes DISCONNECTED. RESUME is acknowledged only after TUN-ready and durable banking-state completion.
+- Monitor consumes completed ACK records on the next stable observation. Codec tests cover round-trip and malformed/future records.
+- This is the first durable ACK layer, not full crash recovery: a pending command may remain after service rejection or process death. Same-origin guarded reconciliation/retry and explicit failed/cancelled outcomes remain next work. Physical Android end-to-end tests remain mandatory.
