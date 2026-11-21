@@ -6082,6 +6082,11 @@ class MainActivity : Activity() {
     private fun updateConnectionCardAppearance(state: String) {
         if (connectionVisualState == state || !::connectionCard.isInitialized) return
         connectionVisualState = state
+        if (::starButtonFrame.isInitialized) {
+            (0 until starButtonFrame.childCount).asSequence()
+                .mapNotNull { starButtonFrame.getChildAt(it) as? OrbitHeroView }
+                .firstOrNull()?.setConnectionState(state)
+        }
         val colors = when (state) {
             "connected" -> intArrayOf(0xFF3A2D13.toInt(), 0xFF242018.toInt(), 0xFF10131B.toInt())
             "connecting" -> intArrayOf(0xFF4A3518.toInt(), 0xFF30251B.toInt(), 0xFF17131D.toInt())
