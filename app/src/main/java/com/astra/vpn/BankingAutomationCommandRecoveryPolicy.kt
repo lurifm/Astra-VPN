@@ -5,7 +5,7 @@ package com.astra.vpn
  * This policy deliberately requires the exact origin and transition; it never guesses.
  */
 internal object BankingAutomationCommandRecoveryPolicy {
-    enum class Decision { CANCEL, WAIT, REPLAY_PAUSE, REPLAY_RESUME }
+    enum class Decision { CANCEL, WAIT, ACK_PAUSE, ACK_RESUME, REPLAY_PAUSE, REPLAY_RESUME }
 
     data class Input(
         val command: BankingAutomationCommandRecord,
@@ -36,11 +36,17 @@ internal object BankingAutomationCommandRecoveryPolicy {
         return when (record.command) {
             BankingAutomationCommandRecord.Command.PAUSE -> {
                 if (record.originatingPackage !in input.bankPackages ||
-                    input.activeProfileLink != snapshot || !input.vpnConnected
-                ) Decision.CANCEL else Decision.REPLAY_PAUSE
+                    input.activeProfileLink != snapshot
+                ) Decision.CANCEL
+                else if (input.vpnConnected) Decision.REPLAY_PAUSE
+                else Decision.ACK_PAUSE
             }
             BankingAutomationCommandRecord.Command.RESUME -> {
-                if (record.originatingPackage in input.bankPackages || input.vpnConnected) {
+                if (record.originatingPackage in input.bankPackages) {
+                    Decision.CANCEL
+                } else if (input.vpnConnected && input.activeProfileLink == snapshot) {
+                    Decision.ACK_RESUME
+                } else if (input.vpnConnected) {
                     Decision.CANCEL
                 } else if (!BankingResumeRetryPolicy.shouldAttempt(
                         input.lastResumeAttemptEpochMillis, input.nowEpochMillis

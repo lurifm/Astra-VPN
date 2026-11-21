@@ -30,7 +30,7 @@ class BankingAutomationCommandRecoveryPolicyTest {
             BankingAutomationCommandRecoveryPolicy.decide(input(foreground = "com.example.secondbank")))
         assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.CANCEL,
             BankingAutomationCommandRecoveryPolicy.decide(input(active = "other-profile")))
-        assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.CANCEL,
+        assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.ACK_PAUSE,
             BankingAutomationCommandRecoveryPolicy.decide(input(connected = false)))
     }
 
@@ -44,6 +44,16 @@ class BankingAutomationCommandRecoveryPolicyTest {
             BankingAutomationCommandRecoveryPolicy.decide(input(
                 command = BankingAutomationCommandRecord.Command.RESUME,
                 origin = "com.android.launcher", foreground = "com.example.bank", connected = false
+            )))
+        assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.ACK_RESUME,
+            BankingAutomationCommandRecoveryPolicy.decide(input(
+                command = BankingAutomationCommandRecord.Command.RESUME,
+                origin = "com.android.launcher", connected = true
+            )))
+        assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.CANCEL,
+            BankingAutomationCommandRecoveryPolicy.decide(input(
+                command = BankingAutomationCommandRecord.Command.RESUME,
+                origin = "com.android.launcher", connected = true, active = "different-profile"
             )))
         assertEquals(BankingAutomationCommandRecoveryPolicy.Decision.WAIT,
             BankingAutomationCommandRecoveryPolicy.decide(input(

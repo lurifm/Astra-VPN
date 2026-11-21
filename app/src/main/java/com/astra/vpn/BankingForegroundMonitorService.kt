@@ -183,6 +183,21 @@ internal class BankingForegroundMonitorService : Service() {
                     return
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.WAIT -> return
+                BankingAutomationCommandRecoveryPolicy.Decision.ACK_PAUSE -> {
+                    // Exact transition + encrypted snapshot + absent live VPN transport
+                    // proves the pause completed before its durable service ACK.
+                    check(ledger.complete(pending.transitionId, pending.command))
+                    return
+                }
+                BankingAutomationCommandRecoveryPolicy.Decision.ACK_RESUME -> {
+                    // Only acknowledge a lost resume ACK when Android reports a live VPN
+                    // and the active profile is exactly the saved banking snapshot.
+                    stateStore.write(state.completeAutomaticResume())
+                    check(ledger.complete(pending.transitionId, pending.command))
+                    profileStore.clearBankPauseSnapshot()
+                    settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
+                    return
+                }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_PAUSE -> {
                     startService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_PAUSE)

@@ -1812,3 +1812,12 @@ CI run для последнего коммита необходимо пров�
 - A pending RESUME is replayed only while the exact non-bank origin remains foreground, the same transition is active, the snapshot profile still exists, VPN is not connected/connecting, and the existing bounded retry cooldown allows another attempt.
 - Leaving the originating app, changing transition, missing profile/snapshot, or an already-completed pause cancels the pending command. This prevents a stale bank-A pause from being replayed while bank B is foreground.
 - Recovery is observation-driven while the monitor is running; force-stop, revoked Usage Access, OEM process restrictions and Android foreground-service start restrictions still require physical-device testing. Failed service starts are guarded by the retry cooldown.
+
+
+## 95. Reconcile completed operations whose ACK was lost
+
+- Recovery policy now distinguishes replay from proof of completion.
+- A pending PAUSE is acknowledged only when the exact transition and saved/active profile still match, but Android no longer reports a live VPN transport. A manual disconnect changes the transition token, so it cannot be mistaken for an automatic pause.
+- A pending RESUME is acknowledged only when the exact transition remains active, the original non-bank app is foreground, Android reports a live VPN transport, and the active profile exactly matches the encrypted snapshot.
+- Lost ACK reconciliation completes the state/ledger and clears the snapshot only after those exact checks. A connected VPN using another profile is rejected.
+- Pure policy tests cover replay, wait, ACK recovery, stale transition and profile mismatch.
