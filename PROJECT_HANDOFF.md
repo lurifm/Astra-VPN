@@ -1346,3 +1346,11 @@ CI run для последнего коммита необходимо пров�
 - `completedTags` переведён на concurrent set, так как чтение выполняется dispatcher threads, а обновление — main Handler.
 - Добавлены `LatencyProbeDispatchPolicy.kt` и unit-тесты для отмены, завершения и истечения срока. Изменён `AstraLatencyTestService.kt`; коммиты `155b28bb`, `c55ea8d8`, `d7b94da8`.
 - Требуется CI и проверка на Android с большой подпиской; native `urlTest` уже запущенный до deadline может быть не interruptible, но его результат не должен изменять финальное состояние.
+
+
+## Ускорение построения конфигурации URLTest (21 ноября 2026)
+
+- `SingBoxUrlTestConfig.build()` ранее для каждого профиля вызывал `SingBoxConfigBuilder.build(link)`: это создавало полный временный VPN JSON (DNS, TUN, route), сериализовало его и запускало `Libbox.checkConfig`, после чего извлекался только первый proxy outbound. На большой подписке эта работа повторялась N раз.
+- Логику разбора ссылки и создания outbound вынесли в `SingBoxConfigBuilder.buildProxyOutbound()`. Основная VPN-сборка по-прежнему собирает полный config и проверяет его через `Libbox.checkConfig`; URLTest теперь создаёт только нужный outbound на профиль и проверяет один итоговый non-TUN config в конце.
+- Сохранены общие протокольные парсеры VLESS, Hysteria2/Hy2 и TUIC, а также те же advanced options/default multiplex поведение.
+- Коммиты: `7ff18b56`, `01989448`, `6d192b11`. Нужны CI и device benchmark на маленькой/большой подписке; пока нет измеренного процента ускорения.
