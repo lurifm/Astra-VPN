@@ -24,4 +24,25 @@ class TunnelHealthCheckerTest {
         assertFalse(TunnelHealthChecker.isReachableStatusCode(100))
         assertFalse(TunnelHealthChecker.isReachableStatusCode(600))
     }
+
+    @Test fun dividesTenSecondBudgetAcrossBothEndpointsAndPhases() {
+        assertEquals(2_500, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(10_000L, 2))
+        assertEquals(2_500, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(5_000L, 1))
+    }
+
+    @Test fun reducesTimeoutAsFallbackBudgetShrinks() {
+        assertEquals(1_000, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(4_000L, 2))
+        assertEquals(500, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(1_000L, 1))
+    }
+
+    @Test fun rejectsExpiredBudgetAndNoRemainingEndpoints() {
+        assertEquals(0, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(0L, 2))
+        assertEquals(0, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(-1L, 1))
+        assertEquals(0, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(1_000L, 0))
+    }
+
+    @Test fun tinyPositiveBudgetStillProducesPositiveSocketTimeout() {
+        assertEquals(1, TunnelHealthTimeoutPolicy.timeoutPerPhaseMs(1L, 2))
+    }
+
 }
