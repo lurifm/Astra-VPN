@@ -94,6 +94,13 @@ class MainActivity : Activity() {
     private var starPulseAnimator: android.animation.ValueAnimator? = null
     private lateinit var selectedInfo: TextView
     private lateinit var quickSwitchContainer: LinearLayout
+    private lateinit var orbitMetricsLabel: TextView
+    private val orbitDurationTick = object : Runnable {
+        override fun run() {
+            updateOrbitMetrics()
+            if (connected && !isFinishing && !isDestroyed) monitorHandler.postDelayed(this, 1_000L)
+        }
+    }
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
@@ -338,6 +345,9 @@ class MainActivity : Activity() {
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = true
+                    if (settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L) <= 0L) {
+                        settingsPrefs.edit().putLong(KEY_VPN_CONNECTED_SINCE, System.currentTimeMillis()).apply()
+                    }
                     connecting = false
                     tunnelInternetOk = null
                     lastHealthCheckAt = 0L
@@ -349,6 +359,7 @@ class MainActivity : Activity() {
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
+                    settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
                     connecting = false
                     consecutiveHealthFailures = 0
                     tunnelInternetOk = null
@@ -601,6 +612,16 @@ class MainActivity : Activity() {
             topMargin = dp(4)
             bottomMargin = dp(2)
         })
+        orbitMetricsLabel = TextView(this).apply {
+            text = "00:00:00  ·  ↓ — / ↑ — Мбит/с"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFFB7C1D9.toInt())
+            setPadding(dp(4), dp(2), dp(4), dp(5))
+            contentDescription = "Длительность подключения и скорость через VPN"
+        }
+        connectCard.addView(orbitMetricsLabel, matchWidth())
         connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         quickSwitchContainer = LinearLayout(this).apply {
@@ -3839,8 +3860,31 @@ class MainActivity : Activity() {
      * this sample excludes unrelated apps and direct outbound traffic. The core
      * currently exposes connection-event deltas, so coverage can be incomplete.
      */
+    private fun updateOrbitMetrics() {
+        if (!::orbitMetricsLabel.isInitialized) return
+        if (!connected) {
+            orbitMetricsLabel.text = "00:00:00  ·  ↓ — / ↑ — Мбит/с"
+            orbitMetricsLabel.setTextColor(0xFF9AA6BF.toInt())
+            return
+        }
+        val startedAt = settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L)
+        val elapsedSeconds = if (startedAt > 0L) {
+            ((System.currentTimeMillis() - startedAt).coerceAtLeast(0L) / 1_000L)
+        } else 0L
+        val hours = elapsedSeconds / 3_600L
+        val minutes = (elapsedSeconds % 3_600L) / 60L
+        val seconds = elapsedSeconds % 60L
+        val rate = vpnTrafficRateTracker.current(android.os.SystemClock.elapsedRealtime())
+        val speed = rate?.let {
+            "↓ ${String.format(java.util.Locale.US, "%.1f", it.downloadMbps)} / ↑ ${String.format(java.util.Locale.US, "%.1f", it.uploadMbps)} Мбит/с"
+        } ?: "↓ — / ↑ — Мбит/с"
+        orbitMetricsLabel.text = String.format(java.util.Locale.US, "%02d:%02d:%02d  ·  %s", hours, minutes, seconds, speed)
+        orbitMetricsLabel.setTextColor(if (rate != null && rate.sampleAgeMs <= 3_000L) 0xFFE8C77C.toInt() else 0xFF9AA6BF.toInt())
+    }
+
     private fun updateVpnTrafficMonitor() {
         val nowElapsed = android.os.SystemClock.elapsedRealtime()
+        updateOrbitMetrics()
         if (!connected) {
             vpnTrafficRateTracker.reset()
             lastVpnTrafficSnapshotAt = 0L
@@ -6121,6 +6165,7 @@ class MainActivity : Activity() {
         private const val KEY_LATENCY_SESSION_ID = "active_session_id"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
+        private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
         private const val SELECTED_CARD = 0xFF182746.toInt()
