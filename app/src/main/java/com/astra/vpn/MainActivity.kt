@@ -4033,8 +4033,14 @@ class MainActivity : Activity() {
             rate.downloadMbps, rate.uploadMbps,
             if (rate.sampleAgeMs > 3_000L) "нет свежих событий" else "оценка по событиям sing-box"
         )
+        // This rate is derived from sing-box proxy counters, so it is VPN-scoped.
+        // Ignore stale samples: they cannot prove a sustained drop in the active tunnel.
+        val hasFreshVpnSample = rate.sampleAgeMs <= 3_000L
         if (speedDropPolicy.update(
-                rate.downloadMbps, nowElapsed, vpnConnected = true, trafficIsVpnScoped = false
+                rate.downloadMbps,
+                nowElapsed,
+                vpnConnected = true,
+                trafficIsVpnScoped = hasFreshVpnSample
             )) {
             maybeAutoSpeedFailover()
         }
