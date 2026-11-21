@@ -3679,8 +3679,8 @@ class MainActivity : Activity() {
         if (::constellationView.isInitialized) {
             constellationView.setActive(allowed && connectionVisualState == "connected")
         }
-        if (!allowed && ::starPulseAnimator.isInitialized) stopStarPulse()
-        if (!allowed && ::window.isInitialized) {
+        if (!allowed) stopStarPulse()
+        if (!allowed) {
             val decor = window.decorView as? ViewGroup
             if (decor != null) {
                 for (index in decor.childCount - 1 downTo 0) {
