@@ -3916,6 +3916,7 @@ class MainActivity : Activity() {
      */
     private fun updateOrbitMetrics() {
         if (!::orbitMetricsLabel.isInitialized) return
+        updateOrbitIdentity()
         if (!connected) {
             orbitMetricsLabel.text = "00:00:00  ·  ↓ — / ↑ — Мбит/с"
             orbitMetricsLabel.setTextColor(0xFF9AA6BF.toInt())
