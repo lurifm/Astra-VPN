@@ -13,10 +13,18 @@ import kotlin.math.sin
 /** Decorative orbit field; the accessible connect button is layered above it. */
 internal class OrbitHeroView(context: Context) : View(context) {
     private var connectionState: String = "idle"
+    private var animationAllowed: Boolean = true
 
     fun setConnectionState(state: String) {
         if (connectionState == state) return
         connectionState = state
+        invalidate()
+    }
+
+    /** Stops frame scheduling in the background and while Android Battery Saver is active. */
+    fun setAnimationAllowed(allowed: Boolean) {
+        if (animationAllowed == allowed) return
+        animationAllowed = allowed
         invalidate()
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -34,8 +42,9 @@ internal class OrbitHeroView(context: Context) : View(context) {
         val cx = width / 2f
         val cy = height / 2f
         val radius = min(width * .43f, height * .43f)
-        val phase = (android.os.SystemClock.uptimeMillis() % 18_000L) / 18_000f
-        val pulse = .94f + .06f * sin(phase * Math.PI * 2.0).toFloat()
+        val phase = if (animationAllowed)
+            (android.os.SystemClock.uptimeMillis() % 18_000L) / 18_000f else 0f
+        val pulse = if (animationAllowed) .94f + .06f * sin(phase * Math.PI * 2.0).toFloat() else 1f
         glowPaint.shader = RadialGradient(cx, cy, radius * .72f * pulse,
             when (connectionState) {
                 "connected" -> intArrayOf(0x5549D6A8, 0x1E36B88B, 0x00000000)
@@ -72,7 +81,8 @@ internal class OrbitHeroView(context: Context) : View(context) {
                 val y = ((index * 61 + 23) % 97) / 100f
                 // Keep the brightest extra stars outside the central connect-button area.
                 if (x in 0.37f..0.63f && y in 0.37f..0.63f) continue
-                val twinkle = (sin(phase * Math.PI * 2.0 + index * 1.31) + 1.0) / 2.0
+                val twinkle = if (animationAllowed)
+                    (sin(phase * Math.PI * 2.0 + index * 1.31) + 1.0) / 2.0 else 0.5
                 starPaint.color = 0xFFFFE7AE.toInt()
                 starPaint.alpha = (75 + twinkle * 165).toInt()
                 val starRadius = dp(if (index % 7 == 0) 2.1f else 1.15f) *
@@ -90,7 +100,7 @@ internal class OrbitHeroView(context: Context) : View(context) {
         // Slow counter-rotating satellites add depth without competing with the CTA.
         val orbitSpecs = listOf(.67f to 1f, .91f to -0.62f)
         orbitSpecs.forEachIndexed { index, spec ->
-            val angle = (phase * Math.PI * 2.0 * spec.second + index * 1.7).toFloat()
+            val angle = ((if (animationAllowed) phase else 0f) * Math.PI * 2.0 * spec.second + index * 1.7).toFloat()
             val orbitRadius = radius * spec.first
             val x = cx + (cos(angle) * orbitRadius).toFloat()
             val y = cy + (sin(angle) * orbitRadius).toFloat()
@@ -99,12 +109,12 @@ internal class OrbitHeroView(context: Context) : View(context) {
         }
         orbitDotPaint.alpha = 255
         canvas.drawCircle(cx, cy - radius * .67f, dp(4f), starPaint)
-        if (isShown) postInvalidateDelayed(50L)
+        if (animationAllowed && isShown) postInvalidateDelayed(50L)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        postInvalidateOnAnimation()
+        if (animationAllowed) postInvalidateOnAnimation()
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
