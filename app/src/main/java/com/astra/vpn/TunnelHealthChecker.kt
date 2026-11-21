@@ -54,3 +54,14 @@ object TunnelHealthChecker {
     }
     private const val TOTAL_TIMEOUT_MS = 10_000L
 }
+
+
+/** Splits one remaining wall-clock budget across connect/read phases and fallback endpoints. */
+internal object TunnelHealthTimeoutPolicy {
+    fun timeoutPerPhaseMs(remainingMs: Long, endpointsRemaining: Int): Int {
+        if (remainingMs <= 0L || endpointsRemaining <= 0) return 0
+        val phasesRemaining = endpointsRemaining.toLong() * 2L
+        return (remainingMs / phasesRemaining).coerceAtLeast(1L)
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+}
