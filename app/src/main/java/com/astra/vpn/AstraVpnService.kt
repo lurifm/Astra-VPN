@@ -334,22 +334,23 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         super.onDestroy()
     }
 
-    private fun handleTunCreated(descriptor: ParcelFileDescriptor, ownerGeneration: Long) {
+    private fun handleTunCreated(descriptor: ParcelFileDescriptor, ownerGeneration: Long): Boolean =
         synchronized(lifecycleLock) {
-            // libbox may finish opening TUN after shutdown or after a replacement
-            // CommandServer has started. Never let an older server publish CONNECTED.
+            // Reject, rather than merely close, a descriptor from an obsolete
+            // CommandServer. AstraPlatform must not hand a closed fd back to libbox.
             if (stopping || !lifecycleGeneration.isCurrent(ownerGeneration)) {
-                runCatching { descriptor.close() }
-                    .onFailure { Log.w(TAG, "Late TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
-                return
+                return@synchronized false
             }
-            runCatching { tunDescriptor?.close() }
+            tunDescriptor?.let { previous ->
+                runCatching { previous.close() }
+                    .onFailure { Log.w(TAG, "Previous TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
+            }
             tunDescriptor = descriptor
             cancelTunTimeoutLocked()
             commitRecoveryProfileLocked()
             publishState(STATE_CONNECTED)
+            true
         }
-    }
 
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
