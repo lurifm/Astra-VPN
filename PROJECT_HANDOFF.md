@@ -898,3 +898,13 @@ CI для последнего набора изменений необходи�
 - Изменён `AstraVpnService.kt`; production-коммит: `437a110`.
 - CI run #924 (44905184591) для предыдущего HEAD `031ec26` завершился SUCCESS: unit tests, debug APK, verification и artifact upload. Для коммита 77 нужен отдельный CI run.
 - На Android проверить: спровоцировать внутренний reload при кратковременной потере сети; убедиться, что после ошибки сервис корректно закрывает старый туннель, UI запускает не более двух повторов (3/8 секунд), а ручной Disconnect или смена профиля немедленно отменяет retry.
+
+
+## 78. Отбрасывание health-probe результата после потери underlay (21 ноября 2026)
+
+- Найдена гонка при handover: физическая сеть могла потеряться уже после старта HTTPS health probe. Если probe завершался timeout/error до следующего секундного monitor tick, его результат учитывался как отказ VPN-сервера и увеличивал счётчик auto-failover.
+- В completion callback добавлена повторная проверка validated, unsuspended физической сети. Если underlay исчез, результат probe отбрасывается: `waitingForUnderlyingNetwork=true`, `tunnelInternetOk=null`, timestamp сбрасывается, счётчик ошибок и auto-failover не затрагиваются.
+- Существующий monitor tick продолжает проверять восстановление сети; после появления validated underlay health checks автоматически возобновляются. Не добавлялся отдельный retry/reconnect loop.
+- Изменён `MainActivity.kt`; production-коммит: `a23f74f`.
+- На момент внесения изменения CI #926 (44909908125) для HEAD `c4eacf2` выполнял unit tests; build/verify/upload ещё не завершены. Нужен CI на новый HEAD.
+- Android smoke test: начать health probe, отключить Wi-Fi/мобильную сеть до его завершения, убедиться, что failure counter не растёт и failover не происходит; восстановить validated сеть и проверить автоматическое возобновление проверок.
