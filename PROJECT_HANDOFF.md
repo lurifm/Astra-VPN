@@ -1671,3 +1671,14 @@ CI run для последнего коммита необходимо пров�
 - Final source includes the connect guard before manual-state mutation: duplicate/in-flight requests and missing selected profiles do not clear banking state.
 - The two additional transition tests are inside `BankingAutomationStateTest` (not top-level).
 - Final source HEAD at this checkpoint: `8827753ebcdeb74cdde51aa8b31536981134e65e`; CI must be checked against this exact SHA.
+
+## 81. Pure banking automation transition engine (22 ноября 2026)
+
+- Добавлен `BankingAutomationTransitionEngine`: единая pure orchestration boundary между стабильным UsageEvents observation, BankingAutoPausePolicy и persistent BankingAutomationState.
+- Движок выдаёт только типизированные команды `NONE`, `SAVE_PROFILE_AND_PAUSE`, `RESUME_SAVED_PROFILE`, `CLEAR_SNAPSHOT`; Android side effects остаются у вызывающего слоя.
+- Freshness проверяется внутри engine: timestamp должен быть положительным, не из будущего и не старше 3 секунд.
+- Pause state не фиксируется, пока caller не подтвердил наличие сохранённого точного профиля. При отсутствии snapshot engine не разрешает остановку туннеля.
+- Resume выдаётся только для уже auto-paused состояния с ранее активным VPN, без ручного disconnect, при свежем non-bank observation и доступном snapshot.
+- Добавлено 9 unit tests: pause preconditions, no snapshot, resume, previously disconnected, stale/future/null observation, no Usage Access, второй банк, missing profile и manual disconnect.
+- Коммит: `a85f08b`.
+- Это всё ещё pure decision engine; он пока не подключён к monitor/VpnService. Не заявлять автоматическую банковскую паузу как готовую. Следующий этап — реализовать side-effect executor с транзакционным сохранением snapshot и отдельными AUTO_PAUSE/AUTO_RESUME service actions, сохраняя recovery state и работоспособность monitor.
