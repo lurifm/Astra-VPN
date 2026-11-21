@@ -6,6 +6,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.system.OsConstants
 import android.os.ParcelFileDescriptor
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
@@ -44,6 +46,9 @@ class AstraPlatform(
     private var lastUnderlyingNetwork: Network? = null
     private var lastInterfaceSnapshot: InterfaceSnapshot? = null
     private var hasReportedNoInterface = false
+    private val underlayRetryHandler = Handler(Looper.getMainLooper())
+    private var underlayRetryAttempt = 0
+    private var underlayRetryRunnable: Runnable? = null
 
     private data class InterfaceSnapshot(
         // Include the Android Network handle, not just the interface name:
@@ -59,6 +64,8 @@ class AstraPlatform(
 
     companion object {
         private const val TAG = "AstraPlatform"
+        private const val MAX_UNDERLAY_RETRIES = 3
+        private val UNDERLAY_RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L, 4_000L)
 
         // Shared only inside the main app process. MainActivity uses the
         // underlay selected by the active VpnService instead of guessing from
@@ -292,6 +299,7 @@ class AstraPlatform(
             defaultNetworkCallback = null
             interfaceListener = null
             lastUnderlyingNetwork = null
+            cancelUnderlayRetryLocked(resetAttempts = true)
             if (protectSockets) currentPhysicalNetwork = null
             lastInterfaceSnapshot = null
             hasReportedNoInterface = false
@@ -311,7 +319,12 @@ class AstraPlatform(
                     .isSuccess
                 // Retain the previous handle after a failed Android update so a
                 // later callback can retry instead of pretending it was cleared.
-                if (cleared) lastUnderlyingNetwork = null
+                if (cleared) {
+                    lastUnderlyingNetwork = null
+                    cancelUnderlayRetryLocked(resetAttempts = true)
+                } else {
+                    scheduleUnderlayRetryLocked()
+                }
             }
             if (protectSockets) currentPhysicalNetwork = null
             notifyNoDefaultInterfaceIfChanged(listener)
@@ -324,8 +337,14 @@ class AstraPlatform(
         val updateRequired = manageVpnUnderlyingNetworks && lastUnderlyingNetwork != selectedNetwork
         val updateSucceeded = if (updateRequired) {
             runCatching { vpnService.setUnderlyingNetworks(arrayOf(selectedNetwork)) }
-                .onSuccess { lastUnderlyingNetwork = selectedNetwork }
-                .onFailure { Log.w(TAG, "Не удалось назначить базовую сеть VPN", it) }
+                .onSuccess {
+                    lastUnderlyingNetwork = selectedNetwork
+                    cancelUnderlayRetryLocked(resetAttempts = true)
+                }
+                .onFailure {
+                    Log.w(TAG, "Не удалось назначить базовую сеть VPN", it)
+                    scheduleUnderlayRetryLocked()
+                }
                 .isSuccess
         } else {
             true
@@ -485,6 +504,32 @@ class AstraPlatform(
                 .thenByDescending { it.second.second }
                 .thenByDescending { it.third }
         ).firstOrNull()?.first
+    }
+
+    /** Retry transient Android underlay assignment failures with bounded backoff.
+     * Each retry re-reads activeNetwork; it never replays a stale Network handle.
+     */
+    @Synchronized
+    private fun scheduleUnderlayRetryLocked() {
+        if (underlayRetryRunnable != null || underlayRetryAttempt >= MAX_UNDERLAY_RETRIES) return
+        val delay = UNDERLAY_RETRY_DELAYS_MS[underlayRetryAttempt]
+        underlayRetryAttempt++
+        val retry = Runnable {
+            synchronized(this) {
+                underlayRetryRunnable = null
+                if (interfaceListener == null) return@synchronized
+                refreshDefaultInterface()
+            }
+        }
+        underlayRetryRunnable = retry
+        underlayRetryHandler.postDelayed(retry, delay)
+    }
+
+    @Synchronized
+    private fun cancelUnderlayRetryLocked(resetAttempts: Boolean) {
+        underlayRetryRunnable?.let(underlayRetryHandler::removeCallbacks)
+        underlayRetryRunnable = null
+        if (resetAttempts) underlayRetryAttempt = 0
     }
 
     private fun notifyNoDefaultInterfaceIfChanged(listener: InterfaceUpdateListener) {
