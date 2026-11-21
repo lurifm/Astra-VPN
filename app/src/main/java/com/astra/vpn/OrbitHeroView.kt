@@ -51,8 +51,8 @@ internal class OrbitHeroView(context: Context) : View(context) {
         orbitSpecs.forEachIndexed { index, spec ->
             val angle = (phase * Math.PI * 2.0 * spec.second + index * 1.7).toFloat()
             val orbitRadius = radius * spec.first
-            val x = cx + cos(angle) * orbitRadius
-            val y = cy + sin(angle) * orbitRadius
+            val x = cx + (cos(angle) * orbitRadius).toFloat()
+            val y = cy + (sin(angle) * orbitRadius).toFloat()
             orbitDotPaint.alpha = if (index == 0) 235 else 155
             canvas.drawCircle(x, y, dp(if (index == 0) 3.2f else 2f), orbitDotPaint)
         }
