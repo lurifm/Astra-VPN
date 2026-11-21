@@ -18,6 +18,18 @@ class ServiceStartRequestGenerationTest {
     }
 
     @Test
+    fun currentSnapshotMatchesLatestStartAndChangesAfterInvalidation() {
+        val generation = ServiceStartRequestGeneration()
+        val initial = generation.current()
+        val request = generation.next()
+        assertEquals(request, generation.current())
+        assertTrue(generation.isCurrent(initial).not())
+        generation.invalidate()
+        assertFalse(generation.isCurrent(request))
+        assertTrue(generation.current() > request)
+    }
+
+    @Test
     fun stopInvalidatesPendingRequest() {
         val generation = ServiceStartRequestGeneration()
         val request = generation.next()
