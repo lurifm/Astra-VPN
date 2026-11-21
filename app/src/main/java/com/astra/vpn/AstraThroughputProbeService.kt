@@ -102,12 +102,20 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             }
         }
         networkCallback = callback
-        connectivityManager.registerNetworkCallback(
-            NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build(),
-            callback
-        )
+        try {
+            connectivityManager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build(),
+                callback
+            )
+        } catch (error: RuntimeException) {
+            networkCallback = null
+            Log.e(TAG, "Unable to monitor the physical network (" + error.javaClass.simpleName + ")")
+            publishError("Не удалось отслеживать состояние мобильной сети")
+            finish()
+            return START_NOT_STICKY
+        }
 
         mainHandler.postDelayed(timeoutRunnable, measurementTimeoutMs)
         startForeground(
