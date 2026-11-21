@@ -168,14 +168,34 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 Log.w(TAG, "Banking auto-resume rejected: saved profile configuration invalid")
                 return START_NOT_STICKY
             }
-            bankingAutoResumePending = true
-            bankingAutoResumeTransitionId = requestedTransitionId
+            val staged = synchronized(lifecycleLock) {
+                val currentState = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+                val currentSnapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+                val currentCommand = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
+                val stillCurrent = !stopping &&
+                    currentState != null &&
+                    BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, currentState) &&
+                    currentCommand?.transitionId == requestedTransitionId &&
+                    currentCommand.command == BankingAutomationCommandRecord.Command.RESUME &&
+                    currentCommand.status == BankingAutomationCommandRecord.Status.PENDING &&
+                    currentSnapshot?.profileLink == requestedLink
+                if (stillCurrent) {
+                    bankingAutoResumePending = true
+                    bankingAutoResumeTransitionId = requestedTransitionId
+                }
+                stillCurrent
+            }
+            if (!staged) {
+                Log.w(TAG, "Banking auto-resume rejected: durable transition changed before staging")
+                return START_NOT_STICKY
+            }
             return onStartCommand(
                 Intent(intent)
                     .setAction(ACTION_START)
                     .putExtra(EXTRA_CONFIG, config)
                     .putExtra(EXTRA_PROFILE_LINK, requestedLink)
-                    .putExtra(EXTRA_TRANSITION_ID, requestedTransitionId),
+                    .putExtra(EXTRA_TRANSITION_ID, requestedTransitionId)
+                    .putExtra(EXTRA_BANKING_AUTO_RESUME, true),
                 flags,
                 startId
             )
@@ -208,10 +228,31 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
         if (intent?.action == ACTION_START) {
             val suppliedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
-            val automaticResume = synchronized(lifecycleLock) {
-                bankingAutoResumePending && suppliedTransitionId == bankingAutoResumeTransitionId
-            }
-            if (!automaticResume) {
+            val internalAutoResume = intent.getBooleanExtra(EXTRA_BANKING_AUTO_RESUME, false)
+            if (internalAutoResume) {
+                // A queued internal resume is never reinterpreted as a manual connect.
+                // Revalidate after staging: a manual STOP may have won the lock in between.
+                val stillAllowed = synchronized(lifecycleLock) {
+                    val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+                    val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+                    val command = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
+                    !stopping &&
+                        bankingAutoResumePending &&
+                        suppliedTransitionId == bankingAutoResumeTransitionId &&
+                        state != null &&
+                        BankingAutomationCommandTokenPolicy.matches(suppliedTransitionId, state) &&
+                        command?.transitionId == suppliedTransitionId &&
+                        command.command == BankingAutomationCommandRecord.Command.RESUME &&
+                        command.status == BankingAutomationCommandRecord.Status.PENDING &&
+                        snapshot?.profileLink == intent.getStringExtra(EXTRA_PROFILE_LINK) &&
+                        UsageAccessPermission.hasAccess(this) &&
+                        VpnService.prepare(this) == null
+                }
+                if (!stillAllowed) {
+                    Log.w(TAG, "Discarding stale internal banking resume after lifecycle revalidation")
+                    return START_NOT_STICKY
+                }
+            } else {
                 // A manual connect is an explicit override of any pending banking pause/resume.
                 // Persist the new transition before the new tunnel request can race monitor work.
                 val accepted = synchronized(lifecycleLock) {
@@ -730,6 +771,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
         const val ACTION_AUTO_PAUSE = "com.astra.vpn.action.AUTO_PAUSE"
         const val ACTION_AUTO_RESUME = "com.astra.vpn.action.AUTO_RESUME"
+        private const val EXTRA_BANKING_AUTO_RESUME = "banking_auto_resume_internal"
         const val EXTRA_TRANSITION_ID = "com.astra.vpn.extra.BANKING_TRANSITION_ID"
         const val ACTION_UPDATE_RECOVERY = "com.astra.vpn.action.UPDATE_RECOVERY"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
