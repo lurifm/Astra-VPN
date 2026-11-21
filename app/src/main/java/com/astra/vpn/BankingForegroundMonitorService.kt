@@ -163,49 +163,37 @@ internal class BankingForegroundMonitorService : Service() {
         // Never replay it after the originating app leaves foreground.
         val pending = ledger.read()?.takeIf { it.status == BankingAutomationCommandRecord.Status.PENDING }
         if (pending != null) {
-            val bankOrigin = pending.originatingPackage in banks
-            val sameOrigin = foregroundPackage == pending.originatingPackage
-            val sameTransition = state.autoPausedByBanking && state.transitionId == pending.transitionId
-            if (!sameOrigin || !sameTransition ||
-                (pending.command == BankingAutomationCommandRecord.Command.PAUSE && !bankOrigin) ||
-                (pending.command == BankingAutomationCommandRecord.Command.RESUME && bankOrigin)
-            ) {
-                ledger.cancel(pending.transitionId, pending.command)
-                return
-            }
-            when (pending.command) {
-                BankingAutomationCommandRecord.Command.PAUSE -> {
-                    // If the tunnel is already down, do not replay a pause. The next
-                    // foreground transition will decide whether it is safe to resume.
-                    if (!vpnConnected) {
-                        ledger.cancel(pending.transitionId, pending.command)
-                        return
-                    }
-                    val exactSnapshot = snapshot?.profileLink
-                    if (exactSnapshot.isNullOrBlank() || exactSnapshot != activeLink ||
-                        exactSnapshot !in profileStore.all()
-                    ) {
-                        ledger.cancel(pending.transitionId, pending.command)
-                        return
-                    }
+            val decision = BankingAutomationCommandRecoveryPolicy.decide(
+                BankingAutomationCommandRecoveryPolicy.Input(
+                    command = pending,
+                    foregroundPackage = foregroundPackage,
+                    bankPackages = banks,
+                    state = state,
+                    vpnConnected = vpnConnected,
+                    snapshotProfileLink = snapshot?.profileLink,
+                    activeProfileLink = activeLink,
+                    savedProfileExists = snapshot?.profileLink?.let { it in profileStore.all() } == true,
+                    nowEpochMillis = now,
+                    lastResumeAttemptEpochMillis = settings.getLong(PREF_AUTO_RESUME_LAST_ATTEMPT, 0L)
+                )
+            )
+            when (decision) {
+                BankingAutomationCommandRecoveryPolicy.Decision.CANCEL -> {
+                    ledger.cancel(pending.transitionId, pending.command)
+                    return
+                }
+                BankingAutomationCommandRecoveryPolicy.Decision.WAIT -> return
+                BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_PAUSE -> {
                     startService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
                         .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
                     return
                 }
-                BankingAutomationCommandRecord.Command.RESUME -> {
-                    if (vpnConnected) return
-                    val exactSnapshot = snapshot?.profileLink
-                    if (exactSnapshot.isNullOrBlank() || exactSnapshot !in profileStore.all()) {
-                        ledger.cancel(pending.transitionId, pending.command)
-                        return
-                    }
-                    val lastAttempt = settings.getLong(PREF_AUTO_RESUME_LAST_ATTEMPT, 0L)
-                    if (!BankingResumeRetryPolicy.shouldAttempt(lastAttempt, now)) return
+                BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_RESUME -> {
                     if (!settings.edit().putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now).commit()) return
                     startForegroundService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_RESUME)
-                        .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, exactSnapshot)
+                        .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, snapshot!!.profileLink)
                         .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
                     return
                 }
