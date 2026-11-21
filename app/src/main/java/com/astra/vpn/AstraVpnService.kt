@@ -414,7 +414,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // state before stopSelf(). Do not run it a second time here: a second
         // DISCONNECTED broadcast could overwrite a preceding ERROR state that
         // the Activity needs to display after a failed connection attempt.
-        if (commandServer != null || tunDescriptor != null || activeConfig != null) {
+        // Include the traffic subscription explicitly: it owns a worker thread
+        // and a libbox CommandClient independently of the TUN/config fields.
+        if (commandServer != null || tunDescriptor != null || activeConfig != null ||
+            trafficMonitor != null
+        ) {
             stopTunnel()
         }
         super.onDestroy()
