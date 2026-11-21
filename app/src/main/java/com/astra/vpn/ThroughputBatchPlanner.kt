@@ -15,8 +15,16 @@ internal object ThroughputBatchPlanner {
         limit: Int = DEFAULT_LIMIT
     ): List<String> {
         if (limit <= 0) return emptyList()
+        // A subscription can contain the same URI more than once. Probe each
+        // endpoint at most once per batch to avoid duplicate traffic.
+        val seen = HashSet<String>()
         return profiles.withIndex()
-            .filter { (_, profile) -> (latencyMs[profile] ?: 0L) > 0L && profile !in freshSamples }
+            .filter { (_, profile) ->
+                profile.isNotBlank() &&
+                    seen.add(profile) &&
+                    (latencyMs[profile] ?: 0L) > 0L &&
+                    profile !in freshSamples
+            }
             .sortedWith(compareBy<IndexedValue<String>> { latencyMs[it.value] ?: Long.MAX_VALUE }
                 .thenBy { it.index })
             .take(limit)
