@@ -281,6 +281,10 @@ class MainActivity : Activity() {
         // checker re-evaluates all physical networks before deciding to probe.
         lastNetworkLabelAt = 0L
         lastHealthCheckAt = 0L
+        // A probe started on the previous underlay must never report a timeout
+        // against the newly selected Wi-Fi/mobile path, even if Android reuses
+        // the same VPN Network object during the handover.
+        tunnelHealthCheckGeneration.advance()
         updateNetworkLabel()
         if (connected) {
             scheduleTunnelHealthCheck()
