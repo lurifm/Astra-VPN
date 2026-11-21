@@ -345,10 +345,27 @@ internal class BankingForegroundMonitorService : Service() {
             events.getNextEvent(event)
             val pkg = event.packageName?.takeIf { it.isNotBlank() } ?: continue
             val activity = "$pkg/${event.className.orEmpty()}"
-            when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> activeActivities.add(activity)
-                UsageEvents.Event.ACTIVITY_PAUSED,
-                UsageEvents.Event.ACTIVITY_STOPPED -> activeActivities.remove(activity)
+            // ACTIVITY_RESUMED/PAUSED replaced MOVE_TO_FOREGROUND/BACKGROUND
+            // in API 29. The app still supports API 24+, so use the event family
+            // available on the running OS instead of silently observing nothing
+            // on older Android releases.
+            val resumedEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                UsageEvents.Event.ACTIVITY_RESUMED
+            } else {
+                @Suppress("DEPRECATION")
+                UsageEvents.Event.MOVE_TO_FOREGROUND
+            }
+            val pausedEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                UsageEvents.Event.ACTIVITY_PAUSED
+            } else {
+                @Suppress("DEPRECATION")
+                UsageEvents.Event.MOVE_TO_BACKGROUND
+            }
+            when {
+                event.eventType == resumedEvent -> activeActivities.add(activity)
+                event.eventType == pausedEvent -> activeActivities.remove(activity)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    event.eventType == UsageEvents.Event.ACTIVITY_STOPPED -> activeActivities.remove(activity)
             }
         }
         lastQueryTime = now
