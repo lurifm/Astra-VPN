@@ -1850,9 +1850,12 @@ class MainActivity : Activity() {
     private fun remapSelectionAfterRefresh(selectionSnapshot: String?) {
         if (selectedProfile != selectionSnapshot || selectionSnapshot == null) return
         val latestProfiles = safeProfiles() ?: return
-        selectedProfile = ProfileSelectionMatcher.remap(selectionSnapshot, latestProfiles)
-            ?: if (connected && activeProfile == selectionSnapshot) selectionSnapshot
-            else latestProfiles.firstOrNull()
+        val remapped = ProfileSelectionMatcher.remap(selectionSnapshot, latestProfiles)
+        selectedProfile = ProfileSelectionRefreshPolicy.resolve(
+            previousSelection = selectionSnapshot,
+            remappedSelection = remapped,
+            connectedToPreviousSelection = connected && activeProfile == selectionSnapshot
+        )
     }
 
     /**
