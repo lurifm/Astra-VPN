@@ -13,7 +13,7 @@ internal class BankingAutomationStateStore(context: Context) {
     fun read(): BankingAutomationState {
         val raw = prefs.getString(STATE_KEY, null)
         val decoded = BankingAutomationStateCodec.decode(raw)
-        if (raw != null && decoded == BankingAutomationState()) {
+        if (raw != null && runCatching { BankingAutomationStateCodec.encode(decoded) }.getOrNull() != raw) {
             // Remove corrupt/unsupported data so it cannot be retried as a resume
             // instruction on every process start.
             check(prefs.edit().remove(STATE_KEY).commit()) {
