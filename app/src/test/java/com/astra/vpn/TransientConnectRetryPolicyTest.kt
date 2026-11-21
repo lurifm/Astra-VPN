@@ -1,7 +1,9 @@
 package com.astra.vpn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TransientConnectRetryPolicyTest {
@@ -16,5 +18,25 @@ class TransientConnectRetryPolicyTest {
 
     @Test fun negativeAttemptUsesFirstDelay() {
         assertEquals(3_000L, TransientConnectRetryPolicy.delayForAttempt(-1))
+    }
+
+    @Test fun retryIsLimitedToEligibleManualConnects() {
+        assertTrue(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 0))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(false, false, false, true, 0))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, true, false, true, 0))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, true, true, 0))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, false, 0))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 2))
+    }
+
+    @Test fun staleOrUserCancelledRetriesCannotExecute() {
+        assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, false, true, false, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, false, false, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, true, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, true, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, true, false))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, true))
     }
 }
