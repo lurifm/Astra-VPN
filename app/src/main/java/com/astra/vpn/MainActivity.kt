@@ -3127,7 +3127,8 @@ class MainActivity : Activity() {
     /** Restore the last known-good selection if an automatic failover attempt fails. */
     private fun rollbackPendingFailoverSelection() {
         val pending = pendingFailoverSelection ?: return
-        val failedProfile = activeProfile ?: selectedProfile
+        // The failed target is explicit; activeProfile may still refer to the previous tunnel during config preparation.
+        val failedProfile = pending.targetProfile
         val restored = FailoverSelectionPolicy.rollback(
             pending = pending,
             currentSelection = selectedProfile,
