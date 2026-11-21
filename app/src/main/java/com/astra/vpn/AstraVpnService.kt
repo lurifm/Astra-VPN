@@ -338,7 +338,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         synchronized(lifecycleLock) {
             // Reject, rather than merely close, a descriptor from an obsolete
             // CommandServer. AstraPlatform must not hand a closed fd back to libbox.
-            if (stopping || !lifecycleGeneration.isCurrent(ownerGeneration)) {
+            if (!TunDescriptorOwnershipPolicy.shouldAccept(
+                    stopping = stopping,
+                    lifecycleIsCurrent = lifecycleGeneration.isCurrent(ownerGeneration)
+                )
+            ) {
                 return@synchronized false
             }
             tunDescriptor?.let { previous ->
