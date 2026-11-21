@@ -1665,3 +1665,9 @@ CI run для последнего коммита необходимо пров�
 - Ordering is fail-closed: state transition is committed before encrypted snapshot cleanup; if the process dies between writes, `userDisconnectRequested` still blocks automatic resume.
 - Added state transition tests for cancellation/manual override.
 - This does not yet implement bank-observation orchestration or auto pause/resume commands in AstraVpnService. It closes a necessary manual-intervention safety gap first.
+
+## 80. Follow-up correction — manual override integration details
+
+- Final source includes the connect guard before manual-state mutation: duplicate/in-flight requests and missing selected profiles do not clear banking state.
+- The two additional transition tests are inside `BankingAutomationStateTest` (not top-level).
+- Final source HEAD at this checkpoint: `8827753ebcdeb74cdde51aa8b31536981134e65e`; CI must be checked against this exact SHA.
