@@ -3589,6 +3589,9 @@ class MainActivity : Activity() {
     }
 
     private fun applyLatencyResults(payload: String, finished: Boolean) {
+        // Service endpoint response times are not generic server ping; keep them out of
+        // the normal health colour, latency history and automatic failover metrics.
+        val isServiceProbeBatch = serviceProbeName != null
         // Validate the snapshot before changing session state. A malformed final
         // payload must not leave auto-selection or the quick tile waiting forever.
         val values = runCatching { JSONObject(payload) }.getOrNull()
@@ -3619,7 +3622,7 @@ class MainActivity : Activity() {
         }
         // Render each successful measurement immediately instead of waiting for
         // the slowest server in the subscription to finish its URL-test.
-        urlTestProfileMap.forEach { (tag, profile) ->
+        if (!isServiceProbeBatch) urlTestProfileMap.forEach { (tag, profile) ->
             if (!values.has(tag)) return@forEach
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
