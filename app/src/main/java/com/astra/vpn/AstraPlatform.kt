@@ -371,7 +371,11 @@ class AstraPlatform(
         val properties = runCatching { connectivity.getLinkProperties(selectedNetwork) }.getOrNull()
         val name = properties?.interfaceName
         if (name.isNullOrBlank()) {
+            // A Network can become available before Android has populated its
+            // LinkProperties. Do not wait indefinitely for another callback:
+            // re-read the current default route using the bounded retry policy.
             notifyNoDefaultInterfaceIfChanged(listener)
+            scheduleInterfaceRetryLocked()
             return
         }
         val index = runCatching { JavaNetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)
@@ -571,8 +575,12 @@ class AstraPlatform(
             .onSuccess {
                 lastInterfaceSnapshot = null
                 hasReportedNoInterface = true
+                cancelInterfaceRetryLocked(resetAttempts = true)
             }
-            .onFailure { Log.w(TAG, "Не удалось сообщить sing-box об отсутствии сети", it) }
+            .onFailure {
+                Log.w(TAG, "Не удалось сообщить sing-box об отсутствии сети", it)
+                scheduleInterfaceRetryLocked()
+            }
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
