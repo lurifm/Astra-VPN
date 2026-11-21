@@ -3546,8 +3546,8 @@ class MainActivity : Activity() {
 
         val rate = vpnTrafficRateTracker.current(nowElapsed)
         if (rate == null) {
-            monitorVpnSpeed.text = "VPN ↓ — / ↑ — Мбит/с · ожидаем данные sing-box"
-            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = true, trafficIsVpnScoped = true)
+            monitorVpnSpeed.text = "VPN ↓ — / ↑ — Мбит/с · ожидаем события sing-box"
+            speedDropPolicy.update(0.0, nowElapsed, vpnConnected = true, trafficIsVpnScoped = false)
             return
         }
 
@@ -3558,7 +3558,7 @@ class MainActivity : Activity() {
             if (rate.sampleAgeMs > 3_000L) "нет свежих событий" else "оценка по событиям sing-box"
         )
         if (speedDropPolicy.update(
-                rate.downloadMbps, nowElapsed, vpnConnected = true, trafficIsVpnScoped = true
+                rate.downloadMbps, nowElapsed, vpnConnected = true, trafficIsVpnScoped = false
             )) {
             maybeAutoSpeedFailover()
         }
