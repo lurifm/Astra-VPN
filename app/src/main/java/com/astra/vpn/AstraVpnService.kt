@@ -580,6 +580,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             store.write(store.read().completeAutomaticResume())
             // If encrypted snapshot cleanup fails, the completed state still prevents another resume.
             ProfileStore(this).clearBankPauseSnapshot()
+            getSharedPreferences("astra_settings", MODE_PRIVATE).edit()
+                .remove("banking_auto_resume_last_attempt_ms")
+                .commit()
         }.onSuccess {
             bankingAutoResumePending = false
         }.onFailure {

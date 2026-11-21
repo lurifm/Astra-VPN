@@ -1766,3 +1766,13 @@ CI run для последнего коммита необходимо пров�
 - Retry preserves the original transition ID and snapshot intent. The VPN service's existing lifecycle guard still serializes the actual tunnel stop.
 - Added regression tests for transition-engine retry and exact-snapshot gate checks.
 - This closes the observed pause dispatch retry gap; it is not a full service ACK protocol. A process/device integration test is still required, especially for ACTION_AUTO_PAUSE delivery and failed AUTO_RESUME starts.
+
+
+## 90. Bounded retry cadence for failed banking auto-resume dispatch
+
+- Added `BankingResumeRetryPolicy` with a 10-second minimum interval between automatic resume service-start attempts.
+- The monitor persists the attempt timestamp before dispatching `ACTION_AUTO_RESUME`; if Android rejects the foreground-service start or the service fails before CONNECTING, stable observations cannot trigger a start storm every second.
+- The cooldown is cleared when a new bank-entry/pause episode begins and after the VPN service confirms TUN-ready and completes the automatic resume.
+- Clock rollback fails closed (waits until wall-clock time catches up), rather than causing repeated rapid dispatches.
+- Added unit tests for first attempt, cooldown boundary, expiry and clock rollback.
+- This is dispatch throttling, not a success acknowledgement: the encrypted snapshot and durable pause state remain the source of truth until TUN-ready. Physical Android testing is still required.

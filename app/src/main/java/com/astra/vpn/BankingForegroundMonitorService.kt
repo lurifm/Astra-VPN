@@ -196,6 +196,9 @@ internal class BankingForegroundMonitorService : Service() {
                     )
                 )
                 if (gate == BankingVpnCommandPolicy.Command.PAUSE_ACTIVE_TUNNEL) {
+                    // A new bank-entry episode must not inherit a cooldown from an
+                    // earlier failed resume attempt.
+                    settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
                     startService(Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_AUTO_PAUSE))
                 } else {
                     stateStore.write(state)
@@ -221,6 +224,14 @@ internal class BankingForegroundMonitorService : Service() {
                     )
                 )
                 if (gate == BankingVpnCommandPolicy.Command.RESUME_SNAPSHOT) {
+                    val lastAttempt = settings.getLong(PREF_AUTO_RESUME_LAST_ATTEMPT, 0L)
+                    if (!BankingResumeRetryPolicy.shouldAttempt(lastAttempt, now)) return
+                    // Commit before dispatch: if Android rejects the service start,
+                    // the next stable observation retries after a bounded cooldown.
+                    if (!settings.edit()
+                            .putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now)
+                            .commit()
+                    ) return
                     startForegroundService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)
@@ -234,6 +245,10 @@ internal class BankingForegroundMonitorService : Service() {
             }
             BankingAutomationTransitionEngine.Command.NONE -> Unit
         }
+    }
+
+    private companion object {
+        const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
     }
 
     private fun startAsForeground() {
