@@ -50,7 +50,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var batchDeadlineElapsedMs = 0L
     private var latestResults = LatencyResultAccumulator(emptySet())
     private val batchTimeout = Runnable { finishAndPublish() }
-    private val completedTags = linkedSetOf<String>()
+    private val completedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -194,7 +194,17 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     if (stopped.get()) return@forEach
                     try {
                         urlTestDispatcher.execute {
-                            if (stopped.get()) return@execute
+                            val remainingMs = LatencyBatchDeadlinePolicy.remainingMs(
+                                batchDeadlineElapsedMs, SystemClock.elapsedRealtime()
+                            )
+                            if (!LatencyProbeDispatchPolicy.shouldDispatch(
+                                    stopped = stopped.get(),
+                                    alreadyCompleted = outboundTag in completedTags,
+                                    remainingMs = remainingMs
+                                )) {
+                                if (!stopped.get()) handler.post { completeUnmeasuredTag(outboundTag) }
+                                return@execute
+                            }
                             runCatching {
                                 activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
                             }.onFailure {
