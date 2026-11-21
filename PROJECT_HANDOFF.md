@@ -1682,3 +1682,14 @@ CI run для последнего коммита необходимо пров�
 - Добавлено 9 unit tests: pause preconditions, no snapshot, resume, previously disconnected, stale/future/null observation, no Usage Access, второй банк, missing profile и manual disconnect.
 - Коммит: `a85f08b`.
 - Это всё ещё pure decision engine; он пока не подключён к monitor/VpnService. Не заявлять автоматическую банковскую паузу как готовую. Следующий этап — реализовать side-effect executor с транзакционным сохранением snapshot и отдельными AUTO_PAUSE/AUTO_RESUME service actions, сохраняя recovery state и работоспособность monitor.
+
+## 82. Fail-closed command gate перед VPN service (22 ноября 2026)
+
+- Добавлен `BankingVpnCommandPolicy` — второй независимый guard непосредственно перед передачей команды в VPN service.
+- Pause допускается только при свежем и однозначном bank foreground, выданном Usage Access, реально подключённом туннеле, известном существующем active profile link, отсутствии уже активной автопаузы и manual-disconnect guard.
+- Resume допускается только при свежем non-bank foreground, ранее сохранённом auto-paused состоянии, факте подключения до паузы, отсутствии manual override, остановленном туннеле и доступном точном snapshot profile.
+- Запрещены конфликтующие команды pause+resume, отсутствие команды, null observation, stale observation, второй выбранный банк и попытки восстановить профиль по одному лишь selected profile.
+- Добавлено 7 unit tests на command gate.
+- Коммит: `a46bc73`.
+- Важно: gate пока pure policy и не вызывает Android service. Фактический executor и команды AUTO_PAUSE/AUTO_RESUME ещё впереди; автопауза не готова.
+- CI для нового HEAD необходимо дождаться и проверить по SHA.
