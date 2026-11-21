@@ -49,6 +49,8 @@ class AstraPlatform(
     private val underlayRetryHandler = Handler(Looper.getMainLooper())
     private var underlayRetryAttempt = 0
     private var underlayRetryRunnable: Runnable? = null
+    private var interfaceRetryAttempt = 0
+    private var interfaceRetryRunnable: Runnable? = null
 
     private data class InterfaceSnapshot(
         // Include the Android Network handle, not just the interface name:
@@ -64,8 +66,6 @@ class AstraPlatform(
 
     companion object {
         private const val TAG = "AstraPlatform"
-        private const val MAX_UNDERLAY_RETRIES = 3
-        private val UNDERLAY_RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L, 4_000L)
 
         // Shared only inside the main app process. MainActivity uses the
         // underlay selected by the active VpnService instead of guessing from
@@ -300,6 +300,7 @@ class AstraPlatform(
             interfaceListener = null
             lastUnderlyingNetwork = null
             cancelUnderlayRetryLocked(resetAttempts = true)
+            cancelInterfaceRetryLocked(resetAttempts = true)
             if (protectSockets) currentPhysicalNetwork = null
             lastInterfaceSnapshot = null
             hasReportedNoInterface = false
@@ -383,7 +384,11 @@ class AstraPlatform(
                     lastInterfaceSnapshot = snapshot
                     hasReportedNoInterface = false
                 }
-                .onFailure { Log.w(TAG, "Не удалось передать sing-box сведения о сети", it) }
+                .onFailure {
+                    Log.w(TAG, "Не удалось передать sing-box сведения о сети", it)
+                    scheduleInterfaceRetryLocked()
+                }
+                .onSuccess { cancelInterfaceRetryLocked(resetAttempts = true) }
         }
     }
 
@@ -515,8 +520,8 @@ class AstraPlatform(
      */
     @Synchronized
     private fun scheduleUnderlayRetryLocked() {
-        if (underlayRetryRunnable != null || underlayRetryAttempt >= MAX_UNDERLAY_RETRIES) return
-        val delay = UNDERLAY_RETRY_DELAYS_MS[underlayRetryAttempt]
+        if (underlayRetryRunnable != null) return
+        val delay = NetworkRecoveryPolicy.retryDelayMs(underlayRetryAttempt) ?: return
         underlayRetryAttempt++
         val retry = Runnable {
             synchronized(this) {
@@ -529,11 +534,35 @@ class AstraPlatform(
         underlayRetryHandler.postDelayed(retry, delay)
     }
 
+    private fun scheduleInterfaceRetryLocked() {
+        if (interfaceRetryRunnable != null) return
+        val delay = NetworkRecoveryPolicy.retryDelayMs(interfaceRetryAttempt) ?: return
+        interfaceRetryAttempt++
+        val retry = Runnable {
+            synchronized(this) {
+                interfaceRetryRunnable = null
+                if (interfaceListener == null) return@synchronized
+                // Re-read the current network and its LinkProperties; never replay
+                // a stale interface snapshot captured by the failed callback.
+                refreshDefaultInterface()
+            }
+        }
+        interfaceRetryRunnable = retry
+        underlayRetryHandler.postDelayed(retry, delay)
+    }
+
     @Synchronized
     private fun cancelUnderlayRetryLocked(resetAttempts: Boolean) {
         underlayRetryRunnable?.let(underlayRetryHandler::removeCallbacks)
         underlayRetryRunnable = null
         if (resetAttempts) underlayRetryAttempt = 0
+    }
+
+    @Synchronized
+    private fun cancelInterfaceRetryLocked(resetAttempts: Boolean) {
+        interfaceRetryRunnable?.let(underlayRetryHandler::removeCallbacks)
+        interfaceRetryRunnable = null
+        if (resetAttempts) interfaceRetryAttempt = 0
     }
 
     private fun notifyNoDefaultInterfaceIfChanged(listener: InterfaceUpdateListener) {
