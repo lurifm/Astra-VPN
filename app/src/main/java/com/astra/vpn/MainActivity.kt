@@ -280,6 +280,11 @@ class MainActivity : Activity() {
             network: android.net.Network,
             networkCapabilities: NetworkCapabilities
         ) = onPhysicalNetworkChanged()
+
+        override fun onLinkPropertiesChanged(
+            network: android.net.Network,
+            linkProperties: android.net.LinkProperties
+        ) = onPhysicalNetworkChanged()
     }
 
     private fun onPhysicalNetworkChanged() {
