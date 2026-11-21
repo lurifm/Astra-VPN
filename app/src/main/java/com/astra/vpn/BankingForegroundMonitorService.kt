@@ -24,7 +24,7 @@ import android.util.Log
  */
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
-    private val activePackages = linkedSetOf<String>()
+    private val activeActivities = linkedSetOf<String>()
     private var lastQueryTime = 0L
     private var lastPublishedPackage: String? = null
     private var running = false
@@ -108,16 +108,17 @@ internal class BankingForegroundMonitorService : Service() {
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             val pkg = event.packageName?.takeIf { it.isNotBlank() } ?: continue
+            val activity = "$pkg/${event.className.orEmpty()}"
             when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> activePackages.add(pkg)
+                UsageEvents.Event.ACTIVITY_RESUMED -> activeActivities.add(activity)
                 UsageEvents.Event.ACTIVITY_PAUSED,
-                UsageEvents.Event.ACTIVITY_STOPPED -> activePackages.remove(pkg)
+                UsageEvents.Event.ACTIVITY_STOPPED -> activeActivities.remove(activity)
             }
         }
         lastQueryTime = now
         // Multi-window / split-screen can have more than one resumed package.
         // Returning null is safer than guessing which app is actually foreground.
-        return activePackages.singleOrNull()
+        return activeActivities.map { it.substringBefore('/') }.distinct().singleOrNull()
     }
 
     private fun ensureNotificationChannel() {
