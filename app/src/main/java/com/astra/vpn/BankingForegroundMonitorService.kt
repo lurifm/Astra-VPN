@@ -10,6 +10,8 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -109,8 +111,16 @@ internal class BankingForegroundMonitorService : Service() {
         if (banks.isEmpty()) return
 
         val vpnPrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
-        val vpnConnected = vpnPrefs.getString(AstraVpnService.PREF_STATE, null) ==
+        val persistedConnected = vpnPrefs.getString(AstraVpnService.PREF_STATE, null) ==
             AstraVpnService.STATE_CONNECTED
+        // A persisted service state can outlive a killed process or revoked TUN.
+        // Require Android's live VPN transport as an independent confirmation.
+        val activeNetwork = getSystemService(ConnectivityManager::class.java)?.activeNetwork
+        val vpnConnected = persistedConnected && activeNetwork?.let { network ->
+            getSystemService(ConnectivityManager::class.java)
+                ?.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        } == true
         val profileStore = ProfileStore(this)
         val snapshot = profileStore.bankPauseSnapshot()
         val activeLink = profileStore.activeTunnelProfile()
