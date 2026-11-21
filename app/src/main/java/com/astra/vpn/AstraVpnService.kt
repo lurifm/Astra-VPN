@@ -269,20 +269,23 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun serviceStop() = stopTunnel()
 
     override fun serviceReload() {
-        // Capture a consistent server/config pair, but never hold lifecycleLock
-        // while calling into libbox: that call may wait for callbacks which also
-        // need the lifecycle lock.
+        // Capture a consistent server/config/request triple, but never hold
+        // lifecycleLock while calling into libbox: callbacks also need this lock.
         val reload = synchronized(lifecycleLock) {
             if (stopping) return
             val config = activeConfig ?: return
             val server = commandServer ?: return
-            server to config
+            Triple(server, config, startRequestGeneration.current())
         }
-        val (server, config) = reload
+        val (server, config, requestToken) = reload
         runCatching { server.startOrReloadService(config, OverrideOptions()) }
             .onSuccess {
                 synchronized(lifecycleLock) {
-                    if (stopping || commandServer !== server || activeConfig != config) return@synchronized
+                    if (stopping ||
+                        !startRequestGeneration.isCurrent(requestToken) ||
+                        commandServer !== server ||
+                        activeConfig != config
+                    ) return@synchronized
                     startTrafficMonitor()
                     if (tunDescriptor == null) {
                         publishState(STATE_CONNECTING)
@@ -294,7 +297,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             .onFailure { error ->
                 synchronized(lifecycleLock) {
-                    if (stopping || commandServer !== server || activeConfig != config) return@synchronized
+                    if (stopping ||
+                        !startRequestGeneration.isCurrent(requestToken) ||
+                        commandServer !== server ||
+                        activeConfig != config
+                    ) return@synchronized
                     Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
                     stopTunnel()
                     publishState(STATE_ERROR, "Не удалось обновить VPN. Проверь конфигурацию сервера.")
