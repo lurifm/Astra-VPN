@@ -1693,3 +1693,13 @@ CI run для последнего коммита необходимо пров�
 - Коммит: `a46bc73`.
 - Важно: gate пока pure policy и не вызывает Android service. Фактический executor и команды AUTO_PAUSE/AUTO_RESUME ещё впереди; автопауза не готова.
 - CI для нового HEAD необходимо дождаться и проверить по SHA.
+
+## 83. Guarded banking commands in AstraVpnService (22 ноября 2026)
+
+- В `AstraVpnService` добавлены отдельные внутренние actions `ACTION_AUTO_PAUSE` и `ACTION_AUTO_RESUME`; они не переиспользуют ручной `ACTION_STOP`.
+- AUTO_PAUSE принимает команду только если туннель реально поднят (libbox/config/TUN готовы), durable banking state уже отмечен как auto-paused, manual-disconnect отсутствует, а encrypted BankPauseSnapshot совпадает с точным URI активного профиля. После проверки туннель останавливается через общий lifecycle cleanup, но не удаляет recovery profile или banking snapshot.
+- AUTO_RESUME заново проверяет Usage Access, durable auto-pause state, отсутствие manual override, точное совпадение snapshot URI, наличие профиля в ProfileStore и системное VPN consent. Конфигурация строится из сохранённого профиля внутри VPN service; вызывающая сторона не может подменить URI.
+- Banking snapshot очищается только после подтверждённого TUN-ready/STATE_CONNECTED. Сначала фиксируется completed state, затем удаляется encrypted snapshot; ошибка очистки не открывает повторный auto-resume.
+- Обычный ACTION_STOP остался отдельным ручным путём; существующий MainActivity продолжает сам выставлять manual-disconnect guard и очищать snapshot.
+- Коммиты: `6671e9d`, `a420348`.
+- Ограничение: монитор пока не вызывает эти actions; end-to-end orchestration (получение observation в service executor, транзакционное сохранение snapshot/state и вызов AUTO_PAUSE/AUTO_RESUME) ещё не подключена. Не считать функцию готовой до этого и физического теста Android.
