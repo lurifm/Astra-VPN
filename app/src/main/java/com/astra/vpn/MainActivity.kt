@@ -4976,7 +4976,12 @@ class MainActivity : Activity() {
         val map = OrbitMapView(this, nodes) { index ->
             chosen = index
             val mappedProfile = profiles.take(36)[index]
-            if (selectedProfile != mappedProfile) cancelConnectRetry(resetAttempts = true)
+            if (selectedProfile != mappedProfile) {
+                cancelConnectRetry(resetAttempts = true)
+                // The map mutates selection immediately, before the dialog's
+                // positive button is pressed. Invalidate any consent request here.
+                if (pendingConfig != null) cancelPendingConnect()
+            }
             selectedProfile = mappedProfile
             selectedInfo.text = profileSummary(profiles.take(36)[index])
             Toast.makeText(this, "Выбрана орбита: ${profileName(profiles.take(36)[index])}", Toast.LENGTH_SHORT).show()
