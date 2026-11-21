@@ -367,6 +367,8 @@ class MainActivity : Activity() {
                 AstraLatencyTestService.ACTION_ERROR -> {
                     if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
                     activeLatencySessionId = null
+                    serviceProbeName = null
+                    settingsPrefs.edit().remove("service_probe_name").apply()
                     getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                         .remove(KEY_LATENCY_SESSION_ID).apply()
                     latencyTestInFlight = false
@@ -2989,6 +2991,8 @@ class MainActivity : Activity() {
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
+        serviceProbeName = null
+        settingsPrefs.edit().remove("service_probe_name").apply()
         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_LATENCY_SESSION_ID).apply()
         latencyTestInFlight = false
