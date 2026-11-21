@@ -59,7 +59,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             // A delayed STOP from an older batch item must not terminate a
             // newer probe running in this service instance.
             val requestedSession = intent.getStringExtra(EXTRA_SESSION)
-            if (!requestedSession.isNullOrBlank() && requestedSession == sessionId) {
+            if (ThroughputSessionPolicy.shouldStop(sessionId, requestedSession)) {
                 finish()
             } else {
                 Log.w(TAG, "Ignoring stale or unscoped throughput stop request")
