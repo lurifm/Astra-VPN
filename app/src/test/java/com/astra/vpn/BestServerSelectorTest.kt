@@ -171,4 +171,39 @@ class BestServerSelectorTest {
         assertEquals(high, selected)
     }
 
+    @Test
+    fun throughputBonusCannotEraseLargeBaseScoreGap() {
+        val now = 1_800_000_000_000L
+        val reliable = "vless://reliable"
+        val unreliable = "vless://unreliable"
+        val selected = BestServerSelector.select(
+            profiles = listOf(unreliable, reliable),
+            latencyMs = mapOf(unreliable to 50L, reliable to 60L),
+            recentFailures = mapOf(unreliable to 3),
+            throughputSamples = mapOf(
+                unreliable to ThroughputSample(1_000.0, 1_000.0, now),
+                reliable to ThroughputSample(1.0, 1.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals(reliable, selected)
+    }
+
+    @Test
+    fun throughputMayOvercomeOnlySmallBaseScoreGap() {
+        val now = 1_800_000_000_000L
+        val slightlySlower = "vless://slightly-slower"
+        val faster = "vless://faster"
+        val selected = BestServerSelector.select(
+            profiles = listOf(slightlySlower, faster),
+            latencyMs = mapOf(slightlySlower to 50L, faster to 60L),
+            throughputSamples = mapOf(
+                slightlySlower to ThroughputSample(1.0, 1.0, now),
+                faster to ThroughputSample(1_000.0, 1_000.0, now)
+            ),
+            nowEpochMs = now
+        )
+        assertEquals(faster, selected)
+    }
+
 }
