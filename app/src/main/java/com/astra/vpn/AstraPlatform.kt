@@ -32,7 +32,7 @@ import java.net.NetworkInterface as JavaNetworkInterface
  */
 class AstraPlatform(
     private val vpnService: VpnService,
-    private val onTunCreated: (ParcelFileDescriptor) -> Unit,
+    private val onTunCreated: (ParcelFileDescriptor) -> Boolean,
     private val protectSockets: Boolean = true,
     private val preferredPhysicalNetwork: Network? = null,
     private val manageVpnUnderlyingNetworks: Boolean = true
@@ -195,7 +195,19 @@ class AstraPlatform(
 
         val descriptor = builder.establish()
             ?: error("Android не смог создать VPN-интерфейс")
-        onTunCreated(descriptor)
+        val accepted = try {
+            onTunCreated(descriptor)
+        } catch (error: Throwable) {
+            // The callback owns the descriptor only after explicitly accepting it.
+            runCatching { descriptor.close() }
+                .onFailure { Log.w(TAG, "Rejected TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
+            throw error
+        }
+        if (!accepted) {
+            runCatching { descriptor.close() }
+                .onFailure { Log.w(TAG, "Unclaimed TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
+            error("VPN service rejected a TUN descriptor from an obsolete lifecycle")
+        }
         return descriptor.fd
     }
 
