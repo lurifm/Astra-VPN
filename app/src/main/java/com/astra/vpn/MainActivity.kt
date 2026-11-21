@@ -2633,13 +2633,13 @@ class MainActivity : Activity() {
             val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
             val healthColor = when {
                 activeAndFailed -> RED
-                measuredLatency != null && measuredLatency <= 100L -> GREEN
+                measuredLatency != null && measuredLatency < 200L -> GREEN
                 measuredLatency != null -> AMBER
                 else -> MUTED
             }
             val healthLabel = when {
                 activeAndFailed -> "НЕ ОТВЕЧАЕТ"
-                measuredLatency != null && measuredLatency <= 100L -> "СТАБИЛЬНЫЙ"
+                measuredLatency != null && measuredLatency < 200L -> "СТАБИЛЬНЫЙ"
                 measuredLatency != null -> "ВЫСОКАЯ ЗАДЕРЖКА"
                 else -> "НЕ ПРОВЕРЕН"
             }
@@ -2772,7 +2772,7 @@ class MainActivity : Activity() {
     }
 
     private fun latencyColor(ms: Long): Int = when {
-        ms <= 100L -> GREEN
+        ms < 200L -> GREEN
         // High latency is degraded quality, not proof of server failure.
         else -> AMBER
     }
@@ -6239,17 +6239,19 @@ class MainActivity : Activity() {
         val selectedIsActive = connected && selected != null && selected == activeProfile
         val healthColor = when {
             selectedIsActive && tunnelInternetOk == false -> RED
-            selectedIsActive && measured != null && measured > 100L -> AMBER
-            selectedIsActive && measured != null && measured in 1L..100L -> GREEN
+            selectedIsActive && measured != null && measured >= 200L -> AMBER
+            selectedIsActive && measured != null && measured in 1L..199L -> GREEN
             else -> null
         }
 
         // Always assign a tint: an expired ping must not preserve an old health color.
+        // Neutral metallic silver is the idle/off state. While a tunnel is active
+        // but no fresh latency sample exists, use amber rather than implying good health.
         val baselineColor = when (connectionVisualState) {
-            "connected" -> 0xFFFFD36E.toInt()
+            "connected" -> AMBER
             "connecting", "disconnecting" -> 0xFFFFC45C.toInt()
             "switching" -> 0xFFE7B95A.toInt()
-            else -> 0xFFFFC95C.toInt()
+            else -> 0xFFC7CED8.toInt()
         }
         val resolvedColor = healthColor ?: baselineColor
         connectButton.backgroundTintList =
