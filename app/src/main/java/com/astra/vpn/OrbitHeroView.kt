@@ -12,6 +12,13 @@ import kotlin.math.sin
 
 /** Decorative orbit field; the accessible connect button is layered above it. */
 internal class OrbitHeroView(context: Context) : View(context) {
+    private var connectionState: String = "idle"
+
+    fun setConnectionState(state: String) {
+        if (connectionState == state) return
+        connectionState = state
+        invalidate()
+    }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val orbitDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
@@ -30,12 +37,22 @@ internal class OrbitHeroView(context: Context) : View(context) {
         val phase = (android.os.SystemClock.uptimeMillis() % 18_000L) / 18_000f
         val pulse = .94f + .06f * sin(phase * Math.PI * 2.0).toFloat()
         glowPaint.shader = RadialGradient(cx, cy, radius * .72f * pulse,
-            intArrayOf(0x45F6C85F, 0x16D8B65B, 0x00000000),
+            when (connectionState) {
+                "connected" -> intArrayOf(0x5549D6A8, 0x1E36B88B, 0x00000000)
+                "connecting", "disconnecting" -> intArrayOf(0x55FFC45C, 0x1EDB9A42, 0x00000000)
+                "switching" -> intArrayOf(0x554D9BCB, 0x1E3D78A8, 0x00000000)
+                else -> intArrayOf(0x35F6C85F, 0x12D8B65B, 0x00000000)
+            },
             floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, radius * .72f * pulse, glowPaint)
         glowPaint.shader = null
         floatArrayOf(.42f, .67f, .91f).forEachIndexed { index, factor ->
-            ringPaint.color = if (index == 0) 0x35E9C978 else 0x287D91B8
+            ringPaint.color = when (connectionState) {
+                "connected" -> if (index == 0) 0x6658D6A5 else 0x3475C7A7
+                "connecting", "disconnecting" -> if (index == 0) 0x66FFC45C else 0x34D99C53
+                "switching" -> if (index == 0) 0x665C9CCB else 0x347A9BC0
+                else -> if (index == 0) 0x35E9C978 else 0x287D91B8
+            }
             ringPaint.strokeWidth = dp(if (index == 0) 1.3f else 1f)
             canvas.drawCircle(cx, cy, radius * factor, ringPaint)
         }
