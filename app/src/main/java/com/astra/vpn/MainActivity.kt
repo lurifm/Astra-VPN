@@ -179,6 +179,7 @@ class MainActivity : Activity() {
     private val tunnelHealthCheckGeneration = TunnelHealthCheckGeneration()
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
+    @Volatile private var waitingForUnderlyingNetwork = false
     private var consecutiveHealthFailures = 0
     private var lastAutoFailoverAt = 0L
     private val speedDropPolicy = SpeedDropFailoverPolicy(maxSampleGapMs = 5_000L)
@@ -3210,6 +3211,22 @@ class MainActivity : Activity() {
         }
     }
 
+    /** True only when Android has a validated, unsuspended physical Internet path. */
+    private fun hasValidatedPhysicalNetwork(connectivity: ConnectivityManager): Boolean {
+        return connectivity.allNetworks.any { network ->
+            val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+                ?: return@any false
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            ) return@any false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            ) return@any false
+            true
+        }
+    }
+
     private fun underlyingNetworkCapabilities(): NetworkCapabilities? {
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val activeNetwork = connectivity.activeNetwork
@@ -3491,6 +3508,16 @@ class MainActivity : Activity() {
     private fun scheduleTunnelHealthCheck() {
         if (!connected || isFinishing || isDestroyed) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
+        val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+        if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedUnderlay)) {
+            // No validated physical Internet: this is an access-network outage,
+            // not evidence that the selected VPN server is broken.
+            waitingForUnderlyingNetwork = true
+            tunnelInternetOk = null
+            updateProtectionLabels()
+            return
+        }
+        waitingForUnderlyingNetwork = false
         val vpnNetwork = connectivity.activeNetwork
         val vpnCapabilities = vpnNetwork?.let(connectivity::getNetworkCapabilities)
         if (vpnNetwork == null || vpnCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
@@ -3551,6 +3578,8 @@ class MainActivity : Activity() {
      */
     private fun maybeAutoFailover() {
         if (!connected || connecting || selectingFastest) return
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
@@ -3622,6 +3651,7 @@ class MainActivity : Activity() {
         val label = when {
             connecting -> "◌ Проверяем VPN-подключение…" to AMBER
             !connected -> "○ Защита выключена" to MUTED
+            waitingForUnderlyingNetwork -> "◌ Ожидаем восстановления Wi-Fi или мобильного интернета…" to AMBER
             tunnelInternetOk == true -> "🛡 Защита активна · интернет через VPN работает" to GREEN
             tunnelInternetOk == false -> "⚠ VPN включён, но интернет через него не работает. Защита не подтверждена" to RED
             else -> "◌ VPN-туннель создан · проверяем доступ в интернет…" to AMBER
