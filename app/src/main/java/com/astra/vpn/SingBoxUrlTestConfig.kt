@@ -17,7 +17,7 @@ import java.security.MessageDigest
  */
 internal object SingBoxUrlTestConfig {
     private const val GROUP_TAG_PREFIX = "astra-test-"
-    const val TEST_URL = "https://www.gstatic.com/generate_204"
+    const val TEST_URL = ServiceProbeUrlPolicy.DEFAULT_URL
 
     data class Result(
         val json: String,
@@ -25,7 +25,8 @@ internal object SingBoxUrlTestConfig {
         val profileByOutboundTag: Map<String, String>
     )
 
-    fun build(profileLinks: List<String>): Result {
+    fun build(profileLinks: List<String>, testUrl: String = TEST_URL): Result {
+        val validatedTestUrl = ServiceProbeUrlPolicy.validate(testUrl)
         val profiles = profileLinks.map(String::trim).filter(String::isNotEmpty).distinct()
         require(profiles.isNotEmpty()) { "Нет серверов для проверки задержки" }
 
@@ -46,7 +47,7 @@ internal object SingBoxUrlTestConfig {
                     .put("type", "urltest")
                     .put("tag", groupTagForOutbound(tag))
                     .put("outbounds", JSONArray().put(tag))
-                    .put("url", TEST_URL)
+                    .put("url", validatedTestUrl)
                     .put("interval", "30m")
                     .put("tolerance", 0)
                     .put("idle_timeout", "30m")
