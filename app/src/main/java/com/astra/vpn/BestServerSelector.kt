@@ -43,11 +43,13 @@ internal object BestServerSelector {
         }
         if (candidates.isEmpty()) return null
 
-        // Throughput is only a tie-break refinement: it may never push a
-        // candidate below the best latency/reliability score before bonus.
-        val bestBaseScore = candidates.minOf { it.baseScore }
+        // The bonus is capped at 20 ms, so throughput can only overcome
+        // a similarly small base-score gap. Do not clamp adjusted scores to
+        // the best base score: doing so would let a much worse candidate tie
+        // and win merely because it has a larger throughput bonus.
         return candidates.minWithOrNull(
-            compareBy<Candidate> { (it.baseScore - it.throughputBonus).coerceAtLeast(bestBaseScore) }
+            compareBy<Candidate> { (it.baseScore - it.throughputBonus).coerceAtLeast(1L) }
+                .thenBy { it.baseScore }
                 .thenByDescending { it.throughputBonus }
                 .thenBy { it.latency }
         )?.profile
