@@ -3508,6 +3508,14 @@ class MainActivity : Activity() {
             receiverRegistered = true
         }
         restorePendingLatencyResult()
+        // The foreground Activity may legally start the user-enabled monitor.
+        // Do not start it in the background or without the special Usage Access grant.
+        if (settingsPrefs.getBoolean("banking_auto_pause_enabled", false) &&
+            UsageAccessPermission.hasAccess(this)
+        ) {
+            runCatching { BankingForegroundMonitorService.start(this) }
+                .onFailure { android.util.Log.w("AstraVPN", "Не удалось запустить банковский монитор", it) }
+        }
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
         AstraHomeWidgetProvider.refreshAll(this)
@@ -5696,6 +5704,17 @@ class MainActivity : Activity() {
         }
         panel.addView(appRoutingEntry)
 
+        val bankingEntry = TextView(this).apply {
+            text = "🏦  Автопауза VPN для банков"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(13), dp(12), dp(13))
+            background = rounded(0xFF172238.toInt(), 13)
+            setOnClickListener { showBankingProtectionDialog() }
+        }
+        panel.addView(bankingEntry)
+
         addSectionLabel("✦  РЕЗЕРВНАЯ КОПИЯ")
         val backupExportEntry = TextView(this).apply {
             text = "📤  Экспортировать серверы и подписки"
@@ -6156,6 +6175,143 @@ class MainActivity : Activity() {
                     "Правила сохранены. Переподключи VPN для применения.",
                     Toast.LENGTH_LONG
                 ).show()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    /**
+     * User-facing setup for the separate banking-app monitor.
+     * This step deliberately starts observation only; tunnel automation is wired
+     * in a later change after pause/resume lifecycle handling is fully guarded.
+     */
+    private fun showBankingProtectionDialog() {
+        val prefs = settingsPrefs
+        val enabled = CheckBox(this).apply {
+            text = "Включить мониторинг банковских приложений"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = prefs.getBoolean("banking_auto_pause_enabled", false)
+        }
+        val selectedCount = TextView(this).apply {
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        fun refreshCount() {
+            val count = prefs.getStringSet("banking_app_packages", emptySet())?.size ?: 0
+            selectedCount.text = "Выбрано банковских приложений: $count"
+        }
+        val chooseApps = TextView(this).apply {
+            text = "Выбрать банковские приложения"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xFF202B43.toInt(), 13)
+            setOnClickListener {
+                val apps = runCatching {
+                    packageManager.queryIntentActivities(
+                        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
+                    ).mapNotNull { info ->
+                        val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+                        val label = info.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() } ?: pkg
+                        InstalledApp(pkg, label, info.loadIcon(packageManager))
+                    }.distinctBy { it.packageName }
+                        .sortedBy { it.label.lowercase(java.util.Locale.getDefault()) }
+                }.getOrElse { emptyList() }
+                if (apps.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "Не удалось получить список приложений", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val current = prefs.getStringSet("banking_app_packages", emptySet())?.toMutableSet() ?: mutableSetOf()
+                val labels = apps.map { it.label }.toTypedArray()
+                val checked = BooleanArray(apps.size) { apps[it].packageName in current }
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle("Банковские приложения")
+                    .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                        if (isChecked) current.add(apps[which].packageName)
+                        else current.remove(apps[which].packageName)
+                    }
+                    .setNeutralButton("Автоопределение") { _, _ ->
+                        val guessed = apps.filter { app ->
+                            val key = (app.packageName + " " + app.label).lowercase(java.util.Locale.ROOT)
+                            listOf("bank", "банк", "sber", "сбер", "tinkoff", "тинькофф", "альфа", "alfa",
+                                "vtb", "втб", "gazprom", "газпром", "raiffeisen", "райффайзен",
+                                "россельхоз", "rshb", "pochtabank", "почта банк", "openbank", "открытие")
+                                .any(key::contains)
+                        }.map { it.packageName }.toSet()
+                        prefs.edit().putStringSet("banking_app_packages", guessed).apply()
+                        refreshCount()
+                        Toast.makeText(this@MainActivity, "Найдено приложений: ${guessed.size}. Проверь список.", Toast.LENGTH_LONG).show()
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Сохранить") { _, _ ->
+                        prefs.edit().putStringSet("banking_app_packages", current).apply()
+                        refreshCount()
+                    }
+                    .show()
+            }
+        }
+        val permissionStatus = TextView(this).apply {
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        fun refreshPermission() {
+            permissionStatus.text = if (UsageAccessPermission.hasAccess(this)) {
+                "Доступ к статистике использования приложений предоставлен."
+            } else {
+                "Для мониторинга необходимо отдельно разрешить Astra доступ к статистике использования."
+            }
+        }
+        refreshCount()
+        refreshPermission()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(8))
+            background = rounded(BG, 20)
+            addView(TextView(this@MainActivity).apply {
+                text = "Настройка автоматической защиты банковских приложений. На этом этапе Astra только отслеживает выбранные приложения; автоматическая пауза и восстановление VPN будут подключены отдельно."
+                textSize = 12f
+                setTextColor(MUTED)
+                setPadding(0, 0, 0, dp(10))
+            })
+            addView(enabled)
+            addView(chooseApps, matchWidth().apply { topMargin = dp(8) })
+            addView(selectedCount)
+            addView(permissionStatus)
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Банковская защита")
+            .setView(content)
+            .setNeutralButton("Разрешение Usage Access") { _, _ ->
+                runCatching { startActivity(UsageAccessPermission.settingsIntent(this)) }
+                    .onFailure { Toast.makeText(this, "Не удалось открыть настройки доступа", Toast.LENGTH_LONG).show() }
+            }
+            .setNegativeButton("Закрыть", null)
+            .setPositiveButton("Сохранить", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = prefs.getStringSet("banking_app_packages", emptySet()) ?: emptySet()
+                if (enabled.isChecked && selected.isEmpty()) {
+                    Toast.makeText(this, "Сначала выбери хотя бы одно банковское приложение.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                prefs.edit().putBoolean("banking_auto_pause_enabled", enabled.isChecked).apply()
+                if (!enabled.isChecked) {
+                    BankingForegroundMonitorService.stop(this)
+                    Toast.makeText(this, "Мониторинг банковских приложений выключен.", Toast.LENGTH_SHORT).show()
+                } else if (UsageAccessPermission.hasAccess(this)) {
+                    runCatching { BankingForegroundMonitorService.start(this) }
+                        .onFailure { Toast.makeText(this, "Не удалось запустить мониторинг: ${it.message}", Toast.LENGTH_LONG).show() }
+                    Toast.makeText(this, "Мониторинг банковских приложений включён.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Предоставь Usage Access и вернись в Astra для запуска мониторинга.", Toast.LENGTH_LONG).show()
+                    runCatching { startActivity(UsageAccessPermission.settingsIntent(this)) }
+                }
                 dialog.dismiss()
             }
         }
