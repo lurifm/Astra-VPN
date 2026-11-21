@@ -1724,3 +1724,11 @@ CI run для последнего коммита необходимо пров�
 - При START_STICKY restart монитор восстанавливает polling только если opt-in и Usage Access всё ещё действуют.
 - Коммиты: `014fcd3`, `a9a7bdf`.
 - Требуется CI на HEAD и реальный Android test; автоматизация пока experimental.
+
+## 86. Banking automation retry and permission-loss hardening
+
+- Monitor теперь прекращает работу, если пользователь выключил opt-in или отозвал Usage Access во время работы. Перед остановкой он отменяет auto-resume state и очищает encrypted bank snapshot; ранее автоматически приостановленный VPN остаётся выключенным, без самовольного восстановления.
+- Добавлена защита от повторной отправки AUTO_RESUME: пока persisted VPN state равен CONNECTING, новые resume-команды не отправляются. После DISCONNECTED следующий свежий стабильный non-bank observation может повторить попытку, если snapshot/state всё ещё действительны.
+- Уточнён устаревший комментарий в UI: монитор запускает guarded automation, а не только observation.
+- Коммит: `68ece78` + документационный/UI-comment commit.
+- Остаётся проверить реальную гонку при failed start, уведомления/manual stop paths, split-screen и Android process death на устройстве. CI обязателен для итогового SHA.
