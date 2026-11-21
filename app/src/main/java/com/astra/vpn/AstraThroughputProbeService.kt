@@ -42,6 +42,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private val started = AtomicBoolean(false)
     private val measurementStarted = AtomicBoolean(false)
     private val worker = Executors.newSingleThreadExecutor()
+    private val probeWorker = Executors.newSingleThreadExecutor()
     @Volatile private var commandServer: CommandServer? = null
     @Volatile private var commandClient: CommandClient? = null
     @Volatile private var physicalNetwork: Network? = null
@@ -109,7 +110,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     override fun connected() {
                         if (stopped.get() || !measurementStarted.compareAndSet(false, true)) return
                         runCatching {
-                            worker.execute {
+                            probeWorker.execute {
                                 if (!stopped.get()) runMeasurement()
                             }
                         }
@@ -267,6 +268,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         val connection = activeConnection
         activeConnection = null
         worker.shutdownNow()
+        probeWorker.shutdownNow()
         val client = commandClient
         val server = commandServer
         commandClient = null
@@ -299,6 +301,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     override fun onDestroy() {
         finish()
         worker.shutdownNow()
+        probeWorker.shutdownNow()
         super.onDestroy()
     }
 
