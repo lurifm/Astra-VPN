@@ -49,7 +49,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             synchronized(lifecycleLock) {
                 if (!tunTimeoutGeneration.isCurrent(ownerToken)) return@synchronized
                 tunTimeout = null
-                if (!stopping && commandServer != null &&
+                if (!stopping && startRequestGeneration.isCurrent(requestToken) && commandServer != null &&
                     !TunRequestReadinessPolicy.isReady(
                         configurationAccepted = configurationAccepted,
                         descriptorOwned = tunDescriptor != null,
@@ -83,12 +83,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // critical section. A concurrent ACTION_START must not flip stopping
             // between the lifecycle check and the sticky decision.
             val keepSticky = synchronized(lifecycleLock) {
+                val currentRequest = startRequestGeneration.current()
                 if (!enabled) {
                     recoveryProfileTransaction.cancel()
                     persistRecoveryProfile(null)
                 } else if (stopping) {
                     recoveryProfileTransaction.cancel()
-                } else if (tunDescriptor != null && commandServer != null) {
+                } else if (commandServer != null && TunRequestReadinessPolicy.isReady(
+                        configurationAccepted = configurationAccepted,
+                        descriptorOwned = tunDescriptor != null,
+                        descriptorRequestToken = tunReadyRequestToken,
+                        requestToken = currentRequest
+                    )
+                ) {
                     recoveryProfileTransaction.cancel()
                     persistRecoveryProfile(link)
                 } else {
@@ -117,6 +124,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val requestToken = synchronized(lifecycleLock) {
             stopping = false
             val token = startRequestGeneration.next()
+            // A newly selected profile invalidates readiness from the previous one
+            // immediately, even while its libbox operation is still unwinding.
+            configurationAccepted = false
+            tunReadyRequestToken = null
             activeProfileName = intent?.getStringExtra(EXTRA_PROFILE_NAME)
                 ?.takeIf { it.isNotBlank() } ?: activeProfileName
             activeProtocol = intent?.getStringExtra(EXTRA_PROTOCOL)
