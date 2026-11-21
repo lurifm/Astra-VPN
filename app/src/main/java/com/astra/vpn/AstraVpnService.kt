@@ -352,8 +352,16 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         activeConfig != config
                     ) return@synchronized
                     Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
+                    // This is a reload of an already accepted profile, not a new
+                    // user-supplied configuration. A transient libbox/network
+                    // failure may recover; MainActivity applies its bounded 3s/8s
+                    // retry schedule and cancels it on profile change or Disconnect.
                     stopTunnel()
-                    publishState(STATE_ERROR, "Не удалось обновить VPN. Проверь конфигурацию сервера.")
+                    publishState(
+                        STATE_ERROR,
+                        "Не удалось обновить VPN. Проверь конфигурацию сервера.",
+                        retryable = true
+                    )
                 }
             }
     }
