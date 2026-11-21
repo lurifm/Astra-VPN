@@ -174,7 +174,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 Intent(intent)
                     .setAction(ACTION_START)
                     .putExtra(EXTRA_CONFIG, config)
-                    .putExtra(EXTRA_PROFILE_LINK, requestedLink),
+                    .putExtra(EXTRA_PROFILE_LINK, requestedLink)
+                    .putExtra(EXTRA_TRANSITION_ID, requestedTransitionId),
                 flags,
                 startId
             )
