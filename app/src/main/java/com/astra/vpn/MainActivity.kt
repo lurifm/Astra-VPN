@@ -2539,6 +2539,7 @@ class MainActivity : Activity() {
         if (connecting) return
         val link = selectedProfile ?: return
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+            rollbackPendingFailoverSelection()
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
             MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
@@ -2565,6 +2566,7 @@ class MainActivity : Activity() {
                 startTunnel(config)
             }
         } catch (error: Exception) {
+            rollbackPendingFailoverSelection()
             // If Android cannot launch its consent screen, restore the UI instead
             // of leaving the connect button in a permanent starting state.
             pendingConfig = null
@@ -3161,6 +3163,7 @@ class MainActivity : Activity() {
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
         } catch (error: Exception) {
+            rollbackPendingFailoverSelection()
             // Do not leave a stale configuration behind after a failed service start.
             pendingConfig = null
             connecting = false
