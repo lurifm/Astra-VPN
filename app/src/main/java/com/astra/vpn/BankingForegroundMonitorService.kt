@@ -17,8 +17,6 @@ import android.os.Looper
 import android.util.Log
 
 /**
- * User-started foreground observer for banking automation.
- *
  * User-started foreground observer and executor for conservative banking transitions.
  * It never guesses on ambiguous UsageEvents and persists state before issuing VPN commands.
  */
@@ -61,6 +59,13 @@ internal class BankingForegroundMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // Explicitly disabling the feature cancels any pending automatic resume.
+                runCatching {
+                    val stateStore = BankingAutomationStateStore(this)
+                    val state = stateStore.read()
+                    if (state.autoPausedByBanking) stateStore.write(state.cancelAutomaticResume())
+                    ProfileStore(this).clearBankPauseSnapshot()
+                }.onFailure { Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
                 running = false
                 handler.removeCallbacksAndMessages(null)
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -78,6 +83,16 @@ internal class BankingForegroundMonitorService : Service() {
                     lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
                     handler.post(poll)
                 }
+                return START_STICKY
+            }
+            null -> {
+                val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
+                    .getBoolean("banking_auto_pause_enabled", false)
+                if (!enabled || !UsageAccessPermission.hasAccess(this)) return START_NOT_STICKY
+                startAsForeground()
+                running = true
+                lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
+                handler.post(poll)
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
