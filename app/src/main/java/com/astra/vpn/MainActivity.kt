@@ -923,7 +923,7 @@ class MainActivity : Activity() {
             }
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
-        filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4) })
+        filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(48), dp(48)).apply { leftMargin = dp(4) })
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(132), dp(48)).apply { leftMargin = dp(4) })
         serverCountLabel = TextView(this).apply {
             text = "СЕРВЕРЫ  ·  НАСТРОЙКА СОРТИРОВКИ"
@@ -1302,7 +1302,7 @@ class MainActivity : Activity() {
             background = rounded(CARD, 14)
             contentDescription = "Закрыть"
             setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
         panel.addView(topRow)
 
         panel.addView(TextView(this).apply {
@@ -5950,7 +5950,7 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             contentDescription = "Закрыть настройки"
             setOnClickListener { sheet.dismiss() }
-        }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
         sheetContent.addView(sheetHeader)
         sheetContent.addView(settingsScroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f

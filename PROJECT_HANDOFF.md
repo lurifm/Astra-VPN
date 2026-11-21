@@ -1748,3 +1748,11 @@ CI run для последнего коммита необходимо пров�
 - This is important because the app targets SDK 35, where Android 15 enforces edge-to-edge; without insets, the programmatic header/content can draw underneath system bars.
 - Existing 14dp vertical spacing is preserved in addition to the system insets. Older Android versions use the compatible system-window inset values.
 - Needs visual verification on a real Android 15 device, gesture navigation, three-button navigation, and cutout screens.
+
+
+## 88. Touch-target and observation-policy cleanup
+
+- Raised the server-search clear control and import/settings sheet close controls to 48dp touch targets, aligning them with Android accessibility guidance while preserving their visual glyphs.
+- Removed obsolete `lastEmitted` bookkeeping from the foreground observation debounce policy; stable observations are intentionally re-published for retry handling.
+- The server list already uses 48dp minimum targets for favorite/share actions; the audit found these smaller controls as remaining inconsistencies.
+- Narrow-screen and large-font visual checks still require emulator/physical-device validation.

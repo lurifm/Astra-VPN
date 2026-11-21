@@ -12,7 +12,6 @@ package com.astra.vpn
 internal class BankingForegroundObservationPolicy {
     private var candidate: String? = null
     private var consecutiveSamples = 0
-    private var lastEmitted: String? = null
 
     fun observe(packageName: String?): String? {
         if (packageName.isNullOrBlank()) {
@@ -27,7 +26,6 @@ internal class BankingForegroundObservationPolicy {
             consecutiveSamples = 1
         }
         if (consecutiveSamples < REQUIRED_SAMPLES) return null
-        lastEmitted = packageName
         return packageName
     }
 
