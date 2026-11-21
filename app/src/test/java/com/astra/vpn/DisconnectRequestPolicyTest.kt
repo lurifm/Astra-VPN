@@ -26,13 +26,14 @@ class DisconnectRequestPolicyTest {
     }
 
     @Test
-    fun persistedDisconnectedStateAllowsRestoreToClearStopMarker() {
-        assertTrue(DisconnectRequestPolicy.shouldClearAfterPersistedState("disconnected"))
+    fun persistedDisconnectedSnapshotCannotAcknowledgeAStopRequest() {
+        assertFalse(DisconnectRequestPolicy.shouldClearAfterPersistedState("disconnected"))
     }
 
     @Test
-    fun persistedConnectedStateKeepsStopMarkerEvenWhenVpnRouteIsGone() {
+    fun persistedConnectedOrDisconnectedSnapshotKeepsStopMarker() {
         assertFalse(DisconnectRequestPolicy.shouldClearAfterPersistedState("connected"))
+        assertFalse(DisconnectRequestPolicy.shouldClearAfterPersistedState("disconnected"))
     }
 
     @Test

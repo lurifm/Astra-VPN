@@ -9,10 +9,8 @@ internal object DisconnectRequestPolicy {
         state == "disconnected"
 
     /**
-     * The persisted service state is a terminal acknowledgement only when it is
-     * DISCONNECTED. A missing VPN route by itself is not proof that ACTION_STOP
-     * finished: Android may remove the route before the service records its state.
+     * Persisted state is only a snapshot and carries no ordering relative to the
+     * user's stop request. It can never acknowledge a pending stop safely.
      */
-    fun shouldClearAfterPersistedState(state: String?): Boolean =
-        shouldClearAfterServiceState(state)
+    fun shouldClearAfterPersistedState(state: String?): Boolean = false
 }
