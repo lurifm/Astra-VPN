@@ -1715,3 +1715,12 @@ CI run для последнего коммита необходимо пров�
 - Коммиты: `c465d0a`, `aa2b720`.
 - Ограничения/риски для проверки: ACTION_AUTO_PAUSE должен попасть в живой AstraVpnService instance с тем же activeProfileLink; команда отправляется после двух стабильных samples. Не проверено физически на устройстве. Нужно проверить race между повторными observations, service process death, split-screen, отключение Usage Access, ручной disconnect из всех UI/notification surfaces, выключение automation во время паузы, VPN consent и Android API 31–35.
 - Не считать функцию production-ready до зелёного CI, review service lifecycle и физического end-to-end теста.
+
+## 85. Runtime guard corrections for banking executor
+
+- Pause command gate теперь проверяет pre-transition state, тогда как persisted next-state уже записан для независимой проверки внутри AstraVpnService. Это устраняет self-rejection команды PAUSE.
+- Перед паузой монитор требует не только persisted STATE_CONNECTED, но и живой Android activeNetwork с TRANSPORT_VPN. Устаревшее состояние после смерти процесса/потери TUN не должно считаться активным VPN и приводить к ложной автопаузе с последующим неожиданным восстановлением.
+- При явном выключении функции монитор отменяет ожидающий auto-resume и очищает зашифрованный snapshot; VPN остаётся выключенным, если уже был на паузе.
+- При START_STICKY restart монитор восстанавливает polling только если opt-in и Usage Access всё ещё действуют.
+- Коммиты: `014fcd3`, `a9a7bdf`.
+- Требуется CI на HEAD и реальный Android test; автоматизация пока experimental.
