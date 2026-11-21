@@ -1797,8 +1797,15 @@ class MainActivity : Activity() {
             .setPositiveButton("Удалить") { _, _ ->
                 runCatching { profileStore.removeSubscription(item.sourceUrl) }
                     .onSuccess { removed ->
-                        if (activeProfile?.let { it in removed } == true || selectedProfile?.let { it in removed } == true) stopTunnel()
-                        if (activeProfile?.let { it in removed } == true) activeProfile = null
+                        val removesActiveProfile = activeProfile?.let { it in removed } == true
+                        val removesPendingProfile = pendingProfile?.let { it in removed } == true ||
+                            selectedProfile?.let { it in removed } == true
+                        // Removing a subscription while Android's VPN consent is open must
+                        // invalidate the captured config; otherwise a late RESULT_OK could
+                        // start a profile that has already been deleted.
+                        if (pendingConfig != null && removesPendingProfile) cancelPendingConnect()
+                        if (removesActiveProfile) stopTunnel()
+                        if (removesActiveProfile) activeProfile = null
                         if (selectedProfile?.let { it in removed } == true) selectedProfile = null
                         renderProfiles()
                         checkAllLatencies()
@@ -1869,11 +1876,15 @@ class MainActivity : Activity() {
         if (selectedProfile != selectionSnapshot || selectionSnapshot == null) return
         val latestProfiles = safeProfiles() ?: return
         val remapped = ProfileSelectionMatcher.remap(selectionSnapshot, latestProfiles)
-        selectedProfile = ProfileSelectionRefreshPolicy.resolve(
+        val resolvedSelection = ProfileSelectionRefreshPolicy.resolve(
             previousSelection = selectionSnapshot,
             remappedSelection = remapped,
             connectedToPreviousSelection = connected && activeProfile == selectionSnapshot
         )
+        // Subscription refresh can rotate the selected URI while Android's
+        // consent dialog is still open. Never let its captured old config start.
+        if (pendingConfig != null && pendingProfile != resolvedSelection) cancelPendingConnect()
+        selectedProfile = resolvedSelection
     }
 
     /**
