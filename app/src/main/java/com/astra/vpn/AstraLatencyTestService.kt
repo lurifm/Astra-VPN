@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
@@ -43,8 +44,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
+    @Volatile private var batchDeadlineElapsedMs = 0L
     private var latestResults = LatencyResultAccumulator(emptySet())
-    private val startupTimeout = Runnable { finishAndPublish() }
+    private val batchTimeout = Runnable { finishAndPublish() }
     private val completedTags = linkedSetOf<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
 
@@ -79,8 +81,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
         )
-        // Bound native startup separately; per-server deadlines start after dispatch.
-        handler.postDelayed(startupTimeout, STARTUP_TIMEOUT_MS)
+        // One absolute deadline covers native startup and every server probe.
+        // A slow engine startup must not silently extend the user's 10-second wait.
+        batchDeadlineElapsedMs = LatencyBatchDeadlinePolicy.deadlineAt(
+            SystemClock.elapsedRealtime(), BATCH_TIMEOUT_MS
+        )
+        handler.postDelayed(batchTimeout, BATCH_TIMEOUT_MS)
         worker.execute {
             var createdServer: CommandServer? = null
             var createdClient: CommandClient? = null
@@ -161,13 +167,20 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (!urlTestsDispatched.compareAndSet(false, true)) return@executeWorkerIfActive
                 handler.post {
                     if (stopped.get()) return@post
-                    handler.removeCallbacks(startupTimeout)
-                    // Start every per-server deadline together. This is a hard
-                    // upper bound for the batch even if a native URLTest call stalls.
+                    handler.removeCallbacks(batchTimeout)
+                    // All servers share the original absolute deadline. Time spent
+                    // starting libbox is deducted rather than granting a second 10s.
+                    val remainingMs = LatencyBatchDeadlinePolicy.remainingMs(
+                        batchDeadlineElapsedMs, SystemClock.elapsedRealtime()
+                    )
+                    if (remainingMs == 0L) {
+                        finishAndPublish()
+                        return@post
+                    }
                     expectedTags.forEach { outboundTag ->
                         val deadline = Runnable { completeTimedOutTag(outboundTag) }
                         perServerTimeouts[outboundTag] = deadline
-                        handler.postDelayed(deadline, TEST_TIMEOUT_MS)
+                        handler.postDelayed(deadline, remainingMs)
                     }
                 }
                 // A bounded pool prevents one blocking native call from holding
@@ -324,7 +337,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
-        handler.removeCallbacks(startupTimeout)
+        handler.removeCallbacks(batchTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()
         // Interrupt queued dispatch tasks; native URLTest calls already in progress
@@ -399,8 +412,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val STARTUP_TIMEOUT_MS = 10_000L
-        private const val TEST_TIMEOUT_MS = 10_000L
+        private const val BATCH_TIMEOUT_MS = 10_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
