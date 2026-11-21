@@ -819,3 +819,12 @@ CI для последнего набора изменений необходи�
 - Коммит production-кода: f5426b4.
 - Предыдущий HEAD раздела 68 (20acbcb79090c1c9c678159d1d40140c31c996ef) прошёл GitHub Actions run #897: unit tests, debug APK build, APK verification и artifact upload — SUCCESS. Для нового коммита требуется отдельный полный run.
 - Проверка на Android: воспроизвести быстрое чередование Disconnect / обновления настройки восстановления / явного Connect и убедиться, что старый update не меняет restart mode нового lifecycle; отдельно проверить process death после Disconnect.
+
+
+## 70. Атомарная очистка recovery-профиля при Disconnect (21 ноября 2026)
+
+- В `ACTION_STOP` обнаружена гонка с callback `handleTunCreated()`: команда Disconnect очищала зашифрованный recovery-профиль до захвата `lifecycleLock`, а callback мог в промежутке зафиксировать staged-профиль после очистки. В результате пользователь уже отключал VPN, но последний callback мог повторно записать профиль для `START_STICKY`.
+- Исправлено: отмена незавершённой recovery-транзакции, очистка `ProfileStore` и вызов `stopTunnel()` теперь сериализованы одной критической секцией `lifecycleLock`. Если callback завершился первым, Disconnect очищает его запись; если Disconnect первым получил lock, callback увидит `stopping` и закроет поздний TUN descriptor без commit.
+- Использована существующая транзакционная логика `VpnRecoveryProfileTransaction.cancel()`; новые policy API и лишние тестовые абстракции не добавлялись. Важная проверка — оба порядка гонки закрыты одной блокировкой.
+- Production-коммит: 9ad6815. Предыдущий HEAD `b117684ddf1419a1c56415299c608a0120992d83` прошёл run #899: unit tests, debug APK, APK verification и artifact upload — SUCCESS. Для текущего коммита запущен новый CI.
+- На Android проверить быстрое Disconnect во время создания TUN и process death сразу после отключения: recovery-профиль должен остаться очищенным, а поздний callback не должен публиковать CONNECTED.
