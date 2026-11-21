@@ -180,6 +180,8 @@ class MainActivity : Activity() {
     private var selectionPersistenceReady = false
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
+    // Profile captured together with the config while Android VPN consent is pending.
+    private var pendingProfile: String? = null
     private var connected = false
     private var connecting = false
     private var disconnecting = false
@@ -3110,7 +3112,9 @@ class MainActivity : Activity() {
     }
 
     private fun connectSelectedProfile() {
-        if (connecting) return
+        // Consent UI is asynchronous: block duplicate starts before the service
+        // has had a chance to publish STATE_CONNECTING.
+        if (connecting || pendingConfig != null) return
         val link = selectedProfile ?: return
         val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
             rollbackPendingFailoverSelection()
@@ -3123,6 +3127,11 @@ class MainActivity : Activity() {
             return
         }
         pendingConfig = config
+        pendingProfile = link
+        connecting = true
+        status.text = "Подключаемся…"
+        status.setTextColor(AMBER)
+        renderProfiles()
 
         // Do not show an extra in-app confirmation when switching profiles.
         // If Astra already owns the VPN, the service reloads sing-box in place
@@ -3144,6 +3153,7 @@ class MainActivity : Activity() {
             // If Android cannot launch its consent screen, restore the UI instead
             // of leaving the connect button in a permanent starting state.
             pendingConfig = null
+            pendingProfile = null
             connecting = false
             connected = false
             status.text = "Не удалось запросить разрешение VPN"
@@ -3359,9 +3369,15 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_VPN_PERMISSION) {
-            if (resultCode == RESULT_OK) pendingConfig?.let { startTunnel(it) }
-            else {
+            if (resultCode == RESULT_OK) {
+                pendingConfig?.let { startTunnel(it) } ?: run {
+                    pendingProfile = null
+                    connecting = false
+                }
+            } else {
                 pendingConfig = null
+                pendingProfile = null
+                connecting = false
                 status.text = "Разрешение VPN не выдано"
                 status.setTextColor(RED)
                 renderProfiles()
@@ -3819,7 +3835,7 @@ class MainActivity : Activity() {
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
         // the same VPN Network object for the replacement sing-box configuration.
         tunnelHealthCheckGeneration.advance()
-        activeProfile = selectedProfile
+        activeProfile = pendingProfile ?: selectedProfile
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
             .putExtra(AstraVpnService.EXTRA_CONFIG, config)
@@ -3829,6 +3845,7 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
             pendingConfig = null
+            pendingProfile = null
             connecting = true
             status.text = "Подключаемся…"
             status.setTextColor(AMBER)
@@ -3836,6 +3853,7 @@ class MainActivity : Activity() {
             rollbackPendingFailoverSelection()
             // Do not leave a stale configuration behind after a failed service start.
             pendingConfig = null
+            pendingProfile = null
             connecting = false
             connected = false
             tunnelInternetOk = false
