@@ -95,6 +95,8 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private lateinit var quickSwitchContainer: LinearLayout
     private lateinit var orbitMetricsLabel: TextView
+    private lateinit var orbitNameLabel: TextView
+    private lateinit var orbitMetaLabel: TextView
     private val pingInfo = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val latencyMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val throughputHistory by lazy { ThroughputHistoryStore(this) }
@@ -587,6 +589,27 @@ class MainActivity : Activity() {
         connectionCard = connectCard
         connectCard.addView(connectionCaption, matchWidth())
         connectCard.addView(status, matchWidth())
+        orbitNameLabel = TextView(this).apply {
+            text = "Выбери орбиту"
+            textSize = 27f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFFFFD98A.toInt())
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(4), dp(1), dp(4), 0)
+        }
+        orbitMetaLabel = TextView(this).apply {
+            text = "ASTRA  ·  ОЖИДАНИЕ СЕРВЕРА"
+            textSize = 10f
+            letterSpacing = .13f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(0xFF9CA7C1.toInt())
+            setPadding(0, dp(2), 0, dp(7))
+        }
+        connectCard.addView(orbitNameLabel, matchWidth())
+        connectCard.addView(orbitMetaLabel, matchWidth())
         connectCard.addView(constellationView, LinearLayout.LayoutParams(matchWidth().width, dp(44)).apply {
             topMargin = dp(3)
             bottomMargin = dp(5)
@@ -2048,6 +2071,7 @@ class MainActivity : Activity() {
             else -> "Подключить VPN к выбранному серверу"
         }
         if (::quickSwitchContainer.isInitialized) renderQuickSwitch(profiles)
+        updateOrbitIdentity()
         if (selected != null && connected && selected == activeProfile) {
             selectedInfo.text = when (tunnelInternetOk) {
                 true -> "🛡 Защита проверена · интернет через VPN работает\n${profileSummary(selected)}"
@@ -2465,6 +2489,36 @@ class MainActivity : Activity() {
                 bottomMargin = dp(9)
             })
         }
+    }
+
+    private fun updateOrbitIdentity() {
+        if (!::orbitNameLabel.isInitialized || !::orbitMetaLabel.isInitialized) return
+        val link = selectedProfile
+        if (link.isNullOrBlank()) {
+            orbitNameLabel.text = "Выбери орбиту"
+            orbitMetaLabel.text = "ASTRA  ·  ОЖИДАНИЕ СЕРВЕРА"
+            return
+        }
+        val uri = Uri.parse(link)
+        val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+        val clean = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+        val serverName = clean.takeUnless {
+            it.isBlank() || it.length > 48 || it.startsWith("base64:", true) ||
+                (it.length > 48 && it.matches(Regex("[A-Za-z0-9+/=_-]+")))
+        } ?: uri.host.orEmpty().ifBlank { "Сервер" }
+        val flag = CountryFlagResolver.flagFor(serverName)
+        val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
+            ?: serverName
+        val latency = latencyMs[link]?.let { "$it мс" } ?: "PING НЕ ПРОВЕРЕН"
+        orbitNameLabel.text = country
+        orbitMetaLabel.text = buildString {
+            append(protocolName(link).uppercase(java.util.Locale.ROOT))
+            append("  ·  ")
+            append(latency)
+            if (connected && activeProfile == link) append("  ·  ЗАЩИТА АКТИВНА")
+        }
+        orbitNameLabel.contentDescription = "Выбранный сервер: $country"
+        orbitMetaLabel.contentDescription = "Протокол ${protocolName(link)}, задержка $latency"
     }
 
     private fun renderQuickSwitch(profiles: List<String>) {
