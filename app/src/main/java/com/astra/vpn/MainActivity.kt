@@ -3588,7 +3588,8 @@ class MainActivity : Activity() {
             profiles = measuredCandidates,
             latencyMs = adjusted,
             recentFailures = recentServerFailureCounts(measuredCandidates),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates)
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates),
+            throughputSamples = throughputHistory.getFresh(measuredCandidates)
         )
         if (alternate == null) {
             Toast.makeText(
@@ -3903,7 +3904,8 @@ class MainActivity : Activity() {
             profiles = failoverCandidates,
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(failoverCandidates),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates)
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
+            throughputSamples = throughputHistory.getFresh(failoverCandidates)
         ) ?: run {
             renderProfiles()
             return
