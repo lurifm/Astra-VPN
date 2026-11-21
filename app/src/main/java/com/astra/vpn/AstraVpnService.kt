@@ -65,7 +65,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
                 .getBoolean(PREF_RECOVERY_ENABLED, false)
             val link = intent.getStringExtra(EXTRA_PROFILE_LINK)
-            synchronized(lifecycleLock) {
+            // Stage/cancel the recovery update and decide the restart mode in one
+            // critical section. A concurrent ACTION_START must not flip stopping
+            // between the lifecycle check and the sticky decision.
+            val keepSticky = synchronized(lifecycleLock) {
                 if (!enabled) {
                     recoveryProfileTransaction.cancel()
                     persistRecoveryProfile(null)
@@ -77,8 +80,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 } else {
                     recoveryProfileTransaction.stage(link)
                 }
-            }
-            val keepSticky = synchronized(lifecycleLock) {
                 VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(
                     recoveryEnabled = enabled,
                     stopping = stopping
