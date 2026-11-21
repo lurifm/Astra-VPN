@@ -56,6 +56,37 @@ class TimeOfDayServerOptimizerTest {
     }
 
     @Test
+    fun ignoresHistoricalSamplesOlderThanThirtyFiveDays() {
+        val samples = listOf(
+            LatencyStabilityScorer.Sample(now - 42L * DAY_MS, 50L),
+            LatencyStabilityScorer.Sample(now - 35L * DAY_MS - 1L, 50L),
+            LatencyStabilityScorer.Sample(now - 7L * DAY_MS, 100L)
+        )
+
+        val result = TimeOfDayServerOptimizer.adjustedLatencies(
+            listOf(profile), mapOf(profile to 1_000L), { samples }, now, utc
+        )
+
+        // Only one eligible historical point remains, so blending is disabled.
+        assertEquals(1_000L, result[profile])
+    }
+
+    @Test
+    fun acceptsHistoricalSampleAtMaximumAgeBoundary() {
+        val samples = listOf(
+            LatencyStabilityScorer.Sample(now - 35L * DAY_MS, 200L),
+            LatencyStabilityScorer.Sample(now - 28L * DAY_MS, 200L),
+            LatencyStabilityScorer.Sample(now, 1_000L)
+        )
+
+        val result = TimeOfDayServerOptimizer.adjustedLatencies(
+            listOf(profile), mapOf(profile to 1_000L), { samples }, now, utc
+        )
+
+        assertEquals(760L, result[profile])
+    }
+
+    @Test
     fun omitsProfilesWithoutCurrentMeasurement() {
         val result = TimeOfDayServerOptimizer.adjustedLatencies(
             listOf(profile), emptyMap(), { emptyList() }, now, utc
