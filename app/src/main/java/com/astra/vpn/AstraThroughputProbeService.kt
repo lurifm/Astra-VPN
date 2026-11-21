@@ -263,9 +263,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     }
 
     private fun remainingTimeout(deadline: Long): Int {
-        val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
-        if (remaining <= 0L) throw java.net.SocketTimeoutException("probe deadline")
-        return remaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val remaining = ThroughputTimeoutPolicy.remainingMillis(deadline, System.nanoTime())
+        if (remaining <= 0) throw java.net.SocketTimeoutException("probe deadline")
+        return remaining
     }
 
     private data class Sample(val bytes: Long, val durationMs: Long, val mbps: Double)
