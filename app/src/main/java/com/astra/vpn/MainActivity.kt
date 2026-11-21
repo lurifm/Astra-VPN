@@ -293,6 +293,7 @@ class MainActivity : Activity() {
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
+                    val wasAutomaticFailover = pendingFailoverSelection != null
                     rollbackPendingFailoverSelection()
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
@@ -309,7 +310,7 @@ class MainActivity : Activity() {
                         ?.takeIf { it.isNotEmpty() }
                     val message = reportedError ?: "VPN не удалось запустить. Проверь выбранный сервер и подключение к интернету."
                     val retryable = intent.getBooleanExtra(AstraVpnService.EXTRA_RETRYABLE, false)
-                    if (!scheduleTransientConnectRetry(retryable)) {
+                    if (!scheduleTransientConnectRetry(retryable, wasAutomaticFailover)) {
                         MaterialAlertDialogBuilder(this@MainActivity)
                             .setTitle("Не удалось подключиться")
                             .setMessage(message)
@@ -2101,6 +2102,8 @@ class MainActivity : Activity() {
                     if (connecting) {
                         Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     } else if (connected && link != activeProfile) {
+                        // A new explicit user choice supersedes any delayed retry for the old node.
+                        cancelConnectRetry(resetAttempts = true)
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
                         val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
@@ -2109,6 +2112,7 @@ class MainActivity : Activity() {
                         }
                         startTunnel(nextConfig)
                     } else {
+                        if (selectedProfile != link) cancelConnectRetry(resetAttempts = true)
                         selectedProfile = link
                         renderProfiles()
                     }
@@ -3160,9 +3164,20 @@ class MainActivity : Activity() {
     }
 
     /** Schedule only explicitly retryable transient failures; never retry arbitrary config errors. */
-    private fun scheduleTransientConnectRetry(retryable: Boolean): Boolean {
-        if (!retryable || isFinishing || isDestroyed || disconnecting || connected ||
-            settingsPrefs.getBoolean("vpn_disconnect_requested", false) || selectedProfile.isNullOrBlank()
+    private fun scheduleTransientConnectRetry(
+        retryable: Boolean,
+        isAutomaticFailover: Boolean
+    ): Boolean {
+        val retryProfile = selectedProfile
+        val userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false)
+        if (isFinishing || isDestroyed || disconnecting || connected ||
+            !TransientConnectRetryPolicy.shouldSchedule(
+                retryable = retryable,
+                isAutomaticFailover = isAutomaticFailover,
+                userRequestedDisconnect = userRequestedDisconnect,
+                hasSelectedProfile = !retryProfile.isNullOrBlank(),
+                attempt = connectRetryAttempt
+            )
         ) return false
         val delay = TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
         connectRetryAttempt++
@@ -3171,10 +3186,19 @@ class MainActivity : Activity() {
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
         connectRetryTask = Runnable {
-            if (generation != connectRetryGeneration || isFinishing || isDestroyed ||
-                disconnecting || connected || connecting ||
-                settingsPrefs.getBoolean("vpn_disconnect_requested", false)
-            ) return@Runnable
+            val canExecute = TransientConnectRetryPolicy.shouldExecute(
+                generationCurrent = generation == connectRetryGeneration,
+                selectedProfileUnchanged = selectedProfile == retryProfile,
+                activityActive = !isFinishing && !isDestroyed,
+                userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+                connecting = connecting,
+                connected = connected,
+                disconnecting = disconnecting
+            )
+            if (!canExecute) {
+                connectRetryTask = null
+                return@Runnable
+            }
             connectRetryTask = null
             connectSelectedProfile()
         }.also { connectRetryHandler.postDelayed(it, delay) }
@@ -4193,7 +4217,9 @@ class MainActivity : Activity() {
         var chosen = (selectedProfile?.let { profiles.take(36).indexOf(it) } ?: -1).coerceAtLeast(0)
         val map = OrbitMapView(this, nodes) { index ->
             chosen = index
-            selectedProfile = profiles.take(36)[index]
+            val mappedProfile = profiles.take(36)[index]
+            if (selectedProfile != mappedProfile) cancelConnectRetry(resetAttempts = true)
+            selectedProfile = mappedProfile
             selectedInfo.text = profileSummary(profiles.take(36)[index])
             Toast.makeText(this, "Выбрана орбита: ${profileName(profiles.take(36)[index])}", Toast.LENGTH_SHORT).show()
         }
@@ -4216,6 +4242,7 @@ class MainActivity : Activity() {
             .setView(content)
             .setPositiveButton("Выбрать") { _, _ ->
                 val profile = profiles.take(36)[chosen]
+                if (selectedProfile != profile) cancelConnectRetry(resetAttempts = true)
                 selectedProfile = profile
                 selectedInfo.text = profileSummary(profile)
                 renderProfiles()
