@@ -117,7 +117,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     override fun disconnected(message: String?) {
                         if (!stopped.get()) fail("Соединение с тестовым движком потеряно")
                     }
-                }, options)
+                    override fun setDefaultLogLevel(level: Int) = Unit
+                    override fun clearLogs() = Unit
+                                                                                                                                }, options)
                 localClient = client
                 commandClient = client
                 if (!stopped.get()) client.connect()
