@@ -61,7 +61,31 @@ internal class OrbitHeroView(context: Context) : View(context) {
             canvas.drawCircle(width * point.first, height * point.second,
                 dp(if (index % 4 == 0) 2.4f else 1.4f), starPaint)
         }
+
+        // At night, a successful VPN connection reveals a denser sky around the hero.
+        // Coordinates are deterministic (no per-frame allocations or random number generation).
+        val localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val isNight = localHour >= 21 || localHour < 6
+        if (connectionState == "connected" && isNight) {
+            for (index in 0 until 38) {
+                val x = ((index * 37 + 11) % 97) / 100f
+                val y = ((index * 61 + 23) % 97) / 100f
+                // Keep the brightest extra stars outside the central connect-button area.
+                if (x in 0.37f..0.63f && y in 0.37f..0.63f) continue
+                val twinkle = (sin(phase * Math.PI * 2.0 + index * 1.31) + 1.0) / 2.0
+                starPaint.color = 0xFFFFE7AE.toInt()
+                starPaint.alpha = (75 + twinkle * 165).toInt()
+                val starRadius = dp(if (index % 7 == 0) 2.1f else 1.15f) *
+                    (0.72f + twinkle.toFloat() * 0.45f)
+                canvas.drawCircle(width * x, height * y, starRadius, starPaint)
+                if (index % 7 == 0 && twinkle > 0.72) {
+                    starPaint.alpha = (twinkle * 65).toInt()
+                    canvas.drawCircle(width * x, height * y, starRadius * 3.1f, starPaint)
+                }
+            }
+        }
         starPaint.alpha = 255
+        starPaint.color = 0xFFFFD477.toInt()
 
         // Slow counter-rotating satellites add depth without competing with the CTA.
         val orbitSpecs = listOf(.67f to 1f, .91f to -0.62f)
