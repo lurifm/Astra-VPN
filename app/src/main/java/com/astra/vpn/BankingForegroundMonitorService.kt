@@ -247,10 +247,6 @@ internal class BankingForegroundMonitorService : Service() {
         }
     }
 
-    private companion object {
-        const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
-    }
-
     private fun startAsForeground() {
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_vpn)
@@ -324,6 +320,7 @@ internal class BankingForegroundMonitorService : Service() {
         private const val NOTIFICATION_ID = 43
         private const val POLL_INTERVAL_MS = 1_000L
         private const val INITIAL_LOOKBACK_MS = 60_000L
+        private const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
 
         fun start(context: Context) {
             val intent = Intent(context, BankingForegroundMonitorService::class.java).setAction(ACTION_START)
