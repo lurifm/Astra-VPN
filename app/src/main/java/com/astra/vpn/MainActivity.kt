@@ -86,6 +86,7 @@ class MainActivity : Activity() {
     private lateinit var throughputCheckButton: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
+    private var connectTintAnimator: android.animation.ValueAnimator? = null
     private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
     private lateinit var constellationView: ConstellationView
@@ -637,7 +638,7 @@ class MainActivity : Activity() {
             cornerRadius = dp(56)
             minWidth = 0
             minHeight = dp(108)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFFFC95C.toInt())
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFC7CED8.toInt())
             rippleColor = android.content.res.ColorStateList.valueOf(0x44FFFFFF)
             insetTop = 0
             insetBottom = 0
@@ -2162,16 +2163,6 @@ class MainActivity : Activity() {
             connected -> "Отключить"
             else -> "Подключиться"
         }
-        // Make the primary action communicate its current meaning at a glance:
-        // blue to connect, amber while starting, and a restrained coral to disconnect.
-        val actionColor = when {
-            disconnecting -> AMBER
-            connecting -> AMBER
-            connected && selected == activeProfile -> 0xFFB85F78.toInt()
-            else -> ACCENT
-        }
-        connectButton.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(actionColor)
         updateConnectionCardAppearance(when {
             disconnecting -> "disconnecting"
             connecting -> "connecting"
@@ -2179,6 +2170,9 @@ class MainActivity : Activity() {
             connected -> "switching"
             else -> "idle"
         })
+        // Re-apply health tint after rendering; ordinary renders must not overwrite
+        // the latency color with a generic action-state color.
+        updateConnectButtonServerHealth()
         connectButton.contentDescription = when {
             disconnecting -> "Отключение VPN выполняется"
             connecting -> "Подключение VPN выполняется"
@@ -6364,10 +6358,9 @@ class MainActivity : Activity() {
     }
 
     /**
-     * The star's fill communicates the selected server's live health:
-     * green = measured latency <= 100 ms, amber = measured latency > 100 ms,
-     * red = the established VPN tunnel failed its health probe.
-     * Missing ping data is deliberately neutral, never treated as offline.
+     * The primary button is silver while disconnected. With the selected server
+     * actively connected: green = 1–200 ms, amber = 201+ ms or unknown latency,
+     * red = a confirmed failed tunnel health check.
      */
     private fun updateConnectButtonServerHealth() {
         if (!::connectButton.isInitialized) return
@@ -6375,35 +6368,56 @@ class MainActivity : Activity() {
         val selected = selectedProfile
         val measured = selected?.let { freshLatencyMs(it) }
         val selectedIsActive = connected && selected != null && selected == activeProfile
-        val healthColor = when {
-            selectedIsActive && tunnelInternetOk == false -> RED
-            selectedIsActive && measured != null && measured >= 200L -> AMBER
-            selectedIsActive && measured != null && measured in 1L..199L -> GREEN
-            else -> null
+        val resolved = if (selectedIsActive) {
+            ConnectButtonHealthPolicy.resolve(
+                connected = true,
+                latencyMs = measured,
+                tunnelInternetOk = tunnelInternetOk
+            )
+        } else {
+            when (connectionVisualState) {
+                "connecting", "disconnecting", "switching" -> ConnectButtonHealthPolicy.Color.AMBER
+                else -> ConnectButtonHealthPolicy.Color.SILVER
+            }
         }
-
-        // Always assign a tint: an expired ping must not preserve an old health color.
-        // Neutral metallic silver is the idle/off state. While a tunnel is active
-        // but no fresh latency sample exists, use amber rather than implying good health.
-        val baselineColor = when (connectionVisualState) {
-            "connected" -> AMBER
-            "connecting", "disconnecting" -> 0xFFFFC45C.toInt()
-            "switching" -> 0xFFE7B95A.toInt()
-            else -> 0xFFC7CED8.toInt()
+        val targetColor = when (resolved) {
+            ConnectButtonHealthPolicy.Color.SILVER -> 0xFFC7CED8.toInt()
+            ConnectButtonHealthPolicy.Color.GREEN -> GREEN
+            ConnectButtonHealthPolicy.Color.AMBER -> AMBER
+            ConnectButtonHealthPolicy.Color.RED -> RED
         }
-        val resolvedColor = healthColor ?: baselineColor
-        connectButton.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(resolvedColor)
+        animateConnectButtonTint(targetColor)
 
-        connectButton.contentDescription = when {
-            healthColor == RED -> "VPN-сервер не отвечает на проверку соединения"
-            healthColor == AMBER -> "VPN-сервер работает с повышенной задержкой: ${measured} миллисекунд"
-            healthColor == GREEN -> "VPN-сервер работает, задержка ${measured} миллисекунд"
-            connectionVisualState == "connected" -> "VPN подключён. Задержка не проверена или устарела"
-            connectionVisualState == "connecting" -> "Подключение VPN выполняется"
-            connectionVisualState == "switching" -> "Переключение VPN-сервера выполняется"
-            connectionVisualState == "disconnecting" -> "Отключение VPN выполняется"
-            else -> "Подключить VPN"
+        connectButton.contentDescription = when (resolved) {
+            ConnectButtonHealthPolicy.Color.RED -> "VPN-сервер недоступен: проверка соединения завершилась ошибкой"
+            ConnectButtonHealthPolicy.Color.AMBER -> if (measured != null && selectedIsActive) {
+                "VPN подключён, повышенная задержка: ${measured} миллисекунд"
+            } else if (selectedIsActive) {
+                "VPN подключён. Задержка ещё не измерена или устарела"
+            } else {
+                "VPN не подключён или выполняется переключение"
+            }
+            ConnectButtonHealthPolicy.Color.GREEN ->
+                "VPN-сервер работает, задержка ${measured} миллисекунд"
+            ConnectButtonHealthPolicy.Color.SILVER -> "Подключить VPN"
+        }
+    }
+
+    /** Smoothly interpolate the star tint without delaying or blocking UI actions. */
+    private fun animateConnectButtonTint(targetColor: Int) {
+        if (!::connectButton.isInitialized) return
+        val current = connectButton.backgroundTintList?.defaultColor ?: targetColor
+        if (current == targetColor) return
+        connectTintAnimator?.cancel()
+        connectTintAnimator = android.animation.ValueAnimator.ofArgb(current, targetColor).apply {
+            duration = 220L
+            addUpdateListener { animator ->
+                if (::connectButton.isInitialized) {
+                    connectButton.backgroundTintList =
+                        android.content.res.ColorStateList.valueOf(animator.animatedValue as Int)
+                }
+            }
+            start()
         }
     }
 
