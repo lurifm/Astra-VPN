@@ -1264,3 +1264,14 @@ CI run для последнего коммита необходимо пров�
 - Если старая проверка ещё выполняется, `healthCheckInFlight` не позволяет запустить параллельную проверку; после её завершения периодический monitor tick повторно запустит health-check на актуальном underlay.
 - Изменён `MainActivity.kt`, commit `a610bb0a`. Отдельный unit-тест generation token уже покрывает инвалидацию устаревших проверок при смене жизненного цикла; реальный handover требует Android-теста.
 - CI для этого изменения запущен; до завершения сборки компиляция не считается подтверждённой.
+
+
+## 45. Проверка здоровья именно выбранного sing-box underlay (21 ноября 2026)
+
+- В `MainActivity.hasValidatedPhysicalNetwork()` ранее использовался `ConnectivityManager.allNetworks.any`: наличие любой валидированной физической сети могло ошибочно разрешить health-check, даже если sing-box уже выбрал другой underlay (например, мобильный маршрут без интернета при одновременно подключённом Wi-Fi).
+- Теперь при наличии `AstraPlatform.currentPhysicalNetwork` проверяется именно эта сеть. Вторичная сеть больше не маскирует неисправность выбранного маршрута. До первого выбора underlay сохраняется fallback-поиск по `allNetworks`.
+- Добавлена единая чистая проверка `NetworkRecoveryPolicy.isValidatedPhysicalUnderlay`: сеть должна быть физической (не VPN), иметь INTERNET и VALIDATED capabilities и не быть suspended (на API 28+).
+- `underlyingNetworkCapabilities()` также сначала использует тот же выбранный `Network`, чтобы подпись сети и health-gate ссылались на один маршрут.
+- Добавлены unit-тесты: валидный underlay, VPN transport, отсутствие validation, suspended и отсутствие INTERNET.
+- Коммиты: `8ee4bd7c` (policy), `1e73c0ce` (tests), `08d42c80` (MainActivity).
+- Проверка не выполнялась на физическом устройстве. CI для коммитов этого блока ожидает результата.
