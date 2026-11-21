@@ -94,4 +94,24 @@ class VpnRecoveryPolicyTest {
             )
         )
     }
+
+    @Test
+    fun recoveryUpdateKeepsServiceStickyWhenEnabledAndNotStopping() {
+        assertEquals(true, VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(true, false))
+    }
+
+    @Test
+    fun recoveryUpdateDoesNotKeepServiceStickyWhenDisabled() {
+        assertEquals(false, VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(false, false))
+    }
+
+    @Test
+    fun recoveryUpdateDoesNotResurrectServiceAfterStopStarted() {
+        assertEquals(true, VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(true, true).not())
+    }
+
+    @Test
+    fun disabledRecoveryWhileStoppingRemainsNotSticky() {
+        assertEquals(false, VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(false, true))
+    }
 }
