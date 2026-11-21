@@ -5354,21 +5354,61 @@ class MainActivity : Activity() {
     }
 
     private fun showServiceAvailabilityDialog() {
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.service_check_title)
-            .setMessage(R.string.service_check_loading)
-            .setPositiveButton(android.R.string.cancel, null)
-            .create()
-        dialog.show()
-        AstraServiceChecks.run(this) { results ->
-            if (isFinishing || isDestroyed) return@run
-            val message = results.joinToString("\n") { result ->
-                val state = getString(if (result.reachable) R.string.service_reachable else R.string.service_unreachable)
-                val latency = result.latencyMs?.let { " · $it мс" } ?: ""
-                "${result.service}: $state$latency"
-            } + "\n\n" + getString(R.string.service_check_caveat)
-            dialog.setMessage(message)
+        val input = EditText(this).apply {
+            hint = "Например: хочу смотреть Netflix США"
+            setSingleLine(true)
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(CARD, 14)
         }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Напиши название сервиса обычными словами. Astra проверит HTTPS-ответ через текущий сетевой маршрут."
+                textSize = 12f
+                setTextColor(MUTED)
+                setPadding(0, 0, 0, dp(10))
+            })
+            addView(input)
+        }
+        val dialog = MaterialAlertDialogBuilder(this).setTitle("✦ Помощник сервисов")
+            .setView(content).setNegativeButton("Закрыть", null)
+            .setPositiveButton("Проверить", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val target = ServiceIntentResolver.resolve(input.text?.toString().orEmpty())
+                if (target == null) {
+                    input.error = "Поддерживаются Netflix, YouTube, Telegram и ChatGPT"
+                    return@setOnClickListener
+                }
+                val button = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                button.isEnabled = false
+                dialog.setMessage("Проверяем ${target.name} через текущий маршрут…")
+                val network = getSystemService(ConnectivityManager::class.java).activeNetwork
+                Thread {
+                    val result = if (network == null)
+                        ServiceReachabilityChecker.Result(target.name, null, null, "NoActiveNetwork")
+                    else ServiceReachabilityChecker.check(network, target)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
+                        val outcome = when {
+                            result.serviceAvailable -> "Сервис ответил успешно"
+                            result.reachable -> "Сервер ответил HTTP ${result.httpCode}, доступность сервиса не подтверждена"
+                            else -> "Не удалось получить ответ от сервиса"
+                        }
+                        dialog.setMessage("${target.name}: $outcome" +
+                            (result.latencyMs?.let { "\\nЗадержка: $it мс" } ?: "") +
+                            "\\n\\nПроверен текущий маршрут. Это не подтверждает доступ к каталогу США и не гарантирует обход геоблокировки Netflix. Автоматический перебор других серверов пока не выполняется.")
+                        button.text = "Проверить ещё"
+                        button.isEnabled = true
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
     }
 
     private fun showNetworkSecurityDialog() {
@@ -5949,7 +5989,7 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = rounded(0xFF202B43.toInt(), 13)
             setOnClickListener {
-                val presets = arrayOf("Весь трафик через VPN", "Только мессенджеры", "Только браузеры")
+                val presets = arrayOf("Весь трафик через VPN", "Только мессенджеры", "Только браузеры", "Банковские приложения напрямую")
                 MaterialAlertDialogBuilder(this@MainActivity)
                     .setTitle("Быстрый пресет")
                     .setItems(presets) { _, which ->
@@ -5963,9 +6003,16 @@ class MainActivity : Activity() {
                                 n.contains("browser") || n.contains("chrome") || n.contains("firefox") ||
                                     n.contains("brave") || n.contains("opera") || n.contains("edge")
                             }.toSet()
+                            3 -> apps.filter { app ->
+                                val key = (app.packageName + " " + app.label).lowercase(java.util.Locale.ROOT)
+                                listOf("bank", "банк", "sber", "сбер", "tinkoff", "тинькофф", "альфа", "alfa",
+                                    "vtb", "втб", "gazprom", "газпром", "raiffeisen", "райффайзен",
+                                    "россельхоз", "rshb", "почта банк", "pochtabank", "открытие", "openbank")
+                                    .any(key::contains)
+                            }.map { it.packageName }.toSet()
                             else -> emptySet()
                         }
-                        val includeOnly = which != 0
+                        val includeOnly = which == 1 || which == 2
                         if (includeOnly && packages.isEmpty()) {
                             Toast.makeText(this@MainActivity, "Подходящие приложения не найдены. Выбери их вручную.", Toast.LENGTH_LONG).show()
                             return@setItems
@@ -5973,7 +6020,10 @@ class MainActivity : Activity() {
                         checks.forEach { (packageName, check) -> check.isChecked = packageName in packages }
                         modeGroup.findViewWithTag<RadioButton>(if (includeOnly) "include" else "exclude")
                             ?.let { modeGroup.check(it.id) }
-                        Toast.makeText(this@MainActivity, "Пресет выбран. Нажми «Сохранить» для применения.", Toast.LENGTH_SHORT).show()
+                        val message = if (which == 3)
+                            "Банковские приложения будут исключены из VPN. Проверь список и нажми «Сохранить»."
+                        else "Пресет выбран. Нажми «Сохранить» для применения."
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                     }
                     .setNegativeButton("Отмена", null)
                     .show()

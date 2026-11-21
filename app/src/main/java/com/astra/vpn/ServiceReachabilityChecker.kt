@@ -26,7 +26,8 @@ object ServiceReachabilityChecker {
     val targets = listOf(
         Target("YouTube", "https://www.youtube.com/generate_204"),
         Target("Telegram", "https://telegram.org/"),
-        Target("ChatGPT", "https://chatgpt.com/")
+        Target("ChatGPT", "https://chatgpt.com/"),
+        Target("Netflix", "https://www.netflix.com/")
     )
 
     fun isSuccessfulHttpCode(code: Int): Boolean = code in 200..399

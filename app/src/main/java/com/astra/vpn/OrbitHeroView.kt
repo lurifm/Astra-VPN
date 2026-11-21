@@ -72,17 +72,25 @@ internal class OrbitHeroView(context: Context) : View(context) {
             ringPaint.strokeWidth = dp(if (index == 0) 1.3f else 1f)
             canvas.drawCircle(cx, cy, radius * factor, ringPaint)
         }
-        points.forEachIndexed { index, point ->
-            starPaint.alpha = if (index % 3 == 0) 220 else 145
-            canvas.drawCircle(width * point.first, height * point.second,
-                dp(if (index % 4 == 0) 2.4f else 1.4f), starPaint)
+        val calendar = java.util.Calendar.getInstance()
+        val seasonal = SeasonalSkyPolicy.resolve(
+            calendar.get(java.util.Calendar.MONTH) + 1,
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+        val seasonalActive = connectionState == "connected"
+        if (!seasonalActive || !seasonal.newYearSnow) {
+            points.forEachIndexed { index, point ->
+                starPaint.alpha = if (index % 3 == 0) 220 else 145
+                canvas.drawCircle(width * point.first, height * point.second,
+                    dp(if (index % 4 == 0) 2.4f else 1.4f), starPaint)
+            }
         }
 
         // At night, a successful VPN connection reveals a denser sky around the hero.
         // Coordinates are deterministic (no per-frame allocations or random number generation).
-        val localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val localHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
         val isNight = NightSkyAnimationPolicy.isNight(localHour)
-        val nightActive = connectionState == "connected" && isNight
+        val nightActive = seasonalActive && isNight
         val now = android.os.SystemClock.uptimeMillis()
         if (nightActive && !nightWasActive) nightRevealStartedAt = now
         nightWasActive = nightActive
@@ -97,7 +105,18 @@ internal class OrbitHeroView(context: Context) : View(context) {
             canvas.drawCircle(cx, cy, radius * 1.42f, glowPaint)
             glowPaint.shader = null
 
-            for (index in 0 until 38) {
+            if (seasonal.newYearSnow) {
+                // New Year snow replaces the additional star field.
+                for (index in 0 until 34) {
+                    val drift = if (animationAllowed) phase * (0.7f + (index % 5) * 0.13f) else 0f
+                    val x = ((index * 29 + 13) % 101) / 100f * width +
+                        sin(index * 1.7f + drift) * dp(5f)
+                    val y = (((index * 43 + 7) % 101) / 101f + drift * 0.22f) % 1f * height
+                    starPaint.color = 0xFFEAF4FF.toInt()
+                    starPaint.alpha = ((90 + (index % 4) * 35) * reveal).toInt()
+                    canvas.drawCircle(x, y, dp(if (index % 6 == 0) 2.2f else 1.2f), starPaint)
+                }
+            } else for (index in 0 until 38) {
                 val x = ((index * 37 + 11) % 97) / 100f
                 val y = ((index * 61 + 23) % 97) / 100f
                 // Keep the brightest extra stars outside the central connect-button area.
@@ -116,10 +135,11 @@ internal class OrbitHeroView(context: Context) : View(context) {
             }
 
             // Three deterministic meteor tracks use the existing frame loop and reusable Paint.
-            if (animationAllowed) {
+            if (animationAllowed && (seasonal.perseids || isNight)) {
                 val elapsed = now - nightRevealStartedAt
-                for (index in 0 until 3) {
-                    val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 4_600L)
+                val meteorCount = if (seasonal.perseids) 5 else 3
+                for (index in 0 until meteorCount) {
+                    val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 2_700L)
                     if (progress <= 0f) continue
                     val startX = width * (0.16f + index * 0.29f)
                     val startY = height * (0.12f + (index % 2) * 0.13f)
@@ -132,6 +152,23 @@ internal class OrbitHeroView(context: Context) : View(context) {
                 }
                 meteorPaint.alpha = 255
             }
+        }
+        if (seasonalActive && seasonal.eclipse) {
+            val ex = width * 0.79f
+            val ey = height * 0.22f
+            glowPaint.shader = RadialGradient(ex, ey, dp(25f),
+                intArrayOf(0x00FFF1B5, 0x66FFE6A1, 0x00FFE6A1),
+                floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
+            canvas.drawCircle(ex, ey, dp(25f), glowPaint)
+            glowPaint.shader = null
+            starPaint.color = 0xFF101522.toInt()
+            starPaint.alpha = 255
+            canvas.drawCircle(ex, ey, dp(10f), starPaint)
+            meteorPaint.color = 0xFFFFE7AE.toInt()
+            meteorPaint.alpha = 180
+            meteorPaint.strokeWidth = dp(1.5f)
+            canvas.drawCircle(ex, ey, dp(11.5f), meteorPaint)
+            meteorPaint.color = 0xFFFFE8C2.toInt()
         }
         starPaint.alpha = 255
         starPaint.color = 0xFFFFD477.toInt()
