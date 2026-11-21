@@ -6,6 +6,15 @@ import org.junit.Test
 
 class NetworkRecoveryPolicyTest {
     @Test
+    fun networkRetryBackoffIsBoundedAndStopsAfterThreeAttempts() {
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(0) == 1_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(1) == 2_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(2) == 4_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(3) == null)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(-1) == null)
+    }
+
+    @Test
     fun physicalInternetLossPausesTunnelHealthProbes() {
         assertFalse(NetworkRecoveryPolicy.shouldProbeTunnel(false))
     }
