@@ -31,20 +31,32 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
+    // Serialize libbox configuration transitions; OpenTun is invoked synchronously
+    // from startOrReloadService and must be attributed to that exact request.
+    private val tunOperationLock = Any()
+    private var activeTunRequestToken: Long? = null
+    private var tunReadyRequestToken: Long? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     // A distinct token is required for every TUN wait, including reloads that
     // reuse the same CommandServer and therefore the same lifecycle generation.
     private val tunTimeoutGeneration = TunCreationTimeoutGeneration()
     private var tunTimeout: Runnable? = null
 
-    private fun awaitTunCreation() = synchronized(lifecycleLock) {
+    private fun awaitTunCreation(requestToken: Long) = synchronized(lifecycleLock) {
         cancelTunTimeoutLocked()
         val ownerToken = tunTimeoutGeneration.next()
         val timeout = Runnable {
             synchronized(lifecycleLock) {
                 if (!tunTimeoutGeneration.isCurrent(ownerToken)) return@synchronized
                 tunTimeout = null
-                if (!stopping && commandServer != null && tunDescriptor == null) {
+                if (!stopping && commandServer != null &&
+                    !TunRequestReadinessPolicy.isReady(
+                        configurationAccepted = configurationAccepted,
+                        descriptorOwned = tunDescriptor != null,
+                        descriptorRequestToken = tunReadyRequestToken,
+                        requestToken = requestToken
+                    )
+                ) {
                     val message = "sing-box не создал VPN-интерфейс за отведённое время"
                     Log.e(TAG, message)
                     stopTunnel()
@@ -185,20 +197,28 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             if (!requestStillActive) return START_NOT_STICKY
 
-            runCatching { existingServer.startOrReloadService(config, OverrideOptions()) }
+            runCatching { runLibboxConfiguration(existingServer, config, requestToken) }
                 .onSuccess {
                     synchronized(lifecycleLock) {
                         if (stopping || !startRequestGeneration.isCurrent(requestToken) ||
                             commandServer !== existingServer
                         ) return@synchronized
                         activeConfig = config
+                        configurationAccepted = true
                         startTrafficMonitor()
-                        if (tunDescriptor == null) {
-                            publishState(STATE_CONNECTING)
-                            awaitTunCreation()
-                        } else {
+                        if (TunRequestReadinessPolicy.isReady(
+                                configurationAccepted = configurationAccepted,
+                                descriptorOwned = tunDescriptor != null,
+                                descriptorRequestToken = tunReadyRequestToken,
+                                requestToken = requestToken
+                            )
+                        ) {
+                            cancelTunTimeoutLocked()
                             commitRecoveryProfileLocked()
                             publishState(STATE_CONNECTED)
+                        } else {
+                            publishState(STATE_CONNECTING)
+                            awaitTunCreation(requestToken)
                         }
                     }
                 }
@@ -229,7 +249,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 !stopping && startRequestGeneration.isCurrent(requestToken) && commandServer === server
             }
             if (!requestStillActive) return START_NOT_STICKY
-            server.startOrReloadService(config, OverrideOptions())
+            runLibboxConfiguration(server, config, requestToken)
             synchronized(lifecycleLock) {
                 if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
                     return START_NOT_STICKY
@@ -238,12 +258,18 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 configurationAccepted = true
                 startTrafficMonitor()
                 Log.i(TAG, "sing-box service accepted configuration")
-                if (TunActivationReadinessPolicy.isReady(configurationAccepted, tunDescriptor != null)) {
+                if (TunRequestReadinessPolicy.isReady(
+                        configurationAccepted = configurationAccepted,
+                        descriptorOwned = tunDescriptor != null,
+                        descriptorRequestToken = tunReadyRequestToken,
+                        requestToken = requestToken
+                    )
+                ) {
                     commitRecoveryProfileLocked()
                     publishState(STATE_CONNECTED)
                 } else {
                     publishState(STATE_CONNECTING)
-                    awaitTunCreation()
+                    awaitTunCreation(requestToken)
                     Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
                 }
             }
@@ -282,7 +308,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             Triple(server, config, startRequestGeneration.current())
         }
         val (server, config, requestToken) = reload
-        runCatching { server.startOrReloadService(config, OverrideOptions()) }
+        runCatching { runLibboxConfiguration(server, config, requestToken) }
             .onSuccess {
                 synchronized(lifecycleLock) {
                     if (stopping ||
@@ -290,12 +316,20 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         commandServer !== server ||
                         activeConfig != config
                     ) return@synchronized
+                    configurationAccepted = true
                     startTrafficMonitor()
-                    if (tunDescriptor == null) {
-                        publishState(STATE_CONNECTING)
-                        awaitTunCreation()
-                    } else {
+                    if (TunRequestReadinessPolicy.isReady(
+                            configurationAccepted = configurationAccepted,
+                            descriptorOwned = tunDescriptor != null,
+                            descriptorRequestToken = tunReadyRequestToken,
+                            requestToken = requestToken
+                        )
+                    ) {
+                        cancelTunTimeoutLocked()
                         publishState(STATE_CONNECTED)
+                    } else {
+                        publishState(STATE_CONNECTING)
+                        awaitTunCreation(requestToken)
                     }
                 }
             }
@@ -312,6 +346,35 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 }
             }
     }
+    /**
+     * OpenTun is called synchronously by libbox while StartOrReloadService is running.
+     * Keep the request token active only for that call, so an old TUN descriptor
+     * can never satisfy readiness for a replacement profile.
+     */
+    private fun runLibboxConfiguration(server: CommandServer, config: String, requestToken: Long) {
+        synchronized(tunOperationLock) {
+            val acceptedForExecution = synchronized(lifecycleLock) {
+                if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
+                    false
+                } else {
+                    configurationAccepted = false
+                    tunReadyRequestToken = null
+                    activeTunRequestToken = requestToken
+                    publishState(STATE_CONNECTING)
+                    true
+                }
+            }
+            check(acceptedForExecution) { "Obsolete VPN configuration request" }
+            try {
+                server.startOrReloadService(config, OverrideOptions())
+            } finally {
+                synchronized(lifecycleLock) {
+                    if (activeTunRequestToken == requestToken) activeTunRequestToken = null
+                }
+            }
+        }
+    }
+
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
     override fun triggerNativeCrash() = Unit
@@ -342,10 +405,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         synchronized(lifecycleLock) {
             // Reject, rather than merely close, a descriptor from an obsolete
             // CommandServer. AstraPlatform must not hand a closed fd back to libbox.
+            val requestToken = activeTunRequestToken
             if (!TunDescriptorOwnershipPolicy.shouldAccept(
                     stopping = stopping,
                     lifecycleIsCurrent = lifecycleGeneration.isCurrent(ownerGeneration)
-                )
+                ) || requestToken == null || !startRequestGeneration.isCurrent(requestToken)
             ) {
                 return@synchronized false
             }
@@ -354,8 +418,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     .onFailure { Log.w(TAG, "Previous TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
             }
             tunDescriptor = descriptor
+            tunReadyRequestToken = requestToken
             cancelTunTimeoutLocked()
-            if (TunActivationReadinessPolicy.isReady(configurationAccepted, descriptorOwned = true)) {
+            if (TunRequestReadinessPolicy.isReady(
+                    configurationAccepted = configurationAccepted,
+                    descriptorOwned = true,
+                    descriptorRequestToken = tunReadyRequestToken,
+                    requestToken = requestToken
+                )
+            ) {
                 commitRecoveryProfileLocked()
                 publishState(STATE_CONNECTED)
             }
@@ -379,6 +450,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         publishTrafficSnapshot(emptyMap())
         activeConfig = null
         configurationAccepted = false
+        activeTunRequestToken = null
+        tunReadyRequestToken = null
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
