@@ -91,8 +91,17 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 localServer = server
                 commandServer = server
                 server.start()
-                if (stopped.get()) return@execute
+                if (stopped.get()) {
+                    runCatching { server.closeService() }
+                    runCatching { server.close() }
+                    return@execute
+                }
                 server.startOrReloadService(config, OverrideOptions())
+                if (stopped.get()) {
+                    runCatching { server.closeService() }
+                    runCatching { server.close() }
+                    return@execute
+                }
                 commandServer = server
 
                 val options = CommandClientOptions().apply { addCommand(Libbox.CommandGroup) }
@@ -215,6 +224,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return Sample(payload.size.toLong(), elapsed, payload.size * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
         }
     }
 
@@ -236,9 +246,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private data class Sample(val bytes: Long, val durationMs: Long, val mbps: Double)
 
     private fun fail(message: String) {
-        if (stopped.get()) return
-        publishError(message)
-        finish()
+        mainHandler.post {
+            if (stopped.get()) return@post
+            publishError(message)
+            finish()
+        }
     }
 
     private fun publishError(message: String) {
@@ -267,7 +279,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         stopSelf()
     }
 
-    override fun serviceStop() { finish() }
+    override fun serviceStop() { mainHandler.post { finish() } }
     override fun serviceReload() = Unit
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
