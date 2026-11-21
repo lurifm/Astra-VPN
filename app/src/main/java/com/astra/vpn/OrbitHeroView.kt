@@ -29,6 +29,13 @@ internal class OrbitHeroView(context: Context) : View(context) {
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val meteorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFE8C2.toInt()
+        strokeCap = Paint.Cap.ROUND
+        style = Paint.Style.STROKE
+    }
+    private var nightWasActive = false
+    private var nightRevealStartedAt = 0L
     private val orbitDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
     private val points = listOf(
@@ -74,8 +81,22 @@ internal class OrbitHeroView(context: Context) : View(context) {
         // At night, a successful VPN connection reveals a denser sky around the hero.
         // Coordinates are deterministic (no per-frame allocations or random number generation).
         val localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val isNight = localHour >= 21 || localHour < 6
-        if (connectionState == "connected" && isNight) {
+        val isNight = NightSkyAnimationPolicy.isNight(localHour)
+        val nightActive = connectionState == "connected" && isNight
+        val now = android.os.SystemClock.uptimeMillis()
+        if (nightActive && !nightWasActive) nightRevealStartedAt = now
+        nightWasActive = nightActive
+        val reveal = if (nightActive) NightSkyAnimationPolicy.revealProgress(now - nightRevealStartedAt) else 0f
+
+        if (nightActive && reveal > 0f) {
+            // A soft, gradually illuminated sky; the overlay remains translucent.
+            glowPaint.shader = RadialGradient(cx, cy, radius * 1.42f,
+                intArrayOf(0x001A2B55, android.graphics.Color.argb((reveal * 38).toInt(), 27, 48, 91),
+                    0x00000000),
+                floatArrayOf(0f, .62f, 1f), Shader.TileMode.CLAMP)
+            canvas.drawCircle(cx, cy, radius * 1.42f, glowPaint)
+            glowPaint.shader = null
+
             for (index in 0 until 38) {
                 val x = ((index * 37 + 11) % 97) / 100f
                 val y = ((index * 61 + 23) % 97) / 100f
@@ -84,14 +105,32 @@ internal class OrbitHeroView(context: Context) : View(context) {
                 val twinkle = if (animationAllowed)
                     (sin(phase * Math.PI * 2.0 + index * 1.31) + 1.0) / 2.0 else 0.5
                 starPaint.color = 0xFFFFE7AE.toInt()
-                starPaint.alpha = (75 + twinkle * 165).toInt()
+                starPaint.alpha = ((75 + twinkle * 165) * reveal).toInt()
                 val starRadius = dp(if (index % 7 == 0) 2.1f else 1.15f) *
                     (0.72f + twinkle.toFloat() * 0.45f)
                 canvas.drawCircle(width * x, height * y, starRadius, starPaint)
                 if (index % 7 == 0 && twinkle > 0.72) {
-                    starPaint.alpha = (twinkle * 65).toInt()
+                    starPaint.alpha = (twinkle * 65 * reveal).toInt()
                     canvas.drawCircle(width * x, height * y, starRadius * 3.1f, starPaint)
                 }
+            }
+
+            // Three deterministic meteor tracks use the existing frame loop and reusable Paint.
+            if (animationAllowed) {
+                val elapsed = now - nightRevealStartedAt
+                for (index in 0 until 3) {
+                    val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 4_600L)
+                    if (progress <= 0f) continue
+                    val startX = width * (0.16f + index * 0.29f)
+                    val startY = height * (0.12f + (index % 2) * 0.13f)
+                    val endX = startX + width * 0.25f * progress
+                    val endY = startY + height * 0.28f * progress
+                    meteorPaint.alpha = ((1f - progress * 0.35f) * reveal * 220f).toInt()
+                    meteorPaint.strokeWidth = dp(1.35f)
+                    canvas.drawLine(endX - width * 0.075f, endY - height * 0.075f, endX, endY, meteorPaint)
+                    canvas.drawCircle(endX, endY, dp(1.7f), meteorPaint)
+                }
+                meteorPaint.alpha = 255
             }
         }
         starPaint.alpha = 255
