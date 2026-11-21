@@ -23,9 +23,16 @@ internal object SingBoxThroughputTestConfig {
     )
 
     fun build(profileLink: String, listenPort: Int): Result {
-        require(listenPort in 1..65535) { "Некорректный локальный порт теста" }
-
         val source = JSONObject(SingBoxConfigBuilder.build(profileLink))
+        return buildFromSource(source, listenPort).also {
+            // Validate the complete, transformed config against the bundled core.
+            Libbox.checkConfig(it.json)
+        }
+    }
+
+    /** Pure transformation seam: tests can verify routing without loading libbox JNI. */
+    internal fun buildFromSource(source: JSONObject, listenPort: Int): Result {
+        require(listenPort in 1..65535) { "Некорректный локальный порт теста" }
         val sourceOutbounds = source.getJSONArray("outbounds")
         require(sourceOutbounds.length() >= 1) { "В профиле отсутствует proxy outbound" }
 
@@ -58,11 +65,8 @@ internal object SingBoxThroughputTestConfig {
             .put("inbounds", JSONArray().put(inbound))
             .put("outbounds", outbounds)
             .put("route", route)
-        if (dns != null) config.put("dns", dns)
+        if (dns != null) config.put("dns", JSONObject(dns.toString()))
 
-        val json = config.toString()
-        // Validate using the exact libbox core bundled with the application.
-        Libbox.checkConfig(json)
-        return Result(json, LISTEN_ADDRESS, listenPort)
+        return Result(config.toString(), LISTEN_ADDRESS, listenPort)
     }
 }
