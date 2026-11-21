@@ -493,7 +493,8 @@ class ProfileStore(context: Context) {
             throw ProfileStorageException(storageRecoveryMessage(), error)
         }
         val hasEncryptedRecords = prefs.all.keys.any {
-            it == RECOVERY_PROFILE_KEY ||\n                it == BANK_PAUSE_PROFILE_KEY ||
+            it == RECOVERY_PROFILE_KEY ||
+                it == BANK_PAUSE_PROFILE_KEY ||
                 it.startsWith(PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_PROFILE_PREFIX) ||
                 it.startsWith(SUBSCRIPTION_SOURCE_PREFIX)
