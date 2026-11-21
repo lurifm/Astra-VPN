@@ -1732,3 +1732,11 @@ CI run для последнего коммита необходимо пров�
 - Уточнён устаревший комментарий в UI: монитор запускает guarded automation, а не только observation.
 - Коммит: `68ece78` + документационный/UI-comment commit.
 - Остаётся проверить реальную гонку при failed start, уведомления/manual stop paths, split-screen и Android process death на устройстве. CI обязателен для итогового SHA.
+
+
+## 86. Stable foreground re-publication for transition retries
+
+- Commit `f2cf184` fixes Kotlin receiver resolution in the monitor's polling runnable.
+- The foreground observation policy now emits a package on every sample after two consecutive identical non-null samples, rather than only on the first package transition.
+- Purpose: allow the transition executor to retry a transiently rejected automatic resume after a previous service start fails. The VPN service's CONNECTING guard still prevents overlapping start requests; unknown/null observations reset stabilization and cannot be interpreted as bank closure.
+- Unit tests updated to assert repeated stable observations. This does not yet solve every pause-command acknowledgement race; do not mark banking automation production-ready without explicit service acknowledgements and physical-device tests.

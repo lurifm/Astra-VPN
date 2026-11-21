@@ -32,12 +32,12 @@ class BankingForegroundObservationPolicyTest {
         assertEquals("com.launcher", policy.observe("com.launcher"))
     }
 
-    @Test fun repeatedStablePackageIsNotPublishedAgain() {
+    @Test fun repeatedStablePackageIsPublishedForSafeTransitionRetries() {
         val policy = BankingForegroundObservationPolicy()
-        policy.observe("com.bank.app")
+        assertNull(policy.observe("com.bank.app"))
         assertEquals("com.bank.app", policy.observe("com.bank.app"))
-        assertNull(policy.observe("com.bank.app"))
-        assertNull(policy.observe("com.bank.app"))
+        assertEquals("com.bank.app", policy.observe("com.bank.app"))
+        assertEquals("com.bank.app", policy.observe("com.bank.app"))
     }
 
     @Test fun splitScreenAmbiguityCannotTriggerResumeObservation() {
