@@ -1730,7 +1730,11 @@ class MainActivity : Activity() {
     }
     private fun renderProfiles() {
         if (::throughputCheckButton.isInitialized) {
-            throughputCheckButton.text = if (throughputProbeInFlight) "× Стоп" else "⇅ Скорость"
+            throughputCheckButton.text = when {
+                throughputBatchActive -> "× Стоп ${(throughputBatchCompleted + 1).coerceAtMost(throughputBatchTotal)}/$throughputBatchTotal"
+                throughputProbeInFlight -> "× Стоп"
+                else -> "⇅ Скорость"
+            }
             throughputCheckButton.contentDescription = when {
                 throughputBatchActive -> "Отменить автоматическое сравнение скорости серверов, проверено $throughputBatchCompleted из $throughputBatchTotal"
                 throughputProbeInFlight -> "Отменить измерение скорости"
@@ -2726,6 +2730,10 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
+        if (throughputProbeInFlight) {
+            Toast.makeText(this, "Дождись завершения измерения скорости", Toast.LENGTH_SHORT).show()
+            return
+        }
         latencyCheckGeneration.incrementAndGet()
         val currentProfiles = profiles.toHashSet()
         latencyMs.keys.toList().filterNot { it in currentProfiles }.forEach { latencyMs.remove(it) }
@@ -2818,7 +2826,7 @@ class MainActivity : Activity() {
      * Hysteria2/TUIC availability or actual VPN tunnel latency.
      */
     private fun selectFastestServer() {
-        if (selectingFastest || latencyTestInFlight) {
+        if (selectingFastest || latencyTestInFlight || throughputProbeInFlight) {
             Toast.makeText(this, "Проверка серверов уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
