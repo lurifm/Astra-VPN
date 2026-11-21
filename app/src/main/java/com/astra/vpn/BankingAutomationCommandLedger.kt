@@ -8,7 +8,7 @@ internal data class BankingAutomationCommandRecord(
     val status: Status
 ) {
     enum class Command { PAUSE, RESUME }
-    enum class Status { PENDING, COMPLETED }
+    enum class Status { PENDING, COMPLETED, CANCELLED }
 }
 
 internal object BankingAutomationCommandLedgerCodec {
@@ -52,9 +52,17 @@ internal class BankingAutomationCommandLedger(context: android.content.Context) 
         if (current.transitionId != transitionId || current.command != command || current.status != BankingAutomationCommandRecord.Status.PENDING) return false
         return prefs.edit().putString(KEY, BankingAutomationCommandLedgerCodec.encode(current.copy(status = BankingAutomationCommandRecord.Status.COMPLETED))).commit()
     }
-    @Synchronized fun clearCompleted() {
+    @Synchronized fun cancel(transitionId: Long, command: BankingAutomationCommandRecord.Command): Boolean {
+        val current = read() ?: return false
+        if (current.transitionId != transitionId || current.command != command ||
+            current.status != BankingAutomationCommandRecord.Status.PENDING) return false
+        return prefs.edit().putString(KEY, BankingAutomationCommandLedgerCodec.encode(
+            current.copy(status = BankingAutomationCommandRecord.Status.CANCELLED)
+        )).commit()
+    }
+    @Synchronized fun clearTerminal() {
         val current = read() ?: return
-        if (current.status == BankingAutomationCommandRecord.Status.COMPLETED) check(prefs.edit().remove(KEY).commit())
+        if (current.status != BankingAutomationCommandRecord.Status.PENDING) check(prefs.edit().remove(KEY).commit())
     }
     private companion object { const val KEY = "banking_automation_command_v1" }
 }

@@ -1802,3 +1802,13 @@ CI run для последнего коммита необходимо пров�
 - PAUSE is acknowledged after stopTunnel closes the TUN and publishes DISCONNECTED. RESUME is acknowledged only after TUN-ready and durable banking-state completion.
 - Monitor consumes completed ACK records on the next stable observation. Codec tests cover round-trip and malformed/future records.
 - This is the first durable ACK layer, not full crash recovery: a pending command may remain after service rejection or process death. Same-origin guarded reconciliation/retry and explicit failed/cancelled outcomes remain next work. Physical Android end-to-end tests remain mandatory.
+
+
+## 94. Same-origin recovery for pending banking commands
+
+- Ledger terminal statuses now include CANCELLED; monitor removes terminal records only after observing them.
+- Before evaluating a new transition, monitor reconciles a pending command against its exact transition ID, originating package and current foreground package.
+- A pending PAUSE is replayed only while the same bank remains foreground, the same transition remains active, VPN transport is still live, and the encrypted snapshot exactly matches the active saved profile.
+- A pending RESUME is replayed only while the exact non-bank origin remains foreground, the same transition is active, the snapshot profile still exists, VPN is not connected/connecting, and the existing bounded retry cooldown allows another attempt.
+- Leaving the originating app, changing transition, missing profile/snapshot, or an already-completed pause cancels the pending command. This prevents a stale bank-A pause from being replayed while bank B is foreground.
+- Recovery is observation-driven while the monitor is running; force-stop, revoked Usage Access, OEM process restrictions and Android foreground-service start restrictions still require physical-device testing. Failed service starts are guarded by the retry cooldown.

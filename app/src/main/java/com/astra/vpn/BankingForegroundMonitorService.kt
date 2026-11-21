@@ -129,7 +129,7 @@ internal class BankingForegroundMonitorService : Service() {
 
     private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
         val ledger = BankingAutomationCommandLedger(this)
-        ledger.clearCompleted()
+        ledger.clearTerminal()
         val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
         if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
             !UsageAccessPermission.hasAccess(this)
@@ -158,6 +158,60 @@ internal class BankingForegroundMonitorService : Service() {
         val stateStore = BankingAutomationStateStore(this)
         val state = stateStore.read()
         val now = System.currentTimeMillis()
+
+        // Reconcile a write-ahead command before asking the transition engine for a new one.
+        // Never replay it after the originating app leaves foreground.
+        val pending = ledger.read()?.takeIf { it.status == BankingAutomationCommandRecord.Status.PENDING }
+        if (pending != null) {
+            val bankOrigin = pending.originatingPackage in banks
+            val sameOrigin = foregroundPackage == pending.originatingPackage
+            val sameTransition = state.autoPausedByBanking && state.transitionId == pending.transitionId
+            if (!sameOrigin || !sameTransition ||
+                (pending.command == BankingAutomationCommandRecord.Command.PAUSE && !bankOrigin) ||
+                (pending.command == BankingAutomationCommandRecord.Command.RESUME && bankOrigin)
+            ) {
+                ledger.cancel(pending.transitionId, pending.command)
+                return
+            }
+            when (pending.command) {
+                BankingAutomationCommandRecord.Command.PAUSE -> {
+                    // If the tunnel is already down, do not replay a pause. The next
+                    // foreground transition will decide whether it is safe to resume.
+                    if (!vpnConnected) {
+                        ledger.cancel(pending.transitionId, pending.command)
+                        return
+                    }
+                    val exactSnapshot = snapshot?.profileLink
+                    if (exactSnapshot.isNullOrBlank() || exactSnapshot != activeLink ||
+                        exactSnapshot !in profileStore.all()
+                    ) {
+                        ledger.cancel(pending.transitionId, pending.command)
+                        return
+                    }
+                    startService(Intent(this, AstraVpnService::class.java)
+                        .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
+                        .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
+                    return
+                }
+                BankingAutomationCommandRecord.Command.RESUME -> {
+                    if (vpnConnected) return
+                    val exactSnapshot = snapshot?.profileLink
+                    if (exactSnapshot.isNullOrBlank() || exactSnapshot !in profileStore.all()) {
+                        ledger.cancel(pending.transitionId, pending.command)
+                        return
+                    }
+                    val lastAttempt = settings.getLong(PREF_AUTO_RESUME_LAST_ATTEMPT, 0L)
+                    if (!BankingResumeRetryPolicy.shouldAttempt(lastAttempt, now)) return
+                    if (!settings.edit().putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now).commit()) return
+                    startForegroundService(Intent(this, AstraVpnService::class.java)
+                        .setAction(AstraVpnService.ACTION_AUTO_RESUME)
+                        .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, exactSnapshot)
+                        .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
+                    return
+                }
+            }
+        }
+
         val plan = BankingAutomationTransitionEngine.evaluate(
             state,
             BankingAutomationTransitionEngine.Input(
