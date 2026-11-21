@@ -380,7 +380,7 @@ class MainActivity : Activity() {
                 addAction(AstraThroughputProbeService.ACTION_ERROR)
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(throughputReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else @Suppress("DEPRECATION") registerReceiver(throughputReceiver, filter)
+            else registerReceiver(throughputReceiver, filter)
             throughputReceiverRegistered = true
         }
         // Restore only the user's selected node. Actual VPN connectivity is
@@ -2546,7 +2546,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun cancelThroughputProbe(showToast: Boolean = true) {
+    private fun cancelThroughputProbe(showToast: Boolean = true, refreshUi: Boolean = true) {
         val session = activeThroughputSessionId ?: return
         activeThroughputSessionId = null
         activeThroughputProfile = null
@@ -2556,7 +2556,7 @@ class MainActivity : Activity() {
                 .setAction(AstraThroughputProbeService.ACTION_STOP)
                 .putExtra(AstraThroughputProbeService.EXTRA_SESSION, session))
         }
-        renderProfiles()
+        if (refreshUi && !isFinishing && !isDestroyed) renderProfiles()
         if (showToast) Toast.makeText(this, "Измерение скорости отменено", Toast.LENGTH_SHORT).show()
     }
 
@@ -3189,7 +3189,8 @@ class MainActivity : Activity() {
                 profiles = fastestCandidates,
                 latencyMs = timeAdjustedLatencies,
                 recentFailures = recentServerFailureCounts(fastestCandidates),
-                latencyStabilityPenaltyMs = latencyStabilityPenalties(fastestCandidates)
+                latencyStabilityPenaltyMs = latencyStabilityPenalties(fastestCandidates),
+            throughputSamples = throughputHistory.getFresh(fastestCandidates)
             )
             if (fastest != null) {
                 selectedProfile = fastest
@@ -5904,7 +5905,7 @@ class MainActivity : Activity() {
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         outboundTrafficRefresh = null
-        if (activeThroughputSessionId != null) cancelThroughputProbe(showToast = false)
+        if (activeThroughputSessionId != null) cancelThroughputProbe(showToast = false, refreshUi = false)
         if (throughputReceiverRegistered) {
             runCatching { unregisterReceiver(throughputReceiver) }
             throughputReceiverRegistered = false
