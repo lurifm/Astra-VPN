@@ -256,6 +256,7 @@ class MainActivity : Activity() {
             settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
+                    cancelConnectRetry(resetAttempts = false)
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
@@ -5669,6 +5670,7 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun onDestroy() {
+        cancelConnectRetry(resetAttempts = false)
         tunnelHealthCheckGeneration.advance()
         stopStarPulse()
         pendingBackupBytes?.fill(0)
