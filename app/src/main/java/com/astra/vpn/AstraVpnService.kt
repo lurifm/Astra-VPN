@@ -18,6 +18,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var trafficMonitor: LibboxTrafficMonitor? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
+    private val recoveryProfileTransaction = VpnRecoveryProfileTransaction()
     private var activeProfileName: String = "Сервер не выбран"
     private var activeProtocol: String = "—"
     private var lastHistoryState: String? = null
@@ -64,8 +65,17 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
                 .getBoolean(PREF_RECOVERY_ENABLED, false)
             val link = intent.getStringExtra(EXTRA_PROFILE_LINK)
-            runCatching { ProfileStore(this).setRecoveryProfile(if (enabled) link else null) }
-                .onFailure { Log.w(TAG, "Не удалось обновить профиль восстановления") }
+            synchronized(lifecycleLock) {
+                if (!enabled) {
+                    recoveryProfileTransaction.cancel()
+                    persistRecoveryProfile(null)
+                } else if (tunDescriptor != null && commandServer != null && !stopping) {
+                    recoveryProfileTransaction.cancel()
+                    persistRecoveryProfile(link)
+                } else {
+                    recoveryProfileTransaction.stage(link)
+                }
+            }
             return if (enabled) START_STICKY else START_NOT_STICKY
         }
         if (intent?.action == ACTION_STOP) {
@@ -132,12 +142,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
 
-        if (intent != null && recoveryEnabled) {
-            val recoveryLink = intent.getStringExtra(EXTRA_PROFILE_LINK)
-            runCatching { ProfileStore(this).setRecoveryProfile(recoveryLink) }
-                .onFailure { Log.w(TAG, "Не удалось сохранить профиль для восстановления") }
-        } else if (!recoveryEnabled) {
-            runCatching { ProfileStore(this).setRecoveryProfile(null) }
+        synchronized(lifecycleLock) {
+            if (intent != null && recoveryEnabled) {
+                // Keep the previous known-good recovery profile until TUN creation succeeds.
+                recoveryProfileTransaction.stage(intent.getStringExtra(EXTRA_PROFILE_LINK))
+            } else if (!recoveryEnabled) {
+                recoveryProfileTransaction.cancel()
+                persistRecoveryProfile(null)
+            }
         }
 
         val existingServer = synchronized(lifecycleLock) {
@@ -168,6 +180,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                             publishState(STATE_CONNECTING)
                             awaitTunCreation()
                         } else {
+                            commitRecoveryProfileLocked()
                             publishState(STATE_CONNECTED)
                         }
                     }
@@ -311,6 +324,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             runCatching { tunDescriptor?.close() }
             tunDescriptor = descriptor
             cancelTunTimeoutLocked()
+            commitRecoveryProfileLocked()
             publishState(STATE_CONNECTED)
         }
     }
@@ -318,6 +332,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
         if (stopping) return@synchronized
         stopping = true
+        // A failed or user-cancelled start must leave the previous recovery node intact.
+        recoveryProfileTransaction.cancel()
         startRequestGeneration.invalidate()
         lifecycleGeneration.advance()
         // Match the upstream sing-box Android lifecycle: release the Android
@@ -343,6 +359,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         publishState(STATE_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /** Persist a staged recovery node only after the replacement TUN is ready. */
+    private fun commitRecoveryProfileLocked() {
+        val update = recoveryProfileTransaction.commit() ?: return
+        val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)
+            .getBoolean(PREF_RECOVERY_ENABLED, false)
+        persistRecoveryProfile(if (enabled) update.profileLink else null)
+    }
+
+    private fun persistRecoveryProfile(profileLink: String?) {
+        runCatching { ProfileStore(this).setRecoveryProfile(profileLink) }
+            .onFailure { Log.w(TAG, "Не удалось сохранить профиль восстановления") }
     }
 
     private fun startTrafficMonitor() {
