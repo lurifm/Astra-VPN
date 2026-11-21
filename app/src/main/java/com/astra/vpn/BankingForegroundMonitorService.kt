@@ -32,6 +32,13 @@ internal class BankingForegroundMonitorService : Service() {
     private val poll = object : Runnable {
         override fun run() {
             if (!running) return
+            val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
+            if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
+                !UsageAccessPermission.hasAccess(this)
+            ) {
+                cancelAutomationAndStop()
+                return
+            }
             val observed = runCatching { readForegroundPackage() }
                 .onFailure { Log.w(TAG, "Usage events unavailable", it) }
                 .getOrNull()
@@ -101,6 +108,25 @@ internal class BankingForegroundMonitorService : Service() {
         }
     }
 
+    /**
+     * If the user disables automation or revokes Usage Access, fail closed:
+     * cancel any pending resume, erase the saved bank snapshot and leave VPN off.
+     */
+    private fun cancelAutomationAndStop() {
+        runCatching {
+            val stateStore = BankingAutomationStateStore(this)
+            val state = stateStore.read()
+            if (state.autoPausedByBanking) {
+                stateStore.write(state.cancelAutomaticResume())
+            }
+            ProfileStore(this).clearBankPauseSnapshot()
+        }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
+        running = false
+        handler.removeCallbacksAndMessages(null)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
         val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
         if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
@@ -111,8 +137,11 @@ internal class BankingForegroundMonitorService : Service() {
         if (banks.isEmpty()) return
 
         val vpnPrefs = getSharedPreferences(AstraVpnService.STATE_PREFS, MODE_PRIVATE)
-        val persistedConnected = vpnPrefs.getString(AstraVpnService.PREF_STATE, null) ==
-            AstraVpnService.STATE_CONNECTED
+        val persistedVpnState = vpnPrefs.getString(AstraVpnService.PREF_STATE, null)
+        // Do not enqueue another resume while a previous automatic start is in flight.
+        // The tunnel stop path publishes DISCONNECTED; a new start publishes CONNECTING.
+        if (persistedVpnState == AstraVpnService.STATE_CONNECTING) return
+        val persistedConnected = persistedVpnState == AstraVpnService.STATE_CONNECTED
         // A persisted service state can outlive a killed process or revoked TUN.
         // Require Android's live VPN transport as an independent confirmation.
         val activeNetwork = getSystemService(ConnectivityManager::class.java)?.activeNetwork
