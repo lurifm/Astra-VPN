@@ -96,6 +96,48 @@ class VpnRecoveryPolicyTest {
     }
 
     @Test
+    fun explicitDisconnectHasPriorityOverMissingSavedProfileAndConsent() {
+        assertEquals(
+            VpnRecoveryDecision.DO_NOT_START,
+            VpnRecoveryPolicy.decide(
+                VpnRecoveryTrigger.SYSTEM_PROCESS_RESTART,
+                recoveryEnabled = true,
+                userRequestedDisconnect = true,
+                savedProfileAvailable = false,
+                vpnConsentGranted = false
+            )
+        )
+    }
+
+    @Test
+    fun disabledRecoveryDoesNotAskForVpnConsent() {
+        assertEquals(
+            VpnRecoveryDecision.DO_NOT_START,
+            VpnRecoveryPolicy.decide(
+                VpnRecoveryTrigger.SYSTEM_PROCESS_RESTART,
+                recoveryEnabled = false,
+                userRequestedDisconnect = false,
+                savedProfileAvailable = true,
+                vpnConsentGranted = false
+            )
+        )
+    }
+
+    @Test
+    fun explicitNewUserRequestSupersedesStaleDisconnectMarker() {
+        assertEquals(
+            VpnRecoveryDecision.START,
+            VpnRecoveryPolicy.decide(
+                VpnRecoveryTrigger.USER_REQUEST,
+                recoveryEnabled = false,
+                userRequestedDisconnect = true,
+                savedProfileAvailable = true,
+                vpnConsentGranted = false
+            )
+        )
+    }
+
+    @Test
     fun recoveryUpdateKeepsServiceStickyWhenEnabledAndNotStopping() {
         assertEquals(true, VpnRecoveryPolicy.shouldKeepServiceStickyForUpdate(true, false))
     }
