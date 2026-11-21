@@ -2,6 +2,9 @@ package com.astra.vpn
 
 import android.content.Intent
 import android.net.Network
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -50,6 +53,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     @Volatile private var profileId: String? = null
     @Volatile private var listenPort: Int = 0
     @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var measurementTimeoutMs: Long = TOTAL_TIMEOUT_MS
     @Volatile private var downloadByteLimit: Long = DOWNLOAD_BYTES
     @Volatile private var uploadByteLimit: Long = UPLOAD_BYTES
@@ -84,6 +88,26 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             finish()
             return START_NOT_STICKY
         }
+
+        // The probe is pinned to the supplied physical Network. If that
+        // network disappears, fail this sample promptly instead of waiting
+        // for socket timeouts against a dead route.
+        val connectivityManager = getSystemService(ConnectivityManager::class.java)
+        val expectedNetwork = physicalNetwork
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (network == expectedNetwork && !stopped.get()) {
+                    fail("Мобильная сеть потеряна во время проверки скорости")
+                }
+            }
+        }
+        networkCallback = callback
+        connectivityManager.registerNetworkCallback(
+            NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(),
+            callback
+        )
 
         mainHandler.postDelayed(timeoutRunnable, measurementTimeoutMs)
         startForeground(
@@ -287,6 +311,14 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
         mainHandler.removeCallbacks(timeoutRunnable)
+        val callback = networkCallback
+        networkCallback = null
+        if (callback != null) {
+            runCatching {
+                getSystemService(ConnectivityManager::class.java)
+                    .unregisterNetworkCallback(callback)
+            }
+        }
         val connection = activeConnection
         activeConnection = null
         worker.shutdownNow()
