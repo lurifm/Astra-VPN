@@ -6123,20 +6123,37 @@ class MainActivity : Activity() {
      */
     private fun updateConnectButtonServerHealth() {
         if (!::connectButton.isInitialized) return
+
         val selected = selectedProfile
         val measured = selected?.let { freshLatencyMs(it) }
+        val selectedIsActive = connected && selected != null && selected == activeProfile
         val healthColor = when {
-            connected && tunnelInternetOk == false -> RED
-            connected && measured != null && measured > 100L -> AMBER
-            connected && measured != null && measured in 1L..100L -> GREEN
+            selectedIsActive && tunnelInternetOk == false -> RED
+            selectedIsActive && measured != null && measured > 100L -> AMBER
+            selectedIsActive && measured != null && measured in 1L..100L -> GREEN
             else -> null
-        } ?: return
+        }
+
+        // Always assign a tint: an expired ping must not preserve an old health color.
+        val baselineColor = when (connectionVisualState) {
+            "connected" -> 0xFFFFD36E.toInt()
+            "connecting", "disconnecting" -> 0xFFFFC45C.toInt()
+            "switching" -> 0xFFE7B95A.toInt()
+            else -> 0xFFFFC95C.toInt()
+        }
+        val resolvedColor = healthColor ?: baselineColor
         connectButton.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(healthColor)
-        connectButton.contentDescription = when (healthColor) {
-            RED -> "VPN-сервер не отвечает на проверку соединения"
-            AMBER -> "VPN-сервер работает с повышенной задержкой: ${measured} миллисекунд"
-            else -> "VPN-сервер работает, задержка ${measured} миллисекунд"
+            android.content.res.ColorStateList.valueOf(resolvedColor)
+
+        connectButton.contentDescription = when {
+            healthColor == RED -> "VPN-сервер не отвечает на проверку соединения"
+            healthColor == AMBER -> "VPN-сервер работает с повышенной задержкой: ${measured} миллисекунд"
+            healthColor == GREEN -> "VPN-сервер работает, задержка ${measured} миллисекунд"
+            connectionVisualState == "connected" -> "VPN подключён. Задержка не проверена или устарела"
+            connectionVisualState == "connecting" -> "Подключение VPN выполняется"
+            connectionVisualState == "switching" -> "Переключение VPN-сервера выполняется"
+            connectionVisualState == "disconnecting" -> "Отключение VPN выполняется"
+            else -> "Подключить VPN"
         }
     }
 
