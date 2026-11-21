@@ -173,6 +173,9 @@ class MainActivity : Activity() {
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    // A probe belongs to the exact tunnel configuration that started it. Reloading a profile
+    // can reuse the same Android VPN Network, so Network identity alone cannot reject stale results.
+    private val tunnelHealthCheckGeneration = TunnelHealthCheckGeneration()
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
     private var consecutiveHealthFailures = 0
@@ -246,6 +249,7 @@ class MainActivity : Activity() {
             settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
             when (intent.getStringExtra(AstraVpnService.EXTRA_STATE)) {
                 AstraVpnService.STATE_CONNECTING -> {
+                    tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
                     connecting = true
@@ -255,6 +259,7 @@ class MainActivity : Activity() {
                     status.setTextColor(AMBER)
                 }
                 AstraVpnService.STATE_CONNECTED -> {
+                    tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = true
                     connecting = false
@@ -264,6 +269,7 @@ class MainActivity : Activity() {
                     status.setTextColor(GREEN)
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
+                    tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
                     connecting = false
@@ -273,6 +279,7 @@ class MainActivity : Activity() {
                     status.setTextColor(MUTED)
                 }
                 AstraVpnService.STATE_ERROR -> {
+                    tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
                     connecting = false
@@ -3111,6 +3118,9 @@ class MainActivity : Activity() {
     }
 
     private fun startTunnel(config: String) {
+        // Invalidate an in-flight health probe before a profile reload, even if Android reuses
+        // the same VPN Network object for the replacement sing-box configuration.
+        tunnelHealthCheckGeneration.advance()
         activeProfile = selectedProfile
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
@@ -3462,6 +3472,7 @@ class MainActivity : Activity() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
+        val probeGeneration = tunnelHealthCheckGeneration.current()
         try {
             healthCheckExecutor.execute {
                 val ok = try {
@@ -3473,7 +3484,9 @@ class MainActivity : Activity() {
                     healthCheckInFlight.set(false)
                 }
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed && connected) {
+                    if (!isFinishing && !isDestroyed && connected &&
+                        tunnelHealthCheckGeneration.isCurrent(probeGeneration)
+                    ) {
                         // Discard a probe result if Android replaced the VPN Network
                         // while the request was in flight; it says nothing about the new tunnel.
                         val currentNetwork = connectivity.activeNetwork
@@ -5545,6 +5558,7 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun onDestroy() {
+        tunnelHealthCheckGeneration.advance()
         stopStarPulse()
         pendingBackupBytes?.fill(0)
         pendingBackupBytes = null
