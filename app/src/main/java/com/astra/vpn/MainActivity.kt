@@ -3093,6 +3093,8 @@ class MainActivity : Activity() {
                         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                             .remove(KEY_LATENCY_SESSION_ID).apply()
                         latencyTestInFlight = false
+                        serviceProbeName = null
+                        settingsPrefs.edit().remove("service_probe_name").apply()
                         pendingFastestSelection = false
                         selectingFastest = false
                         tilePendingStart = false
@@ -3105,6 +3107,8 @@ class MainActivity : Activity() {
                     }
                 }.onFailure {
                     latencyTestInFlight = false
+                        serviceProbeName = null
+                        settingsPrefs.edit().remove("service_probe_name").apply()
                     pendingFastestSelection = false
                     selectingFastest = false
                     tilePendingStart = false
