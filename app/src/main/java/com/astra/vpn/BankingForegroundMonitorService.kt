@@ -34,7 +34,7 @@ internal class BankingForegroundMonitorService : Service() {
             if (!running) return
             val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
             if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
-                !UsageAccessPermission.hasAccess(this)
+                !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
             ) {
                 cancelAutomationAndStop()
                 return
