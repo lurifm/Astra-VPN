@@ -22,6 +22,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var configurationAccepted = false
     private val recoveryProfileTransaction = VpnRecoveryProfileTransaction()
     private var activeProfileName: String = "Сервер не выбран"
+    // Exact URI supplied with the accepted start request; used only for banking snapshot matching.
+    private var activeProfileLink: String? = null
+    private var bankingAutoResumePending = false
     private var activeProtocol: String = "—"
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
@@ -108,6 +111,61 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             return if (keepSticky) START_STICKY else START_NOT_STICKY
         }
+        if (intent?.action == ACTION_AUTO_PAUSE) {
+            // The executor must commit both encrypted snapshot and transition state first.
+            // Never infer a resumable pause from the service request alone.
+            val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+            val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+            val allowed = synchronized(lifecycleLock) {
+                !stopping && commandServer != null && activeConfig != null &&
+                    configurationAccepted && tunDescriptor != null &&
+                    state?.autoPausedByBanking == true &&
+                    state.wasConnectedBeforePause &&
+                    !state.userDisconnectRequested &&
+                    state.savedProfileAvailable &&
+                    !activeProfileLink.isNullOrBlank() &&
+                    snapshot?.profileLink == activeProfileLink
+            }
+            if (!allowed) {
+                Log.w(TAG, "Banking auto-pause rejected: active tunnel or encrypted snapshot mismatch")
+                return START_NOT_STICKY
+            }
+            // Unlike ACTION_STOP, this deliberately preserves the recovery profile and bank snapshot.
+            stopTunnel()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_AUTO_RESUME) {
+            val requestedLink = intent.getStringExtra(EXTRA_PROFILE_LINK)
+            val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+            val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+            val allowed = UsageAccessPermission.hasAccess(this) &&
+                state?.autoPausedByBanking == true &&
+                state.wasConnectedBeforePause &&
+                !state.userDisconnectRequested &&
+                state.savedProfileAvailable &&
+                !requestedLink.isNullOrBlank() &&
+                snapshot?.profileLink == requestedLink &&
+                runCatching { requestedLink in ProfileStore(this).all() }.getOrDefault(false) &&
+                VpnService.prepare(this) == null
+            if (!allowed) {
+                Log.w(TAG, "Banking auto-resume rejected: state, permission or exact snapshot unavailable")
+                return START_NOT_STICKY
+            }
+            val config = runCatching { SingBoxConfigBuilder.build(requestedLink!!) }.getOrNull()
+            if (config.isNullOrBlank()) {
+                Log.w(TAG, "Banking auto-resume rejected: saved profile configuration invalid")
+                return START_NOT_STICKY
+            }
+            bankingAutoResumePending = true
+            return onStartCommand(
+                Intent(intent)
+                    .setAction(ACTION_START)
+                    .putExtra(EXTRA_CONFIG, config)
+                    .putExtra(EXTRA_PROFILE_LINK, requestedLink),
+                flags,
+                startId
+            )
+        }
         if (intent?.action == ACTION_STOP) {
             // Serialize the user's disconnect with TUN-created callbacks. Otherwise
             // a callback could commit a staged recovery profile after this clear
@@ -128,6 +186,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // immediately, even while its libbox operation is still unwinding.
             configurationAccepted = false
             tunReadyRequestToken = null
+            activeProfileLink = intent?.getStringExtra(EXTRA_PROFILE_LINK)?.takeIf { it.isNotBlank() }
+                ?: activeProfileLink
             activeProfileName = intent?.getStringExtra(EXTRA_PROFILE_NAME)
                 ?.takeIf { it.isNotBlank() } ?: activeProfileName
             activeProtocol = intent?.getStringExtra(EXTRA_PROTOCOL)
@@ -227,6 +287,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                             cancelTunTimeoutLocked()
                             commitRecoveryProfileLocked()
                             publishState(STATE_CONNECTED)
+                            completeBankingAutoResumeLocked()
                         } else {
                             publishState(STATE_CONNECTING)
                             awaitTunCreation(requestToken)
@@ -278,6 +339,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 ) {
                     commitRecoveryProfileLocked()
                     publishState(STATE_CONNECTED)
+                    completeBankingAutoResumeLocked()
                 } else {
                     publishState(STATE_CONNECTING)
                     awaitTunCreation(requestToken)
@@ -452,6 +514,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             ) {
                 commitRecoveryProfileLocked()
                 publishState(STATE_CONNECTED)
+                completeBankingAutoResumeLocked()
             }
             true
         }
@@ -472,6 +535,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         trafficMonitor = null
         publishTrafficSnapshot(emptyMap())
         activeConfig = null
+        activeProfileLink = null
         configurationAccepted = false
         activeTunRequestToken = null
         tunReadyRequestToken = null
@@ -489,6 +553,23 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         publishState(STATE_DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * Clear the resumable banking snapshot only after Android confirms the replacement TUN is ready.
+     * A failed start intentionally leaves the snapshot/state intact for a safe retry.
+     */
+    private fun completeBankingAutoResumeLocked() {
+        if (!bankingAutoResumePending) return
+        runCatching {
+            ProfileStore(this).clearBankPauseSnapshot()
+            val store = BankingAutomationStateStore(this)
+            store.write(store.read().completeAutomaticResume())
+        }.onSuccess {
+            bankingAutoResumePending = false
+        }.onFailure {
+            Log.e(TAG, "Не удалось завершить банковское восстановление; snapshot сохранён для безопасной проверки", it)
+        }
     }
 
     /** Persist a staged recovery node only after the replacement TUN is ready. */
@@ -571,6 +652,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     companion object {
         const val ACTION_START = "com.astra.vpn.action.START"
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
+        const val ACTION_AUTO_PAUSE = "com.astra.vpn.action.AUTO_PAUSE"
+        const val ACTION_AUTO_RESUME = "com.astra.vpn.action.AUTO_RESUME"
         const val ACTION_UPDATE_RECOVERY = "com.astra.vpn.action.UPDATE_RECOVERY"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
         const val ACTION_TRAFFIC = "com.astra.vpn.action.TRAFFIC"
