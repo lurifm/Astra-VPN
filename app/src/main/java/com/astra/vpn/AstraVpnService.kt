@@ -25,6 +25,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Exact URI supplied with the accepted start request; used only for banking snapshot matching.
     private var activeProfileLink: String? = null
     private var bankingAutoResumePending = false
+    private var bankingAutoResumeTransitionId: Long? = null
     private var activeProtocol: String = "—"
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
@@ -116,13 +117,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // Never infer a resumable pause from the service request alone.
             val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
             val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+            val requestedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
             val allowed = synchronized(lifecycleLock) {
                 !stopping && commandServer != null && activeConfig != null &&
                     configurationAccepted && tunDescriptor != null &&
-                    state?.autoPausedByBanking == true &&
-                    state.wasConnectedBeforePause &&
-                    !state.userDisconnectRequested &&
-                    state.savedProfileAvailable &&
+                    state != null &&
+                    BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
                     !activeProfileLink.isNullOrBlank() &&
                     snapshot?.profileLink == activeProfileLink
             }
@@ -138,11 +138,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val requestedLink = intent.getStringExtra(EXTRA_PROFILE_LINK)
             val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
             val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+            val requestedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
             val allowed = UsageAccessPermission.hasAccess(this) &&
-                state?.autoPausedByBanking == true &&
-                state.wasConnectedBeforePause &&
-                !state.userDisconnectRequested &&
-                state.savedProfileAvailable &&
+                state != null &&
+                BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
                 !requestedLink.isNullOrBlank() &&
                 snapshot?.profileLink == requestedLink &&
                 runCatching { requestedLink in ProfileStore(this).all() }.getOrDefault(false) &&
@@ -157,6 +156,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 return START_NOT_STICKY
             }
             bankingAutoResumePending = true
+            bankingAutoResumeTransitionId = requestedTransitionId
             return onStartCommand(
                 Intent(intent)
                     .setAction(ACTION_START)
@@ -167,6 +167,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             )
         }
         if (intent?.action == ACTION_STOP) {
+            bankingAutoResumePending = false
+            bankingAutoResumeTransitionId = null
             // Manual stop must never leave a resumable banking snapshot behind.
             runCatching {
                 val stateStore = BankingAutomationStateStore(this)
@@ -185,6 +187,14 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 stopTunnel()
             }
             return START_NOT_STICKY
+        }
+
+        if (intent?.action == ACTION_START) {
+            val suppliedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
+            if (!bankingAutoResumePending || suppliedTransitionId != bankingAutoResumeTransitionId) {
+                bankingAutoResumePending = false
+                bankingAutoResumeTransitionId = null
+            }
         }
 
         val requestToken = synchronized(lifecycleLock) {
@@ -575,9 +585,19 @@ class AstraVpnService : VpnService(), CommandServerHandler {
      */
     private fun completeBankingAutoResumeLocked() {
         if (!bankingAutoResumePending) return
+        val pendingTransitionId = bankingAutoResumeTransitionId
+        val store = BankingAutomationStateStore(this)
+        val currentState = runCatching { store.read() }.getOrNull()
+        if (pendingTransitionId == null || currentState == null ||
+            !BankingAutomationCommandTokenPolicy.matches(pendingTransitionId, currentState)
+        ) {
+            bankingAutoResumePending = false
+            bankingAutoResumeTransitionId = null
+            Log.w(TAG, "Ignoring stale banking auto-resume completion")
+            return
+        }
         runCatching {
-            val store = BankingAutomationStateStore(this)
-            store.write(store.read().completeAutomaticResume())
+            store.write(currentState.completeAutomaticResume())
             // If encrypted snapshot cleanup fails, the completed state still prevents another resume.
             ProfileStore(this).clearBankPauseSnapshot()
             getSharedPreferences("astra_settings", MODE_PRIVATE).edit()
@@ -585,6 +605,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 .commit()
         }.onSuccess {
             bankingAutoResumePending = false
+            bankingAutoResumeTransitionId = null
         }.onFailure {
             Log.e(TAG, "Не удалось завершить очистку банковского snapshot", it)
         }
@@ -672,6 +693,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val ACTION_STOP = "com.astra.vpn.action.STOP"
         const val ACTION_AUTO_PAUSE = "com.astra.vpn.action.AUTO_PAUSE"
         const val ACTION_AUTO_RESUME = "com.astra.vpn.action.AUTO_RESUME"
+        const val EXTRA_TRANSITION_ID = "com.astra.vpn.extra.BANKING_TRANSITION_ID"
         const val ACTION_UPDATE_RECOVERY = "com.astra.vpn.action.UPDATE_RECOVERY"
         const val ACTION_STATE = "com.astra.vpn.action.STATE"
         const val ACTION_TRAFFIC = "com.astra.vpn.action.TRAFFIC"

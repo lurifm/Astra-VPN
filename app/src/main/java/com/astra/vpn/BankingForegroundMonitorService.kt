@@ -199,7 +199,11 @@ internal class BankingForegroundMonitorService : Service() {
                     // A new bank-entry episode must not inherit a cooldown from an
                     // earlier failed resume attempt.
                     settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
-                    startService(Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_AUTO_PAUSE))
+                    startService(
+                        Intent(this, AstraVpnService::class.java)
+                            .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
+                            .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, plan.nextState.transitionId)
+                    )
                 } else {
                     stateStore.write(state)
                     profileStore.clearBankPauseSnapshot()
@@ -236,6 +240,7 @@ internal class BankingForegroundMonitorService : Service() {
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)
                             .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, saved)
+                            .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, state.transitionId)
                     )
                 }
             }

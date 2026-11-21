@@ -1780,3 +1780,15 @@ CI run для последнего коммита необходимо пров�
 - That test asserted the earlier unsafe pause-retry behavior that section 89 explicitly withdrew. The transition engine intentionally does not retry a committed pause while any bank app is foreground; it cannot prove the same originating app/episode without durable origin identity or a pending/ACK token.
 - Removed the contradictory test rather than reintroducing the unsafe behavior. The existing `secondBankKeepsTunnelPaused` regression test remains.
 - No runtime behavior changed in this correction. Safe pause retry and service acknowledgements remain future work; physical Android testing is still required.
+
+## 92. Correlate banking VPN commands with durable transition IDs
+
+- Monitor теперь передаёт persisted `transitionId` в AUTO_PAUSE и AUTO_RESUME.
+- VPN service отклоняет команды без положительного ID, с устаревшим ID или с ID, который больше не соответствует активной банковской паузе.
+- Внутренний ACTION_START автоподключения сохраняет тот же ID; при ручном/несвязанном старте pending completion очищается.
+- Завершение автоподключения после TUN-ready повторно сверяет ID с durable state. Устаревшее завершение не очищает snapshot и не меняет более новое состояние.
+- Ручной ACTION_STOP сбрасывает in-memory pending acknowledgement, чтобы поздний callback не завершил отменённый resume.
+- Это correlation/stale-command protection, а не полноценный ACK transport: monitor пока не получает отдельное подтверждение результата команды. Следующий этап — durable command status/ACK и безопасное восстановление после process death.
+- Добавлены unit tests для совпадающего, отсутствующего и устаревшего transition ID.
+- CI и физический Android end-to-end test обязательны; production-ready не заявлять.
+
