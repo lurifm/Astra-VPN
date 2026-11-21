@@ -3626,7 +3626,13 @@ class MainActivity : Activity() {
             settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
         }
         disconnecting = connected && settingsPrefs.getBoolean("vpn_disconnect_requested", false)
-        if (!connected) settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+        // Do not erase a pending explicit stop merely because Android has already
+        // removed the VPN route. The service may not have persisted/broadcast its
+        // terminal DISCONNECTED acknowledgement yet; a sticky restart in this
+        // window must still see the user's stop marker and refuse auto-reconnect.
+        if (!connected && DisconnectRequestPolicy.shouldClearAfterPersistedState(saved)) {
+            settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+        }
         when {
             connected && disconnecting -> {
                 status.text = "Отключаемся…"

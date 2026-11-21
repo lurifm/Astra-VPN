@@ -7,4 +7,12 @@ package com.astra.vpn
 internal object DisconnectRequestPolicy {
     fun shouldClearAfterServiceState(state: String?): Boolean =
         state == "disconnected"
+
+    /**
+     * The persisted service state is a terminal acknowledgement only when it is
+     * DISCONNECTED. A missing VPN route by itself is not proof that ACTION_STOP
+     * finished: Android may remove the route before the service records its state.
+     */
+    fun shouldClearAfterPersistedState(state: String?): Boolean =
+        shouldClearAfterServiceState(state)
 }
