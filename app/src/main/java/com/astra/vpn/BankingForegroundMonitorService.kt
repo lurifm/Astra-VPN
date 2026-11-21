@@ -25,8 +25,8 @@ import android.util.Log
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val activeActivities = linkedSetOf<String>()
+    private val observationPolicy = BankingForegroundObservationPolicy()
     private var lastQueryTime = 0L
-    private var lastPublishedPackage: String? = null
     private var running = false
 
     private val poll = object : Runnable {
@@ -35,12 +35,14 @@ internal class BankingForegroundMonitorService : Service() {
             val observed = runCatching { readForegroundPackage() }
                 .onFailure { Log.w(TAG, "Usage events unavailable", it) }
                 .getOrNull()
-            if (observed != lastPublishedPackage) {
-                lastPublishedPackage = observed
+            // Require two consecutive non-ambiguous observations before publishing
+            // a foreground change. Null means unknown (transition, split-screen,
+            // missing Usage Access), never proof that a banking app was closed.
+            observationPolicy.observe(observed)?.let { stablePackage ->
                 sendBroadcast(
                     Intent(ACTION_OBSERVATION)
                         .setPackage(packageName)
-                        .putExtra(EXTRA_FOREGROUND_PACKAGE, observed)
+                        .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
                         .putExtra(EXTRA_OBSERVED_AT, System.currentTimeMillis())
                 )
             }

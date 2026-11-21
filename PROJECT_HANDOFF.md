@@ -1616,3 +1616,13 @@ CI run для последнего коммита необходимо пров�
 - CI №1137 на предыдущем HEAD `89c7919` завершился success (unit tests/debug APK).
 - CI №1138 для коммита `edb1f3d` запущен; на момент записи JDK setup in_progress, тесты и APK build ещё pending.
 - Следующий блок: безопасно связать monitor observation с persisted state machine; проверить точные ручные connect/disconnect пути и service command lifecycle. Сначала добавить тесты переходов/дедупликации/таймаутов; только затем внедрять auto-pause/resume команды. Сохранить монитор активным во время остановленного tunnel. Проверить, что ручное отключение во время паузы очищает snapshot и запрещает resume. Обязательно физическое тестирование на Android API 31–35, включая ограничение запуска foreground service и UsageEvents.
+
+
+## 75. Стабилизация foreground-наблюдений банковской защиты (22 ноября 2026)
+
+- Добавлена pure policy BankingForegroundObservationPolicy: пакет публикуется только после двух последовательных одинаковых ненулевых наблюдений.
+- Null/пустое/неоднозначное наблюдение сбрасывает кандидата, но не создаёт событие «банк закрыт». Следовательно, короткие null gaps и split-screen не могут инициировать resume.
+- BankingForegroundMonitorService использует policy перед внутренним broadcast. Повторные samples уже опубликованного foreground-пакета не создают лишних broadcast.
+- Добавлено 6 unit tests: первая выборка, две стабильные выборки, null gap, смена приложения, дедупликация, split-screen.
+- Это всё ещё слой надёжного наблюдения, не автоматическое управление VPN. Не останавливать туннель и не запускать его из receiver до следующего блока с отдельными ACTION_AUTO_PAUSE/ACTION_AUTO_RESUME и явной семантикой manual override.
+- Следующий шаг: ввести сериализованный persistent banking automation state и отдельные команды VPN service; ручные disconnect/connect должны отменять автоматический resume. Сначала проверить service state broadcasts, сохранение профиля и обработку команд после process recreation.
