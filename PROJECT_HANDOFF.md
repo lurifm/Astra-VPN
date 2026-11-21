@@ -1703,3 +1703,15 @@ CI run для последнего коммита необходимо пров�
 - Обычный ACTION_STOP остался отдельным ручным путём; существующий MainActivity продолжает сам выставлять manual-disconnect guard и очищать snapshot.
 - Коммиты: `6671e9d`, `a420348`.
 - Ограничение: монитор пока не вызывает эти actions; end-to-end orchestration (получение observation в service executor, транзакционное сохранение snapshot/state и вызов AUTO_PAUSE/AUTO_RESUME) ещё не подключена. Не считать функцию готовой до этого и физического теста Android.
+
+## 84. End-to-end banking monitor executor (22 ноября 2026)
+
+- `ProfileStore` теперь хранит зашифрованный AES-GCM точный URI активного туннеля (`active_tunnel_profile_encrypted`); `AstraVpnService` записывает его только после подтверждения готовности TUN.
+- `BankingForegroundMonitorService` после двух стабильных UsageEvents samples теперь исполняет `BankingAutomationTransitionEngine`, а не только рассылает observation broadcast.
+- Pause transaction: проверка opt-in/Usage Access/списка банков → точный активный профиль → commit encrypted BankPauseSnapshot → durable BankingAutomationState → независимый BankingVpnCommandPolicy → ACTION_AUTO_PAUSE.
+- Resume transaction: свежий стабильный non-bank foreground → точный encrypted snapshot + persisted state → independent command gate → ACTION_AUTO_RESUME с URI из snapshot. AstraVpnService повторно валидирует snapshot, profile existence, Usage Access и VPN consent, строит config сам и очищает snapshot только после TUN-ready.
+- Ручной ACTION_STOP отменяет банковский resume и очищает snapshot/active profile; выключение banking automation также отменяет ожидающее восстановление и очищает snapshot. Это fail-closed поведение: при отключении функции ранее приостановленный VPN остаётся отключённым.
+- Monitor возвращает START_STICKY и восстанавливает foreground polling после системного перезапуска, только если opt-in и Usage Access всё ещё действуют. Android может ограничивать FGS restart/start по версии ОС и производителю; это не гарантия непрерывной работы.
+- Коммиты: `c465d0a`, `aa2b720`.
+- Ограничения/риски для проверки: ACTION_AUTO_PAUSE должен попасть в живой AstraVpnService instance с тем же activeProfileLink; команда отправляется после двух стабильных samples. Не проверено физически на устройстве. Нужно проверить race между повторными observations, service process death, split-screen, отключение Usage Access, ручной disconnect из всех UI/notification surfaces, выключение automation во время паузы, VPN consent и Android API 31–35.
+- Не считать функцию production-ready до зелёного CI, review service lifecycle и физического end-to-end теста.
