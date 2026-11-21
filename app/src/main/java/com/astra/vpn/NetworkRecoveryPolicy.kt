@@ -8,6 +8,12 @@ internal object NetworkRecoveryPolicy {
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 
+    fun shouldPublishUnderlay(
+        managesAndroidUnderlay: Boolean,
+        updateRequired: Boolean,
+        updateSucceeded: Boolean
+    ): Boolean = !managesAndroidUnderlay || !updateRequired || updateSucceeded
+
     fun isValidatedPhysicalUnderlay(
         isVpn: Boolean,
         hasInternet: Boolean,
