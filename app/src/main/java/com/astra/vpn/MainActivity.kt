@@ -166,6 +166,8 @@ class MainActivity : Activity() {
     private var latencyTestInFlight = false
     // Reject late broadcasts from a cancelled or superseded latency-test session.
     private var activeLatencySessionId: String? = null
+    // Non-null only while the URLTest batch was started from the service assistant.
+    private var serviceProbeName: String? = null
     // A cancelled config build must not occupy a worker while a retry is queued.
     private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
     private var pendingFastestSelection = false
@@ -492,6 +494,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         profileStore = ProfileStore(this)
+        serviceProbeName = settingsPrefs.getString("service_probe_name", null)
         runCatching {
             val filter = IntentFilter().apply {
                 addAction(AstraThroughputProbeService.ACTION_RESULT)
@@ -3004,7 +3007,7 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Проверка серверов отменена", Toast.LENGTH_SHORT).show()
     }
 
-    private fun checkAllLatencies() {
+    private fun checkAllLatencies(serviceTestUrl: String = SingBoxUrlTestConfig.TEST_URL, serviceName: String? = null) {
         val profiles = safeProfiles()
         if (profiles == null) {
             pendingFastestSelection = false
@@ -3040,13 +3043,21 @@ class MainActivity : Activity() {
         // shows 0/N instead of briefly displaying the idle sorting label.
         latencyTestInFlight = true
         renderProfiles()
-        Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
+        if (serviceName != null) {
+            serviceProbeName = serviceName
+            settingsPrefs.edit().putString("service_probe_name", serviceName).apply()
+            Toast.makeText(this, "Проверяем $serviceName через каждый сервер…", Toast.LENGTH_SHORT).show()
+        } else {
+            serviceProbeName = null
+            settingsPrefs.edit().remove("service_probe_name").apply()
+            Toast.makeText(this, "Измеряем реальную задержку через серверы…", Toast.LENGTH_SHORT).show()
+        }
 
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         val generation = latencyCheckGeneration.get()
         val preparationTask = java.util.concurrent.FutureTask<Unit> {
-            val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
+            val prepared = runCatching { SingBoxUrlTestConfig.build(profiles, serviceTestUrl) }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
                 latencyPreparationTask = null
@@ -3617,6 +3628,35 @@ class MainActivity : Activity() {
                 latencyMs.remove(profile)
                 latencyMeasuredAt.remove(profile)
                 pingInfo[profile] = "н/д"
+            }
+        }
+        if (finished) {
+            val requestedService = serviceProbeName
+            if (requestedService != null) {
+                serviceProbeName = null
+                settingsPrefs.edit().remove("service_probe_name").apply()
+                val best = ServiceServerSelectionPolicy.bestProfile(
+                    urlTestProfileMap,
+                    buildMap {
+                        urlTestProfileMap.keys.forEach { tag ->
+                            put(tag, if (values.has(tag) && !values.isNull(tag)) values.optLong(tag, -1L) else null)
+                        }
+                    }
+                )
+                if (best == null) {
+                    Toast.makeText(this, "Не найден сервер с подтверждённым ответом endpoint-а $requestedService. Это не доказывает, что все серверы не работают.", Toast.LENGTH_LONG).show()
+                } else if (!connected && !connecting && safeProfiles()?.contains(best.profile) == true) {
+                    selectedProfile = best.profile
+                    runCatching { profileStore.setSelectedProfile(best.profile) }
+                    persistedSelectionSnapshot = best.profile
+                    Toast.makeText(this,
+                        "Для $requestedService выбран кандидат: ${profileName(best.profile)} · ${best.latencyMs} мс. VPN не включён автоматически.",
+                        Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this,
+                        "Лучший кандидат для $requestedService: ${profileName(best.profile)} · ${best.latencyMs} мс. Текущее подключение не изменено.",
+                        Toast.LENGTH_LONG).show()
+                }
             }
         }
         // URL-test broadcasts partial snapshots as individual nodes finish.
@@ -5367,7 +5407,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), 0)
             addView(TextView(this@MainActivity).apply {
-                text = "Напиши название сервиса обычными словами. Astra проверит HTTPS-ответ через текущий сетевой маршрут."
+                text = "Напиши сервис. Astra проверит каждый импортированный сервер отдельным HTTPS-запросом и выберет лучший отвечающий endpoint. Это не гарантирует доступ к региональному каталогу Netflix."
                 textSize = 12f
                 setTextColor(MUTED)
                 setPadding(0, 0, 0, dp(10))
@@ -5386,26 +5426,11 @@ class MainActivity : Activity() {
                 }
                 val button = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
                 button.isEnabled = false
-                dialog.setMessage("Проверяем ${target.name} через текущий маршрут…")
-                val network = getSystemService(ConnectivityManager::class.java).activeNetwork
-                Thread {
-                    val result = if (network == null)
-                        ServiceReachabilityChecker.Result(target.name, null, null, "NoActiveNetwork")
-                    else ServiceReachabilityChecker.check(network, target)
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
-                        val outcome = when {
-                            result.serviceAvailable -> "Сервис ответил успешно"
-                            result.reachable -> "Сервер ответил HTTP ${result.httpCode}, доступность сервиса не подтверждена"
-                            else -> "Не удалось получить ответ от сервиса"
-                        }
-                        dialog.setMessage("${target.name}: $outcome" +
-                            (result.latencyMs?.let { "\\nЗадержка: $it мс" } ?: "") +
-                            "\\n\\nПроверен текущий маршрут. Это не подтверждает доступ к каталогу США и не гарантирует обход геоблокировки Netflix. Автоматический перебор других серверов пока не выполняется.")
-                        button.text = "Проверить ещё"
-                        button.isEnabled = true
-                    }
-                }.start()
+                dialog.dismiss()
+                if (connected || connecting) {
+                    Toast.makeText(this, "Проверка серверов доступна и при активном VPN, но текущий туннель не будет автоматически переключён.", Toast.LENGTH_LONG).show()
+                }
+                checkAllLatencies(target.url, target.name)
             }
         }
         dialog.show()
