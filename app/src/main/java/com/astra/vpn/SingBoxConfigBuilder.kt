@@ -65,6 +65,18 @@ object SingBoxConfigBuilder {
         return json
     }
 
+    /** Validates one imported outbound with the bundled core using a minimal non-TUN config. */
+    internal fun validateProxyOutbound(serverLink: String): Boolean = runCatching {
+        val proxy = buildProxyOutbound(serverLink)
+        val config = JSONObject()
+            .put("log", JSONObject().put("level", "error"))
+            .put("outbounds", JSONArray()
+                .put(proxy)
+                .put(JSONObject().put("type", "direct").put("tag", "direct")))
+            .put("route", JSONObject().put("final", "direct"))
+        Libbox.checkConfig(config.toString())
+    }.isSuccess
+
     /** Builds only the proxy outbound, without constructing/validating an entire VPN config. */
     internal fun buildProxyOutbound(
         serverLink: String,
