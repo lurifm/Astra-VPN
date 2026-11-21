@@ -43,8 +43,8 @@ object SubscriptionParser {
         require(candidates.isNotEmpty()) {
             "В подписке не найдены поддерживаемые ссылки серверов"
         }
-        require(candidates.size <= MAX_PROFILES) {
-            "В подписке слишком много серверов (максимум $MAX_PROFILES)"
+        require(SubscriptionImportPolicy.isWithinProfileLimit(candidates.size)) {
+            "В подписке должно быть от 1 до ${SubscriptionImportPolicy.MAX_PROFILES} серверов"
         }
 
         // Validate every imported profile with the exact sing-box core shipped
@@ -179,6 +179,5 @@ object SubscriptionParser {
 
     private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L // 9999-12-31T23:59:59Z
     private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-    private const val MAX_PROFILES = 1000
     private const val MAX_REDIRECTS = 5
 }
