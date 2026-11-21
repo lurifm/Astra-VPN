@@ -6176,6 +6176,7 @@ class MainActivity : Activity() {
                 connectButton.animate().scaleX(1f).scaleY(1f).translationZ(0f).setDuration(180L).start()
             }
         }
+        updateConnectButtonServerHealth()
         if (::connectionIndicator.isInitialized) {
             val indicatorColor = when (state) {
                 "connected" -> GREEN
