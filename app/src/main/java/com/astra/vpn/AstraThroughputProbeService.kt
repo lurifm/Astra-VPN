@@ -56,7 +56,14 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            finish()
+            // A delayed STOP from an older batch item must not terminate a
+            // newer probe running in this service instance.
+            val requestedSession = intent.getStringExtra(EXTRA_SESSION)
+            if (!requestedSession.isNullOrBlank() && requestedSession == sessionId) {
+                finish()
+            } else {
+                Log.w(TAG, "Ignoring stale or unscoped throughput stop request")
+            }
             return START_NOT_STICKY
         }
         if (!started.compareAndSet(false, true)) return START_NOT_STICKY
