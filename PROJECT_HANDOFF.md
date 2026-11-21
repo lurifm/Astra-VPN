@@ -1821,3 +1821,11 @@ CI run для последнего коммита необходимо пров�
 - A pending RESUME is acknowledged only when the exact transition remains active, the original non-bank app is foreground, Android reports a live VPN transport, and the active profile exactly matches the encrypted snapshot.
 - Lost ACK reconciliation completes the state/ledger and clears the snapshot only after those exact checks. A connected VPN using another profile is rejected.
 - Pure policy tests cover replay, wait, ACK recovery, stale transition and profile mismatch.
+
+
+## 96. Serialize manual VPN overrides with banking automation
+
+- Manual ACTION_STOP now persists its manual-disconnect transition, cancels any pending banking command, clears the bank snapshot and stops the tunnel within the lifecycle critical section.
+- Manual ACTION_START (excluding the internally tagged banking auto-resume) persists a manual-connect transition, cancels pending automation and clears the bank snapshot before accepting a new start request. If the override cannot be durably persisted, the start fails closed.
+- ACTION_AUTO_PAUSE now rereads durable state, snapshot and ledger while holding the same lifecycle lock, then stops the tunnel and writes its ACK before releasing that lock. This closes the stale-prevalidation window where a manual start/stop could race between the check and stopTunnel().
+- These changes protect service-side ordering; device-level stress tests are still needed for simultaneous intents, process death and OEM scheduling.

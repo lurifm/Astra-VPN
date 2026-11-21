@@ -115,12 +115,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (intent?.action == ACTION_AUTO_PAUSE) {
             // The executor must commit both encrypted snapshot and transition state first.
             // Never infer a resumable pause from the service request alone.
-            val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
-            val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
             val requestedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
-            val command = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
-            val allowed = synchronized(lifecycleLock) {
-                !stopping && commandServer != null && activeConfig != null &&
+            val accepted = synchronized(lifecycleLock) {
+                val state = runCatching { BankingAutomationStateStore(this).read() }.getOrNull()
+                val snapshot = runCatching { ProfileStore(this).bankPauseSnapshot() }.getOrNull()
+                val command = runCatching { BankingAutomationCommandLedger(this).read() }.getOrNull()
+                val allowed = !stopping && commandServer != null && activeConfig != null &&
                     configurationAccepted && tunDescriptor != null &&
                     state != null &&
                     BankingAutomationCommandTokenPolicy.matches(requestedTransitionId, state) &&
@@ -130,16 +130,16 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     command.status == BankingAutomationCommandRecord.Status.PENDING &&
                     !activeProfileLink.isNullOrBlank() &&
                     snapshot?.profileLink == activeProfileLink
+                if (!allowed) false else {
+                    // Revalidation and tunnel stop share lifecycleLock with manual START/STOP.
+                    stopTunnel()
+                    check(BankingAutomationCommandLedger(this).complete(
+                        requestedTransitionId, BankingAutomationCommandRecord.Command.PAUSE
+                    ))
+                    true
+                }
             }
-            if (!allowed) {
-                Log.w(TAG, "Banking auto-pause rejected: active tunnel or encrypted snapshot mismatch")
-                return START_NOT_STICKY
-            }
-            // Unlike ACTION_STOP, this deliberately preserves the recovery profile and bank snapshot.
-            stopTunnel()
-            runCatching {
-                check(BankingAutomationCommandLedger(this).complete(requestedTransitionId, BankingAutomationCommandRecord.Command.PAUSE))
-            }.onFailure { Log.e(TAG, "Banking pause ACK persistence failed", it) }
+            if (!accepted) Log.w(TAG, "Banking auto-pause rejected: lifecycle or durable intent changed")
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_AUTO_RESUME) {
@@ -182,18 +182,21 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         if (intent?.action == ACTION_STOP) {
             bankingAutoResumePending = false
             bankingAutoResumeTransitionId = null
-            // Manual stop must never leave a resumable banking snapshot behind.
-            runCatching {
-                val stateStore = BankingAutomationStateStore(this)
-                val state = stateStore.read()
-                if (state.autoPausedByBanking) stateStore.write(state.onManualDisconnect())
-                ProfileStore(this).clearBankPauseSnapshot()
-                ProfileStore(this).setActiveTunnelProfile(null)
-            }.onFailure { Log.w(TAG, "Не удалось отменить банковское восстановление при ручном отключении", it) }
-            // Serialize the user's disconnect with TUN-created callbacks. Otherwise
-            // a callback could commit a staged recovery profile after this clear
-            // but before stopTunnel() acquires lifecycleLock.
+            // Serialize the durable manual override, snapshot invalidation and tunnel stop
+            // with automatic pause/resume command acceptance.
             synchronized(lifecycleLock) {
+                bankingAutoResumePending = false
+                bankingAutoResumeTransitionId = null
+                runCatching {
+                    val stateStore = BankingAutomationStateStore(this)
+                    val state = stateStore.read()
+                    if (state.autoPausedByBanking) stateStore.write(state.onManualDisconnect())
+                    val ledger = BankingAutomationCommandLedger(this)
+                    ledger.read()?.takeIf { it.status == BankingAutomationCommandRecord.Status.PENDING }
+                        ?.let { ledger.cancel(it.transitionId, it.command) }
+                    ProfileStore(this).clearBankPauseSnapshot()
+                    ProfileStore(this).setActiveTunnelProfile(null)
+                }.onFailure { Log.w(TAG, "Не удалось отменить банковское восстановление при ручном отключении", it) }
                 recoveryProfileTransaction.cancel()
                 runCatching { ProfileStore(this).setRecoveryProfile(null) }
                     .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
@@ -204,9 +207,28 @@ class AstraVpnService : VpnService(), CommandServerHandler {
 
         if (intent?.action == ACTION_START) {
             val suppliedTransitionId = intent.getLongExtra(EXTRA_TRANSITION_ID, -1L)
-            if (!bankingAutoResumePending || suppliedTransitionId != bankingAutoResumeTransitionId) {
-                bankingAutoResumePending = false
-                bankingAutoResumeTransitionId = null
+            val automaticResume = synchronized(lifecycleLock) {
+                bankingAutoResumePending && suppliedTransitionId == bankingAutoResumeTransitionId
+            }
+            if (!automaticResume) {
+                // A manual connect is an explicit override of any pending banking pause/resume.
+                // Persist the new transition before the new tunnel request can race monitor work.
+                val accepted = synchronized(lifecycleLock) {
+                    runCatching {
+                        val stateStore = BankingAutomationStateStore(this)
+                        stateStore.write(stateStore.read().onManualConnect())
+                        val ledger = BankingAutomationCommandLedger(this)
+                        ledger.read()?.takeIf { it.status == BankingAutomationCommandRecord.Status.PENDING }
+                            ?.let { ledger.cancel(it.transitionId, it.command) }
+                        ProfileStore(this).clearBankPauseSnapshot()
+                        bankingAutoResumePending = false
+                        bankingAutoResumeTransitionId = null
+                    }.isSuccess
+                }
+                if (!accepted) {
+                    Log.e(TAG, "Manual VPN start rejected: banking override could not be persisted")
+                    return START_NOT_STICKY
+                }
             }
         }
 
