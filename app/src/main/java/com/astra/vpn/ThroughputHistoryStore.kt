@@ -29,7 +29,8 @@ internal class ThroughputHistoryStore(context: Context) {
 
     @Synchronized
     fun get(profile: String, nowEpochMs: Long = System.currentTimeMillis()): ThroughputSample? {
-        val raw = prefs.getString(key(profile), null) ?: return null
+        val storageKey = key(profile)
+        val raw = prefs.getString(storageKey, null) ?: return null
         val sample = runCatching {
             val json = JSONObject(raw)
             ThroughputSample(
@@ -37,8 +38,14 @@ internal class ThroughputHistoryStore(context: Context) {
                 json.getDouble("uploadMbps"),
                 json.getLong("measuredAt")
             )
-        }.getOrNull() ?: return null
-        return sample.takeIf { ThroughputFreshnessPolicy.isFresh(it, nowEpochMs) }
+        }.getOrNull()
+        if (sample == null || !ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
+            // Remove corrupt/expired entries on read so repeated profile-list
+            // renders do not keep encountering the same unusable cache value.
+            prefs.edit().remove(storageKey).apply()
+            return null
+        }
+        return sample
     }
 
     @Synchronized
