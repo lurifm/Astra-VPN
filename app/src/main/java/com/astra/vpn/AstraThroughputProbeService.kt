@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Network
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
@@ -35,6 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class AstraThroughputProbeService : VpnService(), CommandServerHandler {
     private val stopped = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val timeoutRunnable = Runnable { fail("Проверка скорости превысила лимит времени") }
     private val started = AtomicBoolean(false)
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var commandServer: CommandServer? = null
@@ -64,6 +68,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return START_NOT_STICKY
         }
 
+        mainHandler.postDelayed(timeoutRunnable, TOTAL_TIMEOUT_MS)
         startForeground(
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Измерение скорости сервера")
@@ -241,6 +246,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
+        mainHandler.removeCallbacks(timeoutRunnable)
         activeConnection?.disconnect()
         activeConnection = null
         worker.shutdownNow()
