@@ -11,18 +11,18 @@ class ConnectButtonHealthPolicyTest {
             ConnectButtonHealthPolicy.resolve(false, null, null))
     }
 
-    @Test fun greenIncludesZeroThroughTwoHundredWhenMeasurementIsValid() {
+    @Test fun greenIncludesLatencyBelowTwoHundred() {
         assertEquals(ConnectButtonHealthPolicy.Color.GREEN,
             ConnectButtonHealthPolicy.resolve(true, 1L, true))
         assertEquals(ConnectButtonHealthPolicy.Color.GREEN,
             ConnectButtonHealthPolicy.resolve(true, 150L, true))
         assertEquals(ConnectButtonHealthPolicy.Color.GREEN,
-            ConnectButtonHealthPolicy.resolve(true, 200L, true))
+            ConnectButtonHealthPolicy.resolve(true, 199L, true))
     }
 
-    @Test fun yellowStartsAtTwoHundredOneAndIncludesHigherValues() {
+    @Test fun yellowStartsAtTwoHundredAndIncludesHigherValues() {
         assertEquals(ConnectButtonHealthPolicy.Color.AMBER,
-            ConnectButtonHealthPolicy.resolve(true, 201L, true))
+            ConnectButtonHealthPolicy.resolve(true, 200L, true))
         assertEquals(ConnectButtonHealthPolicy.Color.AMBER,
             ConnectButtonHealthPolicy.resolve(true, 249L, true))
         assertEquals(ConnectButtonHealthPolicy.Color.AMBER,
