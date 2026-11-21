@@ -36,6 +36,8 @@ internal class OrbitHeroView(context: Context) : View(context) {
     }
     private var nightWasActive = false
     private var nightRevealStartedAt = 0L
+    private var snowWasActive = false
+    private var snowRevealStartedAt = 0L
     private val orbitDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
     private val points = listOf(
@@ -78,6 +80,10 @@ internal class OrbitHeroView(context: Context) : View(context) {
             calendar.get(java.util.Calendar.DAY_OF_MONTH)
         )
         val seasonalActive = connectionState == "connected"
+        val snowActive = SeasonalSkyPolicy.isSnowActive(
+            seasonalActive, calendar.get(java.util.Calendar.MONTH) + 1,
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        )
         if (!seasonalActive || !seasonal.newYearSnow) {
             points.forEachIndexed { index, point ->
                 starPaint.alpha = if (index % 3 == 0) 220 else 145
@@ -86,17 +92,21 @@ internal class OrbitHeroView(context: Context) : View(context) {
             }
         }
 
-        // At night, a successful VPN connection reveals a denser sky around the hero.
-        // Coordinates are deterministic (no per-frame allocations or random number generation).
+        // Night sky is time-gated; New Year snow is deliberately visible both day and night.
+        // Both effects share the existing frame loop and use deterministic coordinates.
         val localHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
         val isNight = NightSkyAnimationPolicy.isNight(localHour)
         val nightActive = seasonalActive && isNight
         val now = android.os.SystemClock.uptimeMillis()
         if (nightActive && !nightWasActive) nightRevealStartedAt = now
         nightWasActive = nightActive
-        val reveal = if (nightActive) NightSkyAnimationPolicy.revealProgress(now - nightRevealStartedAt) else 0f
+        val nightReveal = if (nightActive) NightSkyAnimationPolicy.revealProgress(now - nightRevealStartedAt) else 0f
+        if (snowActive && !snowWasActive) snowRevealStartedAt = now
+        snowWasActive = snowActive
+        val snowReveal = if (snowActive) NightSkyAnimationPolicy.revealProgress(now - snowRevealStartedAt) else 0f
+        val reveal = maxOf(nightReveal, snowReveal)
 
-        if (nightActive && reveal > 0f) {
+        if (nightActive && nightReveal > 0f) {
             // A soft, gradually illuminated sky; the overlay remains translucent.
             glowPaint.shader = RadialGradient(cx, cy, radius * 1.42f,
                 intArrayOf(0x001A2B55, android.graphics.Color.argb((reveal * 38).toInt(), 27, 48, 91),
@@ -105,18 +115,7 @@ internal class OrbitHeroView(context: Context) : View(context) {
             canvas.drawCircle(cx, cy, radius * 1.42f, glowPaint)
             glowPaint.shader = null
 
-            if (seasonal.newYearSnow) {
-                // New Year snow replaces the additional star field.
-                for (index in 0 until 34) {
-                    val drift = if (animationAllowed) phase * (0.7f + (index % 5) * 0.13f) else 0f
-                    val x = ((index * 29 + 13) % 101) / 100f * width +
-                        sin(index * 1.7f + drift) * dp(5f)
-                    val y = (((index * 43 + 7) % 101) / 101f + drift * 0.22f) % 1f * height
-                    starPaint.color = 0xFFEAF4FF.toInt()
-                    starPaint.alpha = ((90 + (index % 4) * 35) * reveal).toInt()
-                    canvas.drawCircle(x, y, dp(if (index % 6 == 0) 2.2f else 1.2f), starPaint)
-                }
-            } else for (index in 0 until 38) {
+            if (!seasonal.newYearSnow) for (index in 0 until 38) {
                 val x = ((index * 37 + 11) % 97) / 100f
                 val y = ((index * 61 + 23) % 97) / 100f
                 // Keep the brightest extra stars outside the central connect-button area.
@@ -134,24 +133,37 @@ internal class OrbitHeroView(context: Context) : View(context) {
                 }
             }
 
-            // Three deterministic meteor tracks use the existing frame loop and reusable Paint.
-            if (animationAllowed && (seasonal.perseids || isNight)) {
-                val elapsed = now - nightRevealStartedAt
-                val meteorCount = if (seasonal.perseids) 5 else 3
-                for (index in 0 until meteorCount) {
-                    val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 2_700L)
-                    if (progress <= 0f) continue
-                    val startX = width * (0.16f + index * 0.29f)
-                    val startY = height * (0.12f + (index % 2) * 0.13f)
-                    val endX = startX + width * 0.25f * progress
-                    val endY = startY + height * 0.28f * progress
-                    meteorPaint.alpha = ((1f - progress * 0.35f) * reveal * 220f).toInt()
-                    meteorPaint.strokeWidth = dp(1.35f)
-                    canvas.drawLine(endX - width * 0.075f, endY - height * 0.075f, endX, endY, meteorPaint)
-                    canvas.drawCircle(endX, endY, dp(1.7f), meteorPaint)
-                }
-                meteorPaint.alpha = 255
+        }
+        if (snowActive && snowReveal > 0f) {
+            // Snow replaces the extra star field and remains visible in daylight too.
+            for (index in 0 until 34) {
+                val drift = if (animationAllowed) phase * (0.7f + (index % 5) * 0.13f) else 0f
+                val x = ((index * 29 + 13) % 101) / 100f * width +
+                    sin(index * 1.7f + drift) * dp(5f)
+                val y = (((index * 43 + 7) % 101) / 101f + drift * 0.22f) % 1f * height
+                starPaint.color = 0xFFEAF4FF.toInt()
+                starPaint.alpha = ((90 + (index % 4) * 35) * snowReveal).toInt()
+                canvas.drawCircle(x, y, dp(if (index % 6 == 0) 2.2f else 1.2f), starPaint)
             }
+        }
+        // Meteor trails are distributed inside the view instead of pushing the last
+        // tracks beyond the right edge when the Perseid count increases to five.
+        if (nightActive && animationAllowed && (seasonal.perseids || isNight)) {
+            val elapsed = now - nightRevealStartedAt
+            val meteorCount = if (seasonal.perseids) 5 else 3
+            for (index in 0 until meteorCount) {
+                val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 2_700L)
+                if (progress <= 0f) continue
+                val startX = width * SeasonalSkyPolicy.meteorStartFraction(index, meteorCount)
+                val startY = height * (0.12f + (index % 2) * 0.13f)
+                val endX = startX + width * 0.25f * progress
+                val endY = startY + height * 0.28f * progress
+                meteorPaint.alpha = ((1f - progress * 0.35f) * nightReveal * 220f).toInt()
+                meteorPaint.strokeWidth = dp(1.35f)
+                canvas.drawLine(endX - width * 0.075f, endY - height * 0.075f, endX, endY, meteorPaint)
+                canvas.drawCircle(endX, endY, dp(1.7f), meteorPaint)
+            }
+            meteorPaint.alpha = 255
         }
         if (seasonalActive && seasonal.eclipse) {
             val ex = width * 0.79f
