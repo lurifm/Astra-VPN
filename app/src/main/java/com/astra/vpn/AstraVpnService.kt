@@ -18,6 +18,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var trafficMonitor: LibboxTrafficMonitor? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var activeConfig: String? = null
+    // TUN creation may callback before libbox confirms startOrReloadService().
+    private var configurationAccepted = false
     private val recoveryProfileTransaction = VpnRecoveryProfileTransaction()
     private var activeProfileName: String = "Сервер не выбран"
     private var activeProtocol: String = "—"
@@ -233,9 +235,13 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                     return START_NOT_STICKY
                 }
                 activeConfig = config
+                configurationAccepted = true
                 startTrafficMonitor()
                 Log.i(TAG, "sing-box service accepted configuration")
-                if (tunDescriptor == null) {
+                if (TunActivationReadinessPolicy.isReady(configurationAccepted, tunDescriptor != null)) {
+                    commitRecoveryProfileLocked()
+                    publishState(STATE_CONNECTED)
+                } else {
                     publishState(STATE_CONNECTING)
                     awaitTunCreation()
                     Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
@@ -351,8 +357,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             }
             tunDescriptor = descriptor
             cancelTunTimeoutLocked()
-            commitRecoveryProfileLocked()
-            publishState(STATE_CONNECTED)
+            if (TunActivationReadinessPolicy.isReady(configurationAccepted, descriptorOwned = true)) {
+                commitRecoveryProfileLocked()
+                publishState(STATE_CONNECTED)
+            }
             true
         }
 
@@ -372,6 +380,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         trafficMonitor = null
         publishTrafficSnapshot(emptyMap())
         activeConfig = null
+        configurationAccepted = false
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
