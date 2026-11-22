@@ -424,7 +424,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     override fun getSystemProxyStatus(): SystemProxyStatus? = null
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
     override fun triggerNativeCrash() = Unit
-    override fun writeDebugMessage(message: String?) = Unit
+    override fun writeDebugMessage(message: String?) {
+        // Keep native diagnostics local to Logcat. Never log imported profile URIs.
+        if (!message.isNullOrBlank()) {
+            Log.d(TAG, message.take(1_500))
+        }
+    }
     override fun connectSSHAgent(): Int = -1
 
     override fun onDestroy() {
@@ -454,7 +459,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val BATCH_TIMEOUT_MS = 5_000L
+        private const val BATCH_TIMEOUT_MS = 8_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
         private const val URL_TEST_QUEUE_CAPACITY = 1_024
 
