@@ -4049,7 +4049,7 @@ class MainActivity : Activity() {
             val canExecute = TransientConnectRetryPolicy.shouldExecute(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
-                activityActive = activityStarted,
+                activityActive = activityStarted && !isFinishing && !isDestroyed,
                 userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
                 connecting = connecting,
                 connected = connected,
