@@ -26,12 +26,14 @@ internal object TransientConnectRetryPolicy {
         userRequestedDisconnect: Boolean,
         connecting: Boolean,
         connected: Boolean,
-        disconnecting: Boolean
+        disconnecting: Boolean,
+        hasValidatedPhysicalInternet: Boolean
     ): Boolean = generationCurrent &&
         selectedProfileUnchanged &&
         activityActive &&
         !userRequestedDisconnect &&
         !connecting &&
         !connected &&
-        !disconnecting
+        !disconnecting &&
+        hasValidatedPhysicalInternet
 }
