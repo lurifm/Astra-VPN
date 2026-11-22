@@ -5184,17 +5184,11 @@ class MainActivity : Activity() {
         }
         var chosen = (selectedProfile?.let { profiles.take(36).indexOf(it) } ?: -1).coerceAtLeast(0)
         val map = OrbitMapView(this, nodes) { index ->
+            // Keep map browsing provisional: closing the dialog must not silently
+            // change the active profile or cancel an Android VPN consent request.
             chosen = index
             val mappedProfile = profiles.take(36)[index]
-            if (selectedProfile != mappedProfile) {
-                cancelConnectRetry(resetAttempts = true)
-                // The map mutates selection immediately, before the dialog's
-                // positive button is pressed. Invalidate any consent request here.
-                if (pendingConfig != null) cancelPendingConnect()
-            }
-            selectedProfile = mappedProfile
-            selectedInfo.text = profileSummary(profiles.take(36)[index])
-            Toast.makeText(this, "Выбрана орбита: ${profileName(profiles.take(36)[index])}", Toast.LENGTH_SHORT).show()
+            selectedInfo.text = profileSummary(mappedProfile)
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5204,7 +5198,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
             ))
             addView(TextView(this@MainActivity).apply {
-                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: зелёный — быстрее, серый — нет данных."
+                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: золотой — быстрый, сине-фиолетовый — средний, лавандовый — высокий; серый — нет данных."
                 textSize = 12f
                 setTextColor(0xFFD8E0F2.toInt())
                 setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -5215,13 +5209,18 @@ class MainActivity : Activity() {
             .setView(content)
             .setPositiveButton("Выбрать") { _, _ ->
                 val profile = profiles.take(36)[chosen]
-                if (selectedProfile != profile) {
+                val changed = selectedProfile != profile
+                if (changed) {
                     cancelConnectRetry(resetAttempts = true)
                     if (pendingConfig != null) cancelPendingConnect()
+                    selectedProfile = profile
+                    persistSelectedProfileIfChanged()
                 }
-                selectedProfile = profile
                 selectedInfo.text = profileSummary(profile)
                 renderProfiles()
+                // A confirmed map selection while connected follows the same
+                // guarded config/consent/retry pipeline as the server list.
+                if (changed && connected) connectSelectedProfile()
             }
             .setNegativeButton("Закрыть", null)
             .show()
