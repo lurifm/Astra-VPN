@@ -3443,6 +3443,10 @@ class MainActivity : Activity() {
                     connecting = false
                 }
             } else {
+                // A denied Android consent prompt aborts the provisional failover
+                // just like a service-side connection failure. Restore the last
+                // known-good profile before clearing the captured request.
+                rollbackPendingFailoverSelection()
                 pendingConfig = null
                 pendingProfile = null
                 connecting = false
@@ -3949,6 +3953,9 @@ class MainActivity : Activity() {
      */
     private fun cancelPendingConnect() {
         if (pendingConfig == null) return
+        // This path is also used when the user cancels the Android consent
+        // flow or changes/removes the provisional target before it can start.
+        rollbackPendingFailoverSelection()
         pendingConfig = null
         pendingProfile = null
         cancelConnectRetry(resetAttempts = true)
