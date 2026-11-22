@@ -67,15 +67,14 @@ class ReliabilityScoreTest {
     }
 
     @Test
-    fun recoveryKeepsSuccessfulSessionsButDropsFailuresBeforeLatestSuccess() {
+    fun recoveryKeepsOnlyLatestSuccessAndDropsEarlierOutcomes() {
         val events = listOf(
             event(6L, "connected"), event(5L, "connected"), event(4L, "error"),
             event(3L, "connected"), event(2L, "error"), event(1L, "connected")
         )
-        val result = ReliabilityScore.calculate(ReliabilityScore.outcomesAfterLatestSuccess(events))
-        assertEquals(100, result?.score)
-        assertEquals(4, result?.sessions)
-        assertEquals(0, result?.failures)
+        val outcomes = ReliabilityScore.outcomesAfterLatestSuccess(events)
+        assertEquals(listOf(6L), outcomes.map { it.timestamp })
+        assertEquals(listOf("connected"), outcomes.map { it.state })
     }
 
 }
