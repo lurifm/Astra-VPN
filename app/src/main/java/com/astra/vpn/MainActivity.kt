@@ -4542,16 +4542,28 @@ class MainActivity : Activity() {
             latencyMs, latencyMeasuredAt, now, candidates
         )
         val measuredCandidates = candidates.filter { freshLatencies.containsKey(it) }
+        // Apply the same recent-failure quarantine used by tunnel-health failover.
+        // Wall-clock timestamps are used here because connection history is persisted
+        // across process restarts; elapsedRealtime is reserved for cooldowns.
+        val historySnapshot = connectionHistory.getEntries()
+        val recoveryCandidates = ServerFailureScorer.excludeRecentlyFailedProfiles(
+            profiles = measuredCandidates,
+            entries = historySnapshot,
+            now = System.currentTimeMillis(),
+            nameOf = ::profileName,
+            protocolOf = ::protocolName
+        )
+        if (recoveryCandidates.isEmpty()) return
         val adjusted = TimeOfDayServerOptimizer.adjustedLatencies(
-            measuredCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
+            recoveryCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
         )
         val alternate = BestServerSelector.select(
-            profiles = measuredCandidates,
+            profiles = recoveryCandidates,
             latencyMs = adjusted,
-            recentFailures = recentServerFailureCounts(measuredCandidates),
-            latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates),
-            reliabilityPenaltyMs = serverReliabilityPenalties(measuredCandidates),
-            throughputSamples = throughputHistory.getFresh(measuredCandidates),
+            recentFailures = recentServerFailureCounts(recoveryCandidates),
+            latencyStabilityPenaltyMs = latencyStabilityPenalties(recoveryCandidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(recoveryCandidates),
+            throughputSamples = throughputHistory.getFresh(recoveryCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
         if (alternate == null) {
