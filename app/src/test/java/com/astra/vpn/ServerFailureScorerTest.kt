@@ -179,4 +179,30 @@ class ServerFailureScorerTest {
         )
     }
 
+    @Test
+    fun repeatedFailuresUseThirtyMinuteMaximumQuarantine() {
+        val now = 10_000_000L
+        val profile = "vless://id@bad.example:443#Bad"
+        val entries = listOf(1L, 2L, 3L, 4L).map { minutes ->
+            ConnectionHistoryStore.Entry(
+                now - minutes * 60L * 1_000L, "error", "Bad", "VLESS"
+            )
+        }
+        val nameOf: (String) -> String = { it.substringAfterLast('#') }
+        val protocolOf: (String) -> String = { it.substringBefore("://").uppercase() }
+        assertTrue(
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), entries, now,
+                nameOf = nameOf, protocolOf = protocolOf
+            ).isEmpty()
+        )
+        assertEquals(
+            listOf(profile),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), entries, now + 35L * 60L * 1_000L,
+                nameOf = nameOf, protocolOf = protocolOf
+            )
+        )
+    }
+
 }
