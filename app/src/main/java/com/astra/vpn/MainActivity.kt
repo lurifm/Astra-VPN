@@ -268,6 +268,8 @@ class MainActivity : Activity() {
     @Volatile private var lastHealthCheckAt = 0L
     @Volatile private var lastPhysicalNetworkChangeAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
+    // Last profile whose end-to-end success was actually persisted to history.
+    private var historyConnectedProfile: String? = null
     @Volatile private var waitingForUnderlyingNetwork = false
     @Volatile private var waitingForVpnRoute = false
     private var consecutiveHealthFailures = 0
@@ -489,6 +491,7 @@ class MainActivity : Activity() {
                     disconnecting = false
                     connected = false
                     connecting = true
+                    historyConnectedProfile = null
                     consecutiveHealthFailures = 0
                     lastHealthCheckAt = 0L
                     status.text = "Создаём VPN-туннель…"
@@ -524,6 +527,7 @@ class MainActivity : Activity() {
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
+                    historyConnectedProfile = null
                     settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
                     connecting = false
                     consecutiveHealthFailures = 0
@@ -537,6 +541,7 @@ class MainActivity : Activity() {
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = false
+                    historyConnectedProfile = null
                     settingsPrefs.edit().remove(KEY_VPN_CONNECTED_SINCE).apply()
                     connecting = false
                     consecutiveHealthFailures = 0
@@ -4876,22 +4881,23 @@ class MainActivity : Activity() {
                         }
                         waitingForUnderlyingNetwork = false
                         waitingForVpnRoute = false
-                        val wasEndToEndValidated = tunnelInternetOk == true
                         tunnelInternetOk = ok
                         if (ok) {
-                            // Record only the transition into a validated tunnel, not
-                            // every periodic health-check success. This keeps reliability
-                            // statistics tied to real connection outcomes.
-                            if (!wasEndToEndValidated) {
-                                activeProfile?.takeIf { it.isNotBlank() }?.let { validatedProfile ->
-                                    runCatching {
+                            // Remember a success only after persistence succeeds. If a
+                            // transient storage error occurs, the next health check retries
+                            // instead of silently losing this connection-history event.
+                            activeProfile?.takeIf { it.isNotBlank() }?.let { validatedProfile ->
+                                if (historyConnectedProfile != validatedProfile) {
+                                    val recorded = runCatching {
                                         connectionHistory.record(
                                             "connected",
                                             profileName(validatedProfile),
                                             protocolName(validatedProfile),
                                             validatedProfile
                                         )
-                                    }
+                                        true
+                                    }.getOrDefault(false)
+                                    if (recorded) historyConnectedProfile = validatedProfile
                                 }
                             }
                             status.text = "Подключено"
