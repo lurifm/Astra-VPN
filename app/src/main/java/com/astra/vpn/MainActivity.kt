@@ -3325,7 +3325,10 @@ class MainActivity : Activity() {
         checkAllLatencies()
     }
 
-    private fun connectSelectedProfile() {
+    private fun connectSelectedProfile(isRetry: Boolean = false) {
+        // A fresh user action replaces a scheduled retry and starts a new retry budget.
+        // A retry itself must retain its attempt counter across subsequent failures.
+        if (!isRetry) cancelConnectRetry(resetAttempts = true)
         // Consent UI is asynchronous: block duplicate starts before the service
         // has had a chance to publish STATE_CONNECTING.
         if (connecting || pendingConfig != null) return
@@ -4147,7 +4150,7 @@ class MainActivity : Activity() {
             }
             connectRetryTask = null
             clearPersistedConnectRetryState()
-            connectSelectedProfile()
+            connectSelectedProfile(isRetry = true)
         }
         connectRetryTask = retryTask
         connectRetryHandler.postDelayed(retryTask, delay)
