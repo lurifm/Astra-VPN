@@ -2372,7 +2372,7 @@ class MainActivity : Activity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(14), dp(10), dp(14))
+                setPadding(dp(12), dp(12), dp(9), dp(12))
                 // The active tunnel stays visually identifiable even when another
                 // server is selected as the next destination.
                 background = serverRowBackground(
@@ -2386,7 +2386,7 @@ class MainActivity : Activity() {
                     null,
                     null
                 )
-                minimumHeight = dp(72)
+                minimumHeight = dp(68)
                 elevation = dp(if (isSelected) 3 else 0).toFloat()
                 // Expose selection and active-tunnel state as actual Android view
                 // state, not only as text in the row's accessibility description.
@@ -5586,10 +5586,14 @@ class MainActivity : Activity() {
             row.compoundDrawablePadding = dp(12)
             row.minHeight = dp(48)
             row.gravity = Gravity.CENTER_VERTICAL
+            row.text = row.text.toString().trimEnd() + "     ›"
             row.setPadding(dp(14), dp(9), dp(12), dp(9))
             row.textSize = 13.5f
-            row.typeface = Typeface.DEFAULT
-            row.background = rounded(0xFF141F31.toInt(), 11)
+            row.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            row.setTextColor(0xFFE9EDF6.toInt())
+            row.background = rounded(0xFF141B2A.toInt(), 13).apply {
+                setStroke(dp(1), 0xFF29364C.toInt())
+            }
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
@@ -5601,7 +5605,9 @@ class MainActivity : Activity() {
             toggle.setTextColor(Color.WHITE)
             toggle.minHeight = dp(52)
             toggle.setPadding(dp(12), dp(8), dp(10), dp(8))
-            toggle.background = rounded(0xFF141F31.toInt(), 11)
+            toggle.background = rounded(0xFF141B2A.toInt(), 13).apply {
+                setStroke(dp(1), 0xFF29364C.toInt())
+            }
             if (toggle is android.widget.Switch) {
                 toggle.thumbTintList = android.content.res.ColorStateList.valueOf(0xFFD6B36A.toInt())
                 toggle.trackTintList = android.content.res.ColorStateList.valueOf(0x665D6B80)
@@ -5632,7 +5638,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(0, dp(8), 0, dp(6))
         })
-        val sortGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val sortGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = rounded(0xFF0C1422.toInt(), 14)
+        }
         val currentMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         listOf(
             "original" to "Подписка",
@@ -5645,9 +5655,15 @@ class MainActivity : Activity() {
                 text = label
                 textSize = 11f
                 setTextColor(Color.WHITE)
-                buttonTintList = android.content.res.ColorStateList.valueOf(0xFFD6B36A.toInt())
+                buttonDrawable = null
+                setPadding(dp(8), 0, dp(8), 0)
                 minHeight = dp(42)
-                gravity = Gravity.CENTER_VERTICAL
+                gravity = Gravity.CENTER
+                background = rounded(
+                    if (currentMode == value) 0xFF3B3427.toInt() else Color.TRANSPARENT, 10
+                ).apply {
+                    if (currentMode == value) setStroke(dp(1), 0xFFD6B36A.toInt())
+                }
                 isChecked = currentMode == value
             }, RadioGroup.LayoutParams(0, dp(46), 1f))
         }
@@ -5995,6 +6011,15 @@ class MainActivity : Activity() {
         }
         sortGroup.setOnCheckedChangeListener { group, checkedId ->
             val mode = group.findViewById<RadioButton>(checkedId)?.tag as? String ?: return@setOnCheckedChangeListener
+            for (index in 0 until group.childCount) {
+                val chip = group.getChildAt(index) as? RadioButton ?: continue
+                val active = chip.id == checkedId
+                chip.background = rounded(
+                    if (active) 0xFF3B3427.toInt() else Color.TRANSPARENT, 10
+                ).apply {
+                    if (active) setStroke(dp(1), 0xFFD6B36A.toInt())
+                }
+            }
             sortMode = mode
             settingsPrefs.edit().putString("sort_mode", mode).apply()
             renderProfiles()
