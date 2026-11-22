@@ -61,6 +61,23 @@ class ServerFailureScorerTest {
     }
 
     @Test
+    fun rejectsZeroTimestampsAndZeroClock() {
+        val zeroTimestamp = ConnectionHistoryStore.Entry(0L, "error", "Node", "VLESS")
+        assertTrue(ServerFailureScorer.weightedFailures(listOf(zeroTimestamp), 1_000L).isEmpty())
+        assertTrue(ServerFailureScorer.weightedFailures(listOf(entry(0L, now = 0L)), 0L).isEmpty())
+
+        val profile = "vless://id@node.example:443#Node"
+        assertEquals(
+            listOf(profile),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), listOf(zeroTimestamp), 1_000L,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
     fun excludesRecentlyFailedProfileButKeepsOtherServers() {
         val now = 1_000_000L
         val profiles = listOf("vless://id@bad.example:443#Bad", "tuic://id:pass@good.example:443#Good")
