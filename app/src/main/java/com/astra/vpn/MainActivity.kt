@@ -1355,7 +1355,43 @@ class MainActivity : Activity() {
             input.setText(sharedText)
             input.setSelection(input.text.length)
         }
-        panel.addView(input, matchWidth().apply { bottomMargin = dp(10) })
+        panel.addView(input, matchWidth().apply { bottomMargin = dp(6) })
+
+        // Lightweight local preview: never performs network access or claims
+        // that a profile is valid. Full validation remains in the import worker.
+        val importPreview = TextView(this).apply {
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(2), 0, dp(2), dp(10))
+            contentDescription = "Предварительное количество ссылок серверов"
+        }
+        fun refreshImportPreview(value: String) {
+            val trimmed = value.trim()
+            val isSubscription = trimmed.startsWith("https://", true)
+            val count = trimmed.lineSequence()
+                .map { it.trim() }
+                .filter { line ->
+                    listOf("vless://", "hysteria2://", "hy2://", "tuic://")
+                        .any { line.startsWith(it, true) }
+                }
+                .distinct()
+                .count()
+            importPreview.text = when {
+                trimmed.isEmpty() -> "Поддерживаются VLESS, Hysteria2, TUIC и HTTPS-подписки"
+                isSubscription -> "HTTPS-подписка · серверы будут определены после загрузки"
+                count > 0 -> "Найдено ссылок серверов: $count · проверка при импорте"
+                else -> "Ссылки серверов пока не распознаны"
+            }
+        }
+        refreshImportPreview(input.text.toString())
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                refreshImportPreview(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        panel.addView(importPreview, matchWidth())
 
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
