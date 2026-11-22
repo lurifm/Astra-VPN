@@ -581,15 +581,10 @@ class MainActivity : Activity() {
         val connectCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF302817.toInt(), 0xFF1C1D27.toInt(), 0xFF0D111B.toInt())
-            ).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), 0xFF806B3A.toInt())
-            }
-            elevation = dp(3).toFloat()
+            // Let the orbit scene float on the night-sky background.
+            setPadding(0, 0, 0, 0)
+            setBackgroundColor(Color.TRANSPARENT)
+            elevation = 0f
         }
         val connectionCaption = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -684,7 +679,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(9), 0, 0)
         }
         connectionCard = connectCard
-        connectCard.addView(connectionCaption, matchWidth())
+        // The single status label below replaces this redundant caption row.
         connectCard.addView(status, matchWidth())
         orbitNameLabel = TextView(this).apply {
             text = "Выбери орбиту"
@@ -746,7 +741,7 @@ class MainActivity : Activity() {
         }
         connectCard.addView(orbitMetricsLabel, matchWidth())
         connectCard.addView(orbitSpeedLabel, matchWidth())
-        connectCard.addView(connectActionLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT))
+        connectActionLabel.visibility = View.GONE
 
         quickSwitchContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2212,11 +2207,8 @@ class MainActivity : Activity() {
         if (::quickSwitchContainer.isInitialized) renderQuickSwitch(profiles)
         updateOrbitIdentity()
         if (selected != null && connected && selected == activeProfile) {
-            selectedInfo.text = when (tunnelInternetOk) {
-                true -> "🛡 Защита проверена · интернет через VPN работает\n${profileSummary(selected)}"
-                false -> "⚠ СОЕДИНЕНИЕ НЕ ЗАЩИЩЕНО · интернет через сервер недоступен\n${profileSummary(selected)}"
-                null -> "◌ Проверяем защиту соединения…\n${profileSummary(selected)}"
-            }
+            // Keep the home screen concise: this line identifies the selected server.
+            selectedInfo.text = profileSummary(selected)
             selectedInfo.setTextColor(when (tunnelInternetOk) {
                 true -> GREEN
                 false -> RED
@@ -4257,7 +4249,8 @@ class MainActivity : Activity() {
         updateOrbitIdentity()
         if (!connected) {
             orbitMetricsLabel.text = "00:00:00"
-            orbitSpeedLabel.text = "↓ — Мбит/с     ↑ — Мбит/с"
+            orbitSpeedLabel.text = ""
+            orbitSpeedLabel.visibility = View.GONE
             orbitMetricsLabel.setTextColor(0xFF9AA6BF.toInt())
             orbitSpeedLabel.setTextColor(0xFF9AA6BF.toInt())
             return
@@ -4273,7 +4266,8 @@ class MainActivity : Activity() {
         orbitMetricsLabel.text = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
         orbitSpeedLabel.text = rate?.let {
             "↓ ${String.format(java.util.Locale.US, "%.1f", it.downloadMbps)} Мбит/с     ↑ ${String.format(java.util.Locale.US, "%.1f", it.uploadMbps)} Мбит/с"
-        } ?: "↓ — Мбит/с     ↑ — Мбит/с"
+        }.orEmpty()
+        orbitSpeedLabel.visibility = if (rate == null) View.GONE else View.VISIBLE
         val fresh = rate != null && rate.sampleAgeMs <= 3_000L
         orbitMetricsLabel.setTextColor(0xFFFFD98A.toInt())
         orbitSpeedLabel.setTextColor(if (fresh) 0xFFE8C77C.toInt() else 0xFF9AA6BF.toInt())
