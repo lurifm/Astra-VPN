@@ -160,7 +160,7 @@ class SubscriptionRefreshDuePolicyTest {
             SubscriptionRefreshDuePolicy.select(
                 listOf(newSource, oldSource),
                 emptySet(),
-                emptySet(),
+                setOf("old"),
                 2,
                 now
             )
