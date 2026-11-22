@@ -454,7 +454,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val BATCH_TIMEOUT_MS = 10_000L
+        private const val BATCH_TIMEOUT_MS = 5_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
         private const val URL_TEST_QUEUE_CAPACITY = 1_024
 
