@@ -154,7 +154,8 @@ class SubscriptionRefreshDuePolicyTest {
 
     @Test fun refreshesNewSourcesAndSourcesWithoutSuccessfulHistory() {
         val newSource = SubscriptionRefreshCandidate("new", 24, null)
-        val oldSource = SubscriptionRefreshCandidate("old", 24, now - 1L)
+        // A known fingerprint with no successful timestamp is still due.
+        val oldSource = SubscriptionRefreshCandidate("old", 24, null)
         assertEquals(
             listOf("new", "old"),
             SubscriptionRefreshDuePolicy.select(
