@@ -329,9 +329,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 savedProfileAvailable = !savedProfile.isNullOrBlank(),
                 // A platform/security exception must fail closed rather than crash-loop
                 // the sticky service while Android is restoring the process.
-                vpnConsentGranted = runCatching { VpnService.prepare(this) == null }
-                    .onFailure { Log.w(TAG, "Не удалось проверить разрешение VPN при восстановлении", it) }
-                    .getOrDefault(false)
+                vpnConsentGranted = VpnRecoveryPolicy.isVpnConsentGranted(
+                    check = { VpnService.prepare(this) == null },
+                    onFailure = { Log.w(TAG, "Не удалось проверить разрешение VPN при восстановлении", it) }
+                )
             )
             when (decision) {
                 VpnRecoveryDecision.START -> {
