@@ -230,9 +230,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 // Consume the native iterator here; serialize state changes on main.
                 handler.post {
                     if (stopped.get()) return@post
-                    val accepted = snapshot.filterKeys { it !in completedTags }
+                    val accepted = snapshot.filterKeys { tag ->
+                        LatencyProbeDispatchPolicy.shouldAcceptMeasurement(
+                            alreadyCompleted = tag in completedTags,
+                            previouslyTimedOut = tag in timedOutTags
+                        )
+                    }.filterKeys(::completeMeasuredTag)
                     if (accepted.isEmpty()) return@post
-                    accepted.keys.forEach(::completeMeasuredTag)
                     latestResults.merge(accepted)
                     publishResults(accepted, finished = false)
                     dispatchNextUrlTests(client)
@@ -275,12 +279,14 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
     }
 
-    private fun completeMeasuredTag(tag: String) {
-        if (completedTags.add(tag)) {
-            inFlightTags.remove(tag)
-            perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
-            nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
-        }
+    private fun completeMeasuredTag(tag: String): Boolean {
+        val wasTimedOut = timedOutTags.remove(tag)
+        val newlyCompleted = completedTags.add(tag)
+        if (!newlyCompleted && !wasTimedOut) return false
+        inFlightTags.remove(tag)
+        perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+        nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+        return true
     }
 
     private fun completeUnmeasuredTag(tag: String, timedOut: Boolean) {
@@ -295,6 +301,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 nativeSlotReleaseTimeouts.remove(tag)
                 inFlightTags.remove(tag)
                 dispatchNextUrlTests(client)
+                finishIfAllTagsCompleted()
             }
             nativeSlotReleaseTimeouts[tag] = release
             handler.postDelayed(release, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
@@ -309,7 +316,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun finishIfAllTagsCompleted() {
-        if (!stopped.get() && completedTags.containsAll(expectedTags)) finishAndPublish()
+        if (!stopped.get() && LatencyProbeDispatchPolicy.shouldFinish(
+                completedAll = completedTags.containsAll(expectedTags),
+                nativeSlotsPending = nativeSlotReleaseTimeouts.isNotEmpty()
+            )) finishAndPublish()
     }
 
     private fun finishAndPublish() {
