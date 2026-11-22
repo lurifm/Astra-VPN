@@ -5,16 +5,31 @@ internal object ReliabilityScore {
     data class Result(val score: Int, val sessions: Int, val failures: Int, val confidence: String)
 
     fun calculate(eventsNewestFirst: List<ConnectionHistoryStore.Entry>): Result? {
-        val relevant = eventsNewestFirst.take(100)
+        // Ignore malformed and unrelated state records before applying the sample cap,
+        // so they cannot hide valid connection outcomes from the reliability estimate.
+        val relevant = eventsNewestFirst.asSequence()
+            .filter { it.timestamp > 0L && (it.state == "connected" || it.state == "error") }
+            .take(MAX_EVENTS)
+            .toList()
         val sessions = relevant.count { it.state == "connected" }
         val failures = relevant.count { it.state == "error" }
-        if (sessions + failures < 3) return null
-        val score = (100 - failures * 18).coerceIn(0, 100)
+        val total = sessions + failures
+        if (total < MIN_EVENTS) return null
+
+        // Use the observed success ratio rather than subtracting a fixed number
+        // of points per error; the same error count means different things for
+        // a profile with 3 attempts versus one with 30 successful sessions.
+        val score = ((sessions * 100) + total / 2) / total
         val confidence = when {
-            sessions + failures >= 20 -> "высокая"
-            sessions + failures >= 8 -> "средняя"
+            total >= HIGH_CONFIDENCE_EVENTS -> "высокая"
+            total >= MEDIUM_CONFIDENCE_EVENTS -> "средняя"
             else -> "предварительная"
         }
-        return Result(score, sessions, failures, confidence)
+        return Result(score.coerceIn(0, 100), sessions, failures, confidence)
     }
+
+    private const val MAX_EVENTS = 100
+    private const val MIN_EVENTS = 3
+    private const val MEDIUM_CONFIDENCE_EVENTS = 8
+    private const val HIGH_CONFIDENCE_EVENTS = 20
 }
