@@ -5161,7 +5161,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
             ))
             addView(TextView(this@MainActivity).apply {
-                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: зелёный — быстрее, серый — нет данных."
+                text = "Нажми на звезду, чтобы выбрать сервер. Яркость золотого свечения показывает Ping: ярче — быстрее, тусклее — выше задержка или нет измерения."
                 textSize = 12f
                 setTextColor(0xFFD8E0F2.toInt())
                 setPadding(dp(8), dp(8), dp(8), dp(8))
