@@ -4844,19 +4844,32 @@ class MainActivity : Activity() {
                         // The physical underlay may disappear while the HTTPS probe is
                         // in flight. Its timeout is then a network-handover event, not
                         // evidence that the VPN server failed; never count it toward failover.
-                        if (!NetworkRecoveryPolicy.shouldProbeTunnel(
-                                hasValidatedPhysicalNetwork(connectivity)
-                            )
-                        ) {
-                            waitingForUnderlyingNetwork = true
+                        val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+                        val probeResultCanBeAttributed = NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                            expectedGeneration = probeGeneration,
+                            currentGeneration = tunnelHealthCheckGeneration.current(),
+                            hasValidatedUnderlay = hasValidatedUnderlay,
+                            lastPhysicalNetworkChangeAt = lastPhysicalNetworkChangeAt,
+                            now = android.os.SystemClock.elapsedRealtime()
+                        )
+                        if (!probeResultCanBeAttributed) {
+                            // Do not turn a result that crossed an underlay handover
+                            // into a server failure (or a false healthy state).
+                            waitingForUnderlyingNetwork = !hasValidatedUnderlay
+                            waitingForVpnRoute = hasValidatedUnderlay
                             tunnelInternetOk = null
                             lastHealthCheckAt = 0L
-                            status.text = "Ожидаем восстановления интернета…"
+                            status.text = if (hasValidatedUnderlay) {
+                                "Стабилизируем сетевое соединение…"
+                            } else {
+                                "Ожидаем восстановления интернета…"
+                            }
                             status.setTextColor(AMBER)
                             updateProtectionLabels()
                             return@runOnUiThread
                         }
                         waitingForUnderlyingNetwork = false
+                        waitingForVpnRoute = false
                         val wasEndToEndValidated = tunnelInternetOk == true
                         tunnelInternetOk = ok
                         if (ok) {

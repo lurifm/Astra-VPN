@@ -45,6 +45,45 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun probeResultIsAttributedOnlyToCurrentStableValidatedRoute() {
+        assertTrue(
+            NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                expectedGeneration = 4L, currentGeneration = 4L,
+                hasValidatedUnderlay = true, lastPhysicalNetworkChangeAt = 0L,
+                now = 20_000L
+            )
+        )
+        assertFalse(
+            NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                expectedGeneration = 3L, currentGeneration = 4L,
+                hasValidatedUnderlay = true, lastPhysicalNetworkChangeAt = 0L,
+                now = 20_000L
+            )
+        )
+        assertFalse(
+            NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                expectedGeneration = 4L, currentGeneration = 4L,
+                hasValidatedUnderlay = false, lastPhysicalNetworkChangeAt = 0L,
+                now = 20_000L
+            )
+        )
+        assertFalse(
+            NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                expectedGeneration = 4L, currentGeneration = 4L,
+                hasValidatedUnderlay = true, lastPhysicalNetworkChangeAt = 19_000L,
+                now = 20_999L
+            )
+        )
+        assertTrue(
+            NetworkRecoveryPolicy.shouldAttributeProbeResult(
+                expectedGeneration = 4L, currentGeneration = 4L,
+                hasValidatedUnderlay = true, lastPhysicalNetworkChangeAt = 18_000L,
+                now = 20_000L
+            )
+        )
+    }
+
+    @Test
     fun unvalidatedOrCaptivePortalNetworkIsNotTreatedAsUsableUnderlay() {
         assertFalse(NetworkRecoveryPolicy.shouldProbeTunnel(false))
     }

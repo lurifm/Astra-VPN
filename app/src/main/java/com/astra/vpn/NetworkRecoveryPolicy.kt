@@ -35,6 +35,25 @@ internal object NetworkRecoveryPolicy {
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 
+    /**
+     * A completed HTTPS probe is attributable to the VPN server only when it
+     * belongs to the latest tunnel/network generation and the physical route
+     * has remained validated through Android's handover grace period.
+     */
+    fun shouldAttributeProbeResult(
+        expectedGeneration: Long,
+        currentGeneration: Long,
+        hasValidatedUnderlay: Boolean,
+        lastPhysicalNetworkChangeAt: Long,
+        now: Long
+    ): Boolean {
+        if (!isLatestNetworkChange(expectedGeneration, currentGeneration) ||
+            !hasValidatedUnderlay || now < 0L
+        ) return false
+        return lastPhysicalNetworkChangeAt == 0L ||
+            hasHandoverSettled(lastPhysicalNetworkChangeAt, now)
+    }
+
     /** Do not attribute transient routing convergence failures to the VPN server. */
     fun hasHandoverSettled(lastChangeAt: Long, now: Long): Boolean {
         if (lastChangeAt < 0L || now < 0L || now < lastChangeAt) return false
