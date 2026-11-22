@@ -46,6 +46,10 @@ object SingBoxConfigBuilder {
             .put("outbounds", outbounds)
             .put("route", JSONObject()
                 .put("auto_detect_interface", true)
+                // sing-box 1.14 requires an explicit resolver when multiple DNS servers exist.
+                // Resolve proxy endpoint hostnames through the IP-literal DoH server to avoid
+                // an implicit Android DNS lookup being routed into the active VPN tunnel.
+                .put("default_domain_resolver", "dns-remote")
                 .put("final", "proxy")
                 .put("rules", JSONArray()
                     .put(JSONObject()
