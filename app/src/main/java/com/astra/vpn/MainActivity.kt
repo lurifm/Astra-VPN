@@ -266,6 +266,7 @@ class MainActivity : Activity() {
     // can reuse the same Android VPN Network, so Network identity alone cannot reject stale results.
     private val tunnelHealthCheckGeneration = TunnelHealthCheckGeneration()
     @Volatile private var lastHealthCheckAt = 0L
+    @Volatile private var lastPhysicalNetworkChangeAt = 0L
     @Volatile private var tunnelInternetOk: Boolean? = null
     @Volatile private var waitingForUnderlyingNetwork = false
     @Volatile private var waitingForVpnRoute = false
@@ -349,6 +350,7 @@ class MainActivity : Activity() {
         // debounce. Otherwise a probe started on the old underlay could finish
         // during the 250 ms handover window and count as a server failure.
         tunnelHealthCheckGeneration.advance()
+        lastPhysicalNetworkChangeAt = android.os.SystemClock.elapsedRealtime()
         lastHealthCheckAt = 0L
         monitorHandler.removeCallbacks(physicalNetworkChangeDebounce)
         monitorHandler.postDelayed(
@@ -4765,6 +4767,19 @@ class MainActivity : Activity() {
             return
         }
         waitingForUnderlyingNetwork = false
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastPhysicalNetworkChangeAt > 0L &&
+            !NetworkRecoveryPolicy.hasHandoverSettled(lastPhysicalNetworkChangeAt, now)
+        ) {
+            // Physical Internet is back, but routing/DNS may still be converging.
+            // Keep the UI in recovery state and let the next monitor tick retry.
+            waitingForVpnRoute = true
+            lastHealthCheckAt = 0L
+            status.text = "Стабилизируем сетевое соединение…"
+            status.setTextColor(AMBER)
+            updateProtectionLabels()
+            return
+        }
         val vpnNetwork = connectivity.activeNetwork
         val vpnCapabilities = vpnNetwork?.let(connectivity::getNetworkCapabilities)
         if (vpnNetwork == null || vpnCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true) {
@@ -4781,7 +4796,6 @@ class MainActivity : Activity() {
         }
         waitingForVpnRoute = false
         // Use monotonic time so wall-clock changes cannot stall or spam health probes.
-        val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
         val probeGeneration = tunnelHealthCheckGeneration.current()
