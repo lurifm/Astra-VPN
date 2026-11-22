@@ -18,6 +18,24 @@ internal object NetworkRecoveryPolicy {
         hasValidatedPhysicalInternet
 
     /**
+     * A health result is meaningful only for the exact VPN and physical
+     * underlay on which its request began, while that underlay remains usable.
+     */
+    fun shouldAcceptHealthResult(
+        probedVpnNetwork: Any?,
+        currentVpnNetwork: Any?,
+        currentVpnRouteIsVpn: Boolean,
+        probedPhysicalUnderlay: Any?,
+        currentPhysicalUnderlay: Any?,
+        hasValidatedPhysicalInternet: Boolean
+    ): Boolean =
+        probedVpnNetwork != null &&
+            probedVpnNetwork == currentVpnNetwork &&
+            currentVpnRouteIsVpn &&
+            probedPhysicalUnderlay == currentPhysicalUnderlay &&
+            hasValidatedPhysicalInternet
+
+    /**
      * Keep retrying transient Android underlay/interface update failures long
      * enough to survive radio and Wi-Fi handovers, while bounding background work.
      * A fresh network callback or a successful update resets this sequence.
