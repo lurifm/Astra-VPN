@@ -2,8 +2,11 @@ package com.astra.vpn
 
 /** Prevents queued native URLTest work from starting after cancellation or completion. */
 internal object LatencyProbeDispatchPolicy {
-    fun shouldDispatch(stopped: Boolean, alreadyCompleted: Boolean): Boolean =
-        !stopped && !alreadyCompleted
+    fun shouldDispatch(
+        stopped: Boolean,
+        alreadyCompleted: Boolean,
+        handoverPending: Boolean = false
+    ): Boolean = !stopped && !alreadyCompleted && !handoverPending
 
     /**
      * Outbounds subscription events are complete snapshots. Accept a value only
@@ -14,8 +17,9 @@ internal object LatencyProbeDispatchPolicy {
         isInFlight: Boolean,
         alreadyCompleted: Boolean,
         previouslyTimedOut: Boolean,
-        discardedByNetworkChange: Boolean = false
-    ): Boolean = !discardedByNetworkChange &&
+        discardedByNetworkChange: Boolean = false,
+        handoverPending: Boolean = false
+    ): Boolean = !handoverPending && !discardedByNetworkChange &&
         isInFlight && (!alreadyCompleted || previouslyTimedOut)
 
     /** Do not tear down libbox while timed-out native probes may still publish results. */

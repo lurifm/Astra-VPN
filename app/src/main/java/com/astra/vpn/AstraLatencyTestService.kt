@@ -270,10 +270,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
                             // Once a handover starts, in-flight probes belong
                             // to the previous route even during the debounce window.
-                            isInFlight = tag in inFlightTags && !handoverInvalidationPending,
+                            isInFlight = tag in inFlightTags,
                             alreadyCompleted = tag in completedTags,
                             previouslyTimedOut = tag in timedOutTags,
-                            discardedByNetworkChange = tag in discardedByNetworkChangeTags
+                            discardedByNetworkChange = tag in discardedByNetworkChangeTags,
+                            handoverPending = handoverInvalidationPending
                         )
                     }.filterKeys(::completeMeasuredTag)
                     if (accepted.isEmpty()) return@post
@@ -298,7 +299,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             val tag = pendingTags.removeFirst()
             if (!LatencyProbeDispatchPolicy.shouldDispatch(
                     stopped = stopped.get(),
-                    alreadyCompleted = tag in completedTags
+                    alreadyCompleted = tag in completedTags,
+                    handoverPending = handoverInvalidationPending
                 ) || !inFlightTags.add(tag)
             ) continue
 

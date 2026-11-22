@@ -19,6 +19,16 @@ class LatencyProbeDispatchPolicyTest {
         assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true))
     }
 
+    @Test fun doesNotDispatchNewProbesDuringNetworkHandover() {
+        assertFalse(
+            LatencyProbeDispatchPolicy.shouldDispatch(
+                stopped = false,
+                alreadyCompleted = false,
+                handoverPending = true
+            )
+        )
+    }
+
     @Test fun acceptsUpdatesOnlyForCurrentlyDispatchedProbes() {
         assertTrue(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
             isInFlight = true, alreadyCompleted = false, previouslyTimedOut = false
@@ -40,6 +50,12 @@ class LatencyProbeDispatchPolicyTest {
             alreadyCompleted = true,
             previouslyTimedOut = true,
             discardedByNetworkChange = true
+        ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true,
+            alreadyCompleted = false,
+            previouslyTimedOut = false,
+            handoverPending = true
         ))
     }
 
