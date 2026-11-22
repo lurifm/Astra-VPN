@@ -5598,6 +5598,15 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
             params.bottomMargin = dp(6)
+            // A settings row navigates to another screen/dialog. Dismiss this
+            // sheet before its click callback runs so repeated taps cannot
+            // stack identical windows on top of one another.
+            row.setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_UP && sheet.isShowing) {
+                    sheet.dismiss()
+                }
+                false
+            }
             panel.addView(row, params)
         }
         fun addToggleRow(toggle: android.widget.CompoundButton) {
