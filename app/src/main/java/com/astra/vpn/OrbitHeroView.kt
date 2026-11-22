@@ -38,10 +38,10 @@ internal class OrbitHeroView(context: Context) : View(context) {
     private var nightRevealStartedAt = 0L
     private val orbitDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD477.toInt() }
+    // Keep the hero sky deliberately sparse, matching the supplied Astra mockup.
     private val points = listOf(
-        .12f to .24f, .82f to .19f, .17f to .72f, .88f to .76f,
-        .30f to .12f, .69f to .88f, .06f to .52f, .94f to .45f,
-        .42f to .06f, .58f to .94f, .25f to .88f, .77f to .10f
+        .12f to .24f, .84f to .20f, .16f to .76f,
+        .88f to .73f, .31f to .11f, .70f to .89f
     )
 
     override fun onDraw(canvas: Canvas) {
@@ -98,7 +98,7 @@ internal class OrbitHeroView(context: Context) : View(context) {
             canvas.drawCircle(cx, cy, radius * 1.42f, glowPaint)
             glowPaint.shader = null
 
-            for (index in 0 until 38) {
+            for (index in 0 until 6) {
                 val x = ((index * 37 + 11) % 97) / 100f
                 val y = ((index * 61 + 23) % 97) / 100f
                 // Keep the brightest extra stars outside the central connect-button area.
