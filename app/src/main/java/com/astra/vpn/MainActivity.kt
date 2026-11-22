@@ -4383,8 +4383,14 @@ class MainActivity : Activity() {
     private fun maybeAutoSpeedFailover() {
         // Speed-based switching shares the same global retry budget as tunnel-health
         // failover. This prevents two independent detectors from creating a switch loop.
-        if (!connected || connecting || selectingFastest || pendingFailoverSelection != null ||
-            !settingsPrefs.getBoolean("auto_speed_failover", false)
+        if (!AutoSpeedFailoverEligibilityPolicy.shouldEvaluate(
+                connected = connected,
+                connecting = connecting,
+                tunnelInternetOk = tunnelInternetOk,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                enabled = settingsPrefs.getBoolean("auto_speed_failover", false)
+            )
         ) return
 
         val now = android.os.SystemClock.elapsedRealtime()
