@@ -1565,17 +1565,19 @@ class MainActivity : Activity() {
      * Refresh each previously imported HTTPS subscription independently.
      * The previous server set is kept whenever download, parsing or storage fails.
      */
-    private fun refreshSubscriptions(showResult: Boolean = true) {
+    private fun refreshSubscriptions(showResult: Boolean = true, onlyDue: Boolean = false) {
         // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
-        val sources = safeSubscriptionSources() ?: return
-        if (sources.isEmpty()) {
+        val allSources = safeSubscriptionSources() ?: return
+        if (allSources.isEmpty()) {
             Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
             return
         }
+        val sources = if (onlyDue) dueSubscriptionSources(allSources) else allSources
+        if (sources.isEmpty()) return
         val selectionSnapshot = selectedProfile
         refreshingSubscriptions = true
         // Track attempts separately from successful updates so a broken provider
@@ -1611,7 +1613,7 @@ class MainActivity : Activity() {
             // Keep manual/foreground refresh failures in the same fingerprint-only
             // retry queue used by WorkManager, so a later background run retries
             // only failed providers rather than downloading every successful one.
-            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
+            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, allSources)
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
@@ -6694,6 +6696,35 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Resolve due subscriptions for foreground auto-refresh using the same policy as WorkManager. */
+    private fun dueSubscriptionSources(allSources: List<String>): List<String> {
+        val pending = settingsPrefs.getStringSet("subscription_retry_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val known = settingsPrefs.getStringSet("subscription_known_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val summaries = profileStore.subscriptionSummaries().associateBy { it.sourceUrl }
+        val defaultIntervalHours = SubscriptionRefreshInterval.normalize(
+            settingsPrefs.getInt("update_interval_hours", 2)
+        )
+        val now = System.currentTimeMillis()
+        val candidates = allSources.map { source ->
+            val history = SubscriptionRefreshHistory.get(settingsPrefs, source, now)
+            SubscriptionRefreshCandidate(
+                fingerprint = SubscriptionSourceFingerprint.of(source),
+                intervalHours = summaries[source]?.updateIntervalHours ?: defaultIntervalHours,
+                lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
+            )
+        }
+        val sourceByFingerprint = allSources.associateBy(SubscriptionSourceFingerprint::of)
+        return SubscriptionRefreshDuePolicy.select(
+            candidates,
+            pending,
+            known,
+            defaultIntervalHours,
+            now
+        ).mapNotNull(sourceByFingerprint::get)
+    }
+
     private fun maybeAutoUpdateSubscriptions(onOpen: Boolean) {
         if (refreshingSubscriptions) return
         val enabled = settingsPrefs.getBoolean("auto_update", false)
@@ -6707,7 +6738,7 @@ class MainActivity : Activity() {
         if (!shouldUpdate) return
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
-        refreshSubscriptions(showResult = false)
+        refreshSubscriptions(showResult = false, onlyDue = true)
     }
 
     private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
