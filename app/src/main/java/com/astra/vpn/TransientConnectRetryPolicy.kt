@@ -19,6 +19,14 @@ internal object TransientConnectRetryPolicy {
         hasSelectedProfile &&
         delayForAttempt(attempt) != null
 
+    fun shouldDeferUntilConditions(
+        activityStarted: Boolean,
+        activityFinishing: Boolean,
+        activityDestroyed: Boolean,
+        hasValidatedPhysicalInternet: Boolean
+    ): Boolean = !activityFinishing && !activityDestroyed &&
+        (!activityStarted || !hasValidatedPhysicalInternet)
+
     fun shouldDeferUntilActivityStarted(
         activityStarted: Boolean,
         activityFinishing: Boolean,
