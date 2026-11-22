@@ -3255,6 +3255,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(candidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
             throughputSamples = throughputHistory.getFresh(candidates)
+            lastKnownGoodProfile = activeProfile
         )
         if (fastest != null) {
             selectedProfile = fastest
@@ -4536,6 +4537,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(measuredCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates),
             throughputSamples = throughputHistory.getFresh(measuredCandidates)
+            lastKnownGoodProfile = activeProfile
         )
         if (alternate == null) {
             Toast.makeText(
@@ -4913,6 +4915,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(failoverCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
             throughputSamples = throughputHistory.getFresh(failoverCandidates)
+            lastKnownGoodProfile = activeProfile
         ) ?: run {
             renderProfiles()
             return
