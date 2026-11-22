@@ -23,16 +23,19 @@ internal object AutoFailoverPolicy {
     fun nextFailureCount(current: Int): Int =
         if (current < 0) 1 else if (current == Int.MAX_VALUE) Int.MAX_VALUE else current + 1
 
-    fun shouldSwitch(
-        consecutiveFailures: Int,
-        lastSwitchAt: Long,
-        now: Long,
-        cooldownMs: Long = COOLDOWN_MS
-    ): Boolean {
-        if (consecutiveFailures < REQUIRED_FAILURES) return false
+    /** Shared cooldown gate for every automatic switch trigger. */
+    fun cooldownElapsed(lastSwitchAt: Long, now: Long, cooldownMs: Long): Boolean {
         // Timestamps come from elapsedRealtime; invalid values fail closed.
         if (lastSwitchAt < 0L || now < 0L || cooldownMs <= 0L) return false
         if (lastSwitchAt > Long.MAX_VALUE - cooldownMs) return false
         return now >= lastSwitchAt + cooldownMs
     }
+
+    fun shouldSwitch(
+        consecutiveFailures: Int,
+        lastSwitchAt: Long,
+        now: Long,
+        cooldownMs: Long = COOLDOWN_MS
+    ): Boolean = consecutiveFailures >= REQUIRED_FAILURES &&
+        cooldownElapsed(lastSwitchAt, now, cooldownMs)
 }
