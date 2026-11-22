@@ -83,6 +83,7 @@ class MainActivity : Activity() {
     private lateinit var profileScroll: ScrollView
     private lateinit var serverFilterRow: LinearLayout
     private var serverBrowserDialog: android.app.Dialog? = null
+    private var serverBrowserPingAction: TextView? = null
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
     private lateinit var serverCountLabel: TextView
@@ -2096,6 +2097,7 @@ class MainActivity : Activity() {
                 text = if (latencyTestInFlight) "×  Остановить проверку Ping" else "◷  Проверить Ping всех серверов"
             }
         }
+        serverBrowserPingAction = pingAction
         content.addView(pingAction, LinearLayout.LayoutParams(matchWidth().width, dp(46)).apply {
             bottomMargin = dp(10)
         })
@@ -2116,6 +2118,7 @@ class MainActivity : Activity() {
         close.setOnClickListener { dialog.dismiss() }
         dialog.setOnDismissListener {
             serverBrowserDialog = null
+            serverBrowserPingAction = null
             // Restore in ascending order to retain the original Home screen layout.
             placements.sortedBy { it.second }.forEach { (view, index, params) ->
                 (view.parent as? ViewGroup)?.removeView(view)
@@ -2145,6 +2148,10 @@ class MainActivity : Activity() {
         if (::pingCheckButton.isInitialized) {
             pingCheckButton.text = if (latencyTestInFlight) "× Отмена" else "◷ Пинг"
             pingCheckButton.contentDescription = if (latencyTestInFlight) "Отменить проверку задержки серверов" else "Вручную проверить задержку всех серверов"
+        }
+        serverBrowserPingAction?.apply {
+            text = if (latencyTestInFlight) "×  Остановить проверку Ping" else "◷  Проверить Ping всех серверов"
+            contentDescription = if (latencyTestInFlight) "Остановить проверку задержки всех серверов" else "Запустить проверку задержки всех серверов"
         }
         val profiles = safeProfiles() ?: return
         val summaries = safeSubscriptionSummaries() ?: return
