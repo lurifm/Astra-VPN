@@ -398,7 +398,7 @@ class MainActivity : Activity() {
                     urlTestProfileMap.values.forEach { profile ->
                         // A broken test engine/channel is not evidence that the proxy is offline.
                         // Keep unknown results neutral; the toast below explains the test failure.
-                        if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+                        if (freshLatencyMs(profile) == null) pingInfo[profile] = "н/д"
                     }
                     val message = intent.getStringExtra(AstraLatencyTestService.EXTRA_ERROR)
                         ?: "Проверка прервана. Сохранены уже полученные результаты."
@@ -2736,7 +2736,9 @@ class MainActivity : Activity() {
         val measured = latencyMs[profile] ?: return null
         val measuredAt = latencyMeasuredAt[profile] ?: return null
         val age = android.os.SystemClock.elapsedRealtime() - measuredAt
-        return measured.takeIf { it > 0L && age in 0L..300_000L }
+        return measured.takeIf {
+            it > 0L && age in 0L..LatencyFreshnessPolicy.DEFAULT_MAX_AGE_MS
+        }
     }
 
     private fun updateOrbitIdentity() {
@@ -3142,7 +3144,7 @@ class MainActivity : Activity() {
                 .setAction(AstraLatencyTestService.ACTION_STOP))
         }
         safeProfiles().orEmpty().forEach { profile ->
-            if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+            if (freshLatencyMs(profile) == null) pingInfo[profile] = "н/д"
         }
         renderProfiles()
         Toast.makeText(this, "Проверка серверов отменена", Toast.LENGTH_SHORT).show()
@@ -3747,7 +3749,7 @@ class MainActivity : Activity() {
                 selectingFastest = false
                 tilePendingStart = false
                 urlTestProfileMap.values.forEach { profile ->
-                    if (!latencyMs.containsKey(profile)) pingInfo[profile] = "н/д"
+                    if (freshLatencyMs(profile) == null) pingInfo[profile] = "н/д"
                 }
                 Toast.makeText(this, "Получен некорректный результат проверки. Повтори Ping.", Toast.LENGTH_LONG).show()
                 if (!isFinishing && !isDestroyed) renderProfiles()
