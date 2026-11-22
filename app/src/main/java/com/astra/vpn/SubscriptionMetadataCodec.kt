@@ -5,7 +5,8 @@ data class StoredSubscriptionUsage(
     val uploadBytes: Long? = null,
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
-    val expiresAtEpochSeconds: Long? = null
+    val expiresAtEpochSeconds: Long? = null,
+    val updateIntervalHours: Int? = null
 )
 
 /**
@@ -19,7 +20,8 @@ object SubscriptionMetadataCodec {
         metadata.uploadBytes?.takeIf { it >= 0L },
         metadata.downloadBytes?.takeIf { it >= 0L },
         metadata.totalBytes?.takeIf { it >= 0L },
-        metadata.expiresAtEpochSeconds?.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS }
+        metadata.expiresAtEpochSeconds?.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS },
+        metadata.updateIntervalHours?.takeIf { it in 1..720 }?.toLong()
     ).joinToString(",") { it?.toString().orEmpty() }
 
     fun decode(value: String?): StoredSubscriptionUsage {
@@ -33,7 +35,8 @@ object SubscriptionMetadataCodec {
             uploadBytes = counter(0),
             downloadBytes = counter(1),
             totalBytes = counter(2),
-            expiresAtEpochSeconds = expiry
+            expiresAtEpochSeconds = expiry,
+            updateIntervalHours = parts.getOrNull(4)?.toIntOrNull()?.takeIf { it in 1..720 }
         )
     }
 }
