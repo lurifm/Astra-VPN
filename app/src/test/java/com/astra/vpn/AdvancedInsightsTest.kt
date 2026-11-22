@@ -115,4 +115,39 @@ class AdvancedInsightsTest {
         assertEquals(2, score.failures)
     }
 
+    @Test
+    fun reliabilityPenaltiesAreAggregatedByNormalizedServerIdentity() {
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(5L, "error", " Edge ", "hy2"),
+            ConnectionHistoryStore.Entry(4L, "connected", "edge", "Hysteria2"),
+            ConnectionHistoryStore.Entry(3L, "error", "Other", "VLESS"),
+            ConnectionHistoryStore.Entry(2L, "error", "edge", "hysteria2"),
+            ConnectionHistoryStore.Entry(1L, "connected", "edge", "hy2")
+        )
+
+        val penalties = ReliabilityScore.selectionPenaltiesByIdentity(entries)
+
+        // The latest success resets older failures; only the newer failure remains.
+        assertEquals(0L, penalties["edge|hysteria2"] ?: 0L)
+        assertTrue(penalties.isEmpty())
+    }
+
+    @Test
+    fun reliabilityAggregationKeepsProfilesIndependent() {
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(6L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(5L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(4L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(3L, "connected", "B", "TUIC"),
+            ConnectionHistoryStore.Entry(2L, "connected", "B", "TUIC"),
+            ConnectionHistoryStore.Entry(1L, "connected", "B", "TUIC")
+        )
+
+        val penalties = ReliabilityScore.selectionPenaltiesByIdentity(entries)
+
+        assertTrue((penalties["a|vless"] ?: 0L) > 0L)
+        assertEquals(0L, penalties["b|tuic"] ?: 0L)
+        assertEquals("edge|hysteria2", ReliabilityScore.identity(" Edge ", "Hy2"))
+    }
+
 }
