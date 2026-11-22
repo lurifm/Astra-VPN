@@ -29,10 +29,9 @@ internal object SingBoxUrlTestConfig {
 
         val outbounds = JSONArray()
         val profileMap = linkedMapOf<String, String>()
-        // URLTest history is stored by outbound tag inside libbox. A stable
-        // profile-only tag lets a new measurement session inherit an old delay
-        // in the initial SubscribeOutbounds snapshot. Scope tags to this engine
-        // instance so only measurements produced in this session can be observed.
+        // URLTest history is stored by outbound tag inside libbox. Include a
+        // per-engine nonce so a new session cannot inherit a previous session's
+        // cached delay in its initial SubscribeOutbounds snapshot.
         val sessionNonce = UUID.randomUUID().toString()
 
         profiles.forEach { link ->
@@ -89,7 +88,7 @@ internal object SingBoxUrlTestConfig {
         return Result(config, profileMap)
     }
 
-    private fun outboundTag(link: String, sessionNonce: String): String {
+    internal fun outboundTag(link: String, sessionNonce: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest("$sessionNonce\u0000$link".toByteArray(Charsets.UTF_8))
         val suffix = digest.take(8).joinToString("") { "%02x".format(it) }
