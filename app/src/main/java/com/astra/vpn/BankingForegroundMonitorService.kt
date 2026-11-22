@@ -65,8 +65,15 @@ internal class BankingForegroundMonitorService : Service() {
                         runCatching { executeBankingTransition(stablePackage, observedAt) }
                             .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
                     }
+                    // Match the app's existing battery-aware monitor cadence:
+                    // keep one-second banking detection normally, but reduce repeated
+                    // UsageEvents queries to every four seconds in either saver mode.
+                    val interval = NetworkRecoveryPolicy.monitorIntervalMs(
+                        appBatterySaverEnabled = settings.getBoolean("battery_saver_mode", false),
+                        systemBatterySaverEnabled = getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+                    )
                     handler.post {
-                        if (running) handler.postDelayed(poll, POLL_INTERVAL_MS)
+                        if (running) handler.postDelayed(poll, interval)
                     }
                 }
             } catch (_: RejectedExecutionException) {
@@ -431,7 +438,6 @@ internal class BankingForegroundMonitorService : Service() {
         private const val TAG = "AstraBankMonitor"
         private const val CHANNEL_ID = "astra_banking_monitor"
         private const val NOTIFICATION_ID = 43
-        private const val POLL_INTERVAL_MS = 1_000L
         private const val INITIAL_LOOKBACK_MS = 24L * 60L * 60L * 1_000L
         private const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
 
