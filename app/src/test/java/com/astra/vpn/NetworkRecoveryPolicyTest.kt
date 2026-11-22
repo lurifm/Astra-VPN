@@ -29,6 +29,17 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun tunnelHealthProbeWaitsForPhysicalHandoverToSettle() {
+        val changedAt = 10_000L
+        assertFalse(NetworkRecoveryPolicy.hasHandoverSettled(changedAt, changedAt))
+        assertFalse(NetworkRecoveryPolicy.hasHandoverSettled(changedAt, changedAt + 1_999L))
+        assertTrue(NetworkRecoveryPolicy.hasHandoverSettled(changedAt, changedAt + 2_000L))
+        assertFalse(NetworkRecoveryPolicy.hasHandoverSettled(changedAt, changedAt - 1L))
+        assertFalse(NetworkRecoveryPolicy.hasHandoverSettled(-1L, changedAt))
+        assertFalse(NetworkRecoveryPolicy.hasHandoverSettled(changedAt, -1L))
+    }
+
+    @Test
     fun validatedPhysicalInternetAllowsTunnelHealthProbes() {
         assertTrue(NetworkRecoveryPolicy.shouldProbeTunnel(true))
     }
