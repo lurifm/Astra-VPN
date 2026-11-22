@@ -18,3 +18,20 @@ class LatencyProbeDispatchPolicyTest {
         assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true))
     }
 }
+
+class NativeUrlTestTimingPolicyTest {
+    @Test fun retainsNativeSlotAfterUiTimeoutUntilNativeDeadline() {
+        assertTrue(NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() > 0L)
+        assertTrue(
+            NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS +
+                NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() >=
+                NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS
+        )
+    }
+
+    @Test fun nativeCooldownMatchesPinnedSingBoxTimeoutBudget() {
+        assertTrue(NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS == 10_000L)
+        assertTrue(NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS == 31_000L)
+        assertTrue(NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() == 21_000L)
+    }
+}
