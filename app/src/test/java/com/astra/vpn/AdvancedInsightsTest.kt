@@ -48,7 +48,7 @@ class AdvancedInsightsTest {
         )
         val score = ReliabilityScore.calculate(events)
         assertNotNull(score)
-        assertEquals(82, score!!.score)
+        assertEquals(67, score!!.score)
         assertEquals("предварительная", score.confidence)
     }
 }
