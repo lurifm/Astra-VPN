@@ -268,7 +268,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     // that have not actually been dispatched in this batch.
                     val accepted = snapshot.filterKeys { tag ->
                         LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
-                            isInFlight = tag in inFlightTags,
+                            // Once a handover starts, in-flight probes belong
+                            // to the previous route even during the debounce window.
+                            isInFlight = tag in inFlightTags && !handoverInvalidationPending,
                             alreadyCompleted = tag in completedTags,
                             previouslyTimedOut = tag in timedOutTags,
                             discardedByNetworkChange = tag in discardedByNetworkChangeTags
