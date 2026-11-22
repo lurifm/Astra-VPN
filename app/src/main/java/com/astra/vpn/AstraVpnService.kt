@@ -294,9 +294,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // Enforce consent at the service boundary as well as in the Activity.
         // Tiles/widgets or stale internal intents must never reach TUN creation
         // after Android has revoked the user's VPN authorization.
-        if (intent?.action == ACTION_START &&
-            runCatching { VpnService.prepare(this) != null }.getOrDefault(true)
-        ) {
+        val explicitStartAuthorization = if (intent?.action == ACTION_START) {
+            VpnStartAuthorizationPolicy.decide(
+                vpnConsentGranted = runCatching { VpnService.prepare(this) == null }
+                    .getOrDefault(false)
+            )
+        } else {
+            VpnStartAuthorization.ALLOWED
+        }
+        if (explicitStartAuthorization == VpnStartAuthorization.REQUIRE_USER_CONSENT) {
             failStartRequest(
                 requestToken,
                 "Для подключения нужно подтвердить системное разрешение VPN. Нажми «Подключить» и подтверди запрос Android."
