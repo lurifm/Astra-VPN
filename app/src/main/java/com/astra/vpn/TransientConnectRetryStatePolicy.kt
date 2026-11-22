@@ -23,7 +23,7 @@ internal object TransientConnectRetryStatePolicy {
         if (profile.isNullOrBlank()) return null
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(profile.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { byte -> "%02x".format(byte) }
+        return digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
     fun isValid(
