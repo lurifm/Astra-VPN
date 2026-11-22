@@ -776,6 +776,29 @@ class MainActivity : Activity() {
             setPadding(dp(8), dp(5), dp(2), dp(5)); isClickable = true; isFocusable = true
             // Handler is attached after listHeader is created.
         })
+        // Keep the interactive constellation map discoverable from the home screen.
+        // The map only previews a candidate: the user must confirm before selection changes.
+        quickSwitchHeader.addView(TextView(this).apply {
+            text = "Карта ✦"
+            contentDescription = "Открыть интерактивную карту серверов"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFFFD98A.toInt())
+            gravity = Gravity.CENTER
+            setPadding(dp(9), dp(6), dp(9), dp(6))
+            background = rounded(0xFF20243A.toInt(), 12).apply {
+                setStroke(dp(1), 0xFF51452F.toInt())
+            }
+            isClickable = true
+            isFocusable = true
+            foreground = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x44FFD98A), null, null
+            )
+            setOnClickListener {
+                performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                showOrbitMapDialog()
+            }
+        })
         quickSwitchContainer.addView(quickSwitchHeader, matchWidth())
         connectCard.addView(quickSwitchContainer, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
 
