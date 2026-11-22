@@ -53,15 +53,14 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                     lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
                 )
             }
+            val sourceByFingerprint = sources.associateBy(SubscriptionSourceFingerprint::of)
             val targets = SubscriptionRefreshDuePolicy.select(
                 candidates = candidates,
                 pendingFingerprints = pending,
                 knownFingerprints = known,
                 defaultIntervalHours = defaultIntervalHours,
                 now = now
-            ).mapNotNull { fingerprint ->
-                sources.firstOrNull { SubscriptionSourceFingerprint.of(it) == fingerprint }
-            }
+            ).mapNotNull(sourceByFingerprint::get)
             if (targets.isEmpty()) {
                 // Persist the normalized fingerprint set even when every source
                 // is still inside its own refresh window.
@@ -278,7 +277,6 @@ object SubscriptionRefreshScheduler {
             manager.cancelUniqueWork(UNIQUE_WORK)
             return
         }
-        val hours = SubscriptionRefreshInterval.normalize(settings.getInt("update_interval_hours", 2))
         // Run a lightweight due-check hourly. Each subscription is downloaded
         // only when its effective interval (user setting + provider advice) elapses.
         val request = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(1, TimeUnit.HOURS)
