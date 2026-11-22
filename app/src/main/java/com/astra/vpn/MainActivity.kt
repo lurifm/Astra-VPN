@@ -6060,7 +6060,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(8))
             fun refreshLabel() {
                 val hours = settingsPrefs.getInt("update_interval_hours", 2)
-                text = "Интервал обновления: $hours ч · Изменить"
+                text = "Минимальный интервал: $hours ч · Изменить"
             }
             refreshLabel()
             setOnClickListener {
@@ -6068,7 +6068,7 @@ class MainActivity : Activity() {
                 val hours = intArrayOf(1, 2, 6, 12, 24)
                 val selected = hours.indexOf(settingsPrefs.getInt("update_interval_hours", 2)).coerceAtLeast(0)
                 MaterialAlertDialogBuilder(this@MainActivity)
-                    .setTitle("Интервал автообновления")
+                    .setTitle("Минимальный интервал автообновления")
                     .setSingleChoiceItems(values, selected) { dialog, which ->
                         settingsPrefs.edit().putInt("update_interval_hours", hours[which]).apply()
                         SubscriptionRefreshScheduler.sync(this@MainActivity)
