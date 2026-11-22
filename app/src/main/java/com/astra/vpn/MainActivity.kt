@@ -1402,7 +1402,15 @@ class MainActivity : Activity() {
             input.setText(sharedText)
             input.setSelection(input.text.length)
         }
-        panel.addView(input, matchWidth().apply { bottomMargin = dp(10) })
+        panel.addView(input, matchWidth().apply { bottomMargin = dp(6) })
+        val importError = TextView(this).apply {
+            textSize = 12f
+            setTextColor(RED)
+            visibility = View.GONE
+            setPadding(dp(3), 0, dp(3), dp(10))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        panel.addView(importError, matchWidth())
 
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
@@ -1520,8 +1528,12 @@ class MainActivity : Activity() {
             val value = input.text.toString().trim()
             if (value.isEmpty()) {
                 input.error = "Вставь ссылку"
+                importError.text = "Добавь ссылку на сервер или HTTPS-подписку."
+                importError.visibility = View.VISIBLE
                 return@setOnClickListener
             }
+            importError.visibility = View.GONE
+            input.error = null
             importButton.isEnabled = false
             cancelButton.isEnabled = false
             input.isEnabled = false
@@ -1541,8 +1553,10 @@ class MainActivity : Activity() {
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    dialog.dismiss()
                     result.onSuccess { parsed ->
+                        dialog.dismiss()
+                        status.text = "Серверы импортированы"
+                        status.setTextColor(GREEN)
                         renderProfiles()
                         checkAllLatencies()
                         showSubscriptionImportSummary(parsed)
@@ -1554,10 +1568,15 @@ class MainActivity : Activity() {
                         } else {
                             "Не удалось прочитать ссылку или получить серверы. Проверь адрес и подключение к интернету."
                         }
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle("Не удалось импортировать")
-                            .setMessage(message)
-                            .setPositiveButton("ОК", null).show()
+                        // Keep the sheet and entered URL available so the user can
+                        // correct the address or retry without starting over.
+                        importError.text = message
+                        importError.visibility = View.VISIBLE
+                        importButton.isEnabled = true
+                        cancelButton.isEnabled = true
+                        input.isEnabled = true
+                        pasteButton.isEnabled = true
+                        importButton.text = "Повторить импорт"
                     }
                 }
             }
