@@ -1173,19 +1173,19 @@ class MainActivity : Activity() {
         val title = parsed.metadata.title?.takeIf { it.isNotBlank() } ?: "Импорт завершён"
         val message = buildString {
             append("Серверов добавлено: ${parsed.links.size}")
-            append("\\nСтран обнаружено: ${countries.size}")
+            append("\nСтран обнаружено: ${countries.size}")
             if (countries.isNotEmpty()) {
-                append("\\n\\n")
+                append("\n\n")
                 append(countries.take(12).joinToString(" · "))
                 if (countries.size > 12) append(" и ещё ${countries.size - 12}")
             }
             parsed.metadata.expiresAtEpochSeconds?.let { expiry ->
                 val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM)
                     .format(java.util.Date(expiry * 1000L))
-                append("\\n\\nДействует до: $date")
+                append("\n\nДействует до: $date")
             }
             parsed.metadata.totalBytes?.let { total ->
-                append("\\nЛимит трафика: ${formatTrafficBytes(total)}")
+                append("\nЛимит трафика: ${formatTrafficBytes(total)}")
             }
         }
         MaterialAlertDialogBuilder(this)
