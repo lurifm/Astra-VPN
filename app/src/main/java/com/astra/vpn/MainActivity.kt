@@ -169,6 +169,8 @@ class MainActivity : Activity() {
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
     private val latencyCompletedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val latencyTimeoutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val latencyErrorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var latencyTestInFlight = false
     // Reject late broadcasts from a cancelled or superseded latency-test session.
     private var activeLatencySessionId: String? = null
@@ -383,17 +385,19 @@ class MainActivity : Activity() {
                     if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
-                    val completedJson = intent.getStringExtra(AstraLatencyTestService.EXTRA_COMPLETED_TAGS)
-                    if (completedJson != null) {
-                        runCatching {
-                            val completedArray = org.json.JSONArray(completedJson)
-                            for (index in 0 until completedArray.length()) {
-                                latencyCompletedTags.add(completedArray.getString(index))
+                    fun mergeTagSet(extra: String, target: MutableSet<String>) {
+                        intent.getStringExtra(extra)?.let { encoded ->
+                            runCatching {
+                                val array = org.json.JSONArray(encoded)
+                                for (index in 0 until array.length()) target.add(array.getString(index))
+                            }.onFailure {
+                                android.util.Log.w("AstraVPN", "Не удалось разобрать статус проверки Ping", it)
                             }
-                        }.onFailure {
-                            android.util.Log.w("AstraVPN", "Не удалось разобрать прогресс проверки Ping", it)
                         }
                     }
+                    mergeTagSet(AstraLatencyTestService.EXTRA_COMPLETED_TAGS, latencyCompletedTags)
+                    mergeTagSet(AstraLatencyTestService.EXTRA_TIMEOUT_TAGS, latencyTimeoutTags)
+                    mergeTagSet(AstraLatencyTestService.EXTRA_ERROR_TAGS, latencyErrorTags)
                     applyLatencyResults(payload, finished)
                     if (finished) {
                         activeLatencySessionId = null
@@ -2759,6 +2763,8 @@ class MainActivity : Activity() {
                 text = when {
                     measuredLatency != null && isFastestProfile -> "МИНИМАЛЬНЫЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "ПИНГ  ·  ${measuredLatency} мс"
+                    latency == "Тайм-аут" -> "ПИНГ  ·  тайм-аут"
+                    latency == "Ошибка проверки" -> "ПИНГ  ·  ошибка проверки"
                     latency == "н/д" -> "ПИНГ  ·  нет данных"
                     latency == "Проверяем…" -> "ПИНГ  ·  проверяем…"
                     else -> "ПИНГ  ·  не проверен"
@@ -2778,6 +2784,8 @@ class MainActivity : Activity() {
                 contentDescription = when {
                     measuredLatency != null && isFastestProfile -> "Самый быстрый измеренный сервер: $measuredLatency миллисекунд"
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
+                    latency == "Тайм-аут" -> "Сервер не ответил в течение 10 секунд"
+                    latency == "Ошибка проверки" -> "Во время проверки сервера произошла ошибка"
                     latency == "н/д" -> "Нет достоверных данных о задержке сервера; это не означает, что сервер недоступен"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
                     else -> "Пинг ещё не проверялся"
@@ -3290,6 +3298,8 @@ class MainActivity : Activity() {
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
         latencyCompletedTags.clear()
+        latencyTimeoutTags.clear()
+        latencyErrorTags.clear()
         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_LATENCY_SESSION_ID).apply()
         latencyTestInFlight = false
@@ -3337,6 +3347,8 @@ class MainActivity : Activity() {
         }
 
         latencyCompletedTags.clear()
+        latencyTimeoutTags.clear()
+        latencyErrorTags.clear()
         profiles.forEach { profile ->
             latencyMs.remove(profile)
             pingInfo[profile] = "Проверяем…"
@@ -3950,7 +3962,11 @@ class MainActivity : Activity() {
                 ) latencyPresentationChanged = true
                 latencyMs.remove(profile)
                 latencyMeasuredAt.remove(profile)
-                pingInfo[profile] = "н/д"
+                pingInfo[profile] = when (tag) {
+                    in latencyTimeoutTags -> "Тайм-аут"
+                    in latencyErrorTags -> "Ошибка проверки"
+                    else -> "н/д"
+                }
             }
         }
         // URL-test broadcasts partial snapshots as individual nodes finish.
