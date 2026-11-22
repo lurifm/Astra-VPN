@@ -4420,6 +4420,8 @@ class MainActivity : Activity() {
             // not evidence that the selected VPN server is broken.
             waitingForUnderlyingNetwork = true
             tunnelInternetOk = null
+            status.text = "Ожидаем восстановления интернета…"
+            status.setTextColor(AMBER)
             updateProtectionLabels()
             return
         }
@@ -4433,6 +4435,8 @@ class MainActivity : Activity() {
             waitingForVpnRoute = true
             tunnelInternetOk = null
             lastHealthCheckAt = 0L
+            status.text = "Восстанавливаем VPN-маршрут…"
+            status.setTextColor(AMBER)
             updateProtectionLabels()
             return
         }
@@ -4476,12 +4480,16 @@ class MainActivity : Activity() {
                             waitingForUnderlyingNetwork = true
                             tunnelInternetOk = null
                             lastHealthCheckAt = 0L
+                            status.text = "Ожидаем восстановления интернета…"
+                            status.setTextColor(AMBER)
                             updateProtectionLabels()
                             return@runOnUiThread
                         }
                         waitingForUnderlyingNetwork = false
                         tunnelInternetOk = ok
                         if (ok) {
+                            status.text = "Подключено"
+                            status.setTextColor(GREEN)
                             // A replacement is not committed merely because Android
                             // created its TUN. Keep the previous known-good profile until
                             // end-to-end traffic through this exact profile is verified.
@@ -4493,6 +4501,8 @@ class MainActivity : Activity() {
                             }
                             consecutiveHealthFailures = 0
                         } else {
+                            status.text = "VPN без интернета"
+                            status.setTextColor(RED)
                             consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
                             maybeAutoFailover()
                         }
