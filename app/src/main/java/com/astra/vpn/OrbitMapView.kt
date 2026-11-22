@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.cos
@@ -26,7 +25,7 @@ internal class OrbitMapView(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val positions = mutableListOf<Pair<Float, Float>>()
-    private var selectedIndex = nodes.indexOfFirst { it.selected }.coerceAtLeast(0)
+    private var selectedIndex = OrbitSelectionPolicy.initialIndex(nodes.map { it.selected })
     private val density = resources.displayMetrics.density
     private fun dp(value: Float) = value * density
 
@@ -49,7 +48,7 @@ internal class OrbitMapView(
 
     private fun moveSelection(delta: Int): Boolean {
         if (nodes.isEmpty()) return false
-        selectedIndex = (selectedIndex + delta).mod(nodes.size)
+        selectedIndex = OrbitSelectionPolicy.nextIndex(selectedIndex, nodes.size, delta) ?: return false
         updateAccessibilityDescription()
         invalidate()
         onSelected(selectedIndex)
@@ -168,21 +167,18 @@ internal class OrbitMapView(
             MotionEvent.ACTION_UP -> {
                 if (positions.isEmpty()) return true
                 val hitRadius = dp(30f)
-                val nearest = positions.indices.minByOrNull { index ->
-                    val dx = positions[index].first - event.x
-                    val dy = positions[index].second - event.y
-                    dx * dx + dy * dy
-                } ?: return true
-                val dx = positions[nearest].first - event.x
-                val dy = positions[nearest].second - event.y
-                if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-                    selectedIndex = nearest
-                    updateAccessibilityDescription()
-                    invalidate()
-                    performClick()
-                    onSelected(nearest)
-                    sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED)
-                }
+                val nearest = OrbitSelectionPolicy.hitTest(
+                    points = positions,
+                    touchX = event.x,
+                    touchY = event.y,
+                    hitRadius = hitRadius
+                ) ?: return true
+                selectedIndex = nearest
+                updateAccessibilityDescription()
+                invalidate()
+                performClick()
+                onSelected(nearest)
+                sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> return true
