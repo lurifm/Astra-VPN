@@ -69,6 +69,23 @@ class ConnectionHistoryStoreTest {
         assertEquals("", entries[1].serverId)
     }
 
+
+    @Test
+    fun decodeRejectsCoercedAndWrongTypedFields() {
+        val raw = """[
+            {"timestamp":"1700000000000","state":"connected","server":"String time","protocol":"VLESS"},
+            {"timestamp":1700000000001,"state":7,"server":"Numeric state","protocol":"VLESS"},
+            {"timestamp":1700000000002,"state":"connected","serverId":false},
+            {"timestamp":1700000000003,"state":"connected","server":42},
+            {"timestamp":1700000000004,"state":"connected","server":"Valid legacy","protocol":"VMess"}
+        ]"""
+
+        val entries = ConnectionHistoryStore.decodeEntries(raw)
+
+        assertEquals(1, entries.size)
+        assertEquals("Valid legacy", entries.single().serverName)
+    }
+
     @Test
     fun decodeReturnsEmptyForMissingHistory() {
         assertTrue(ConnectionHistoryStore.decodeEntries(null).isEmpty())

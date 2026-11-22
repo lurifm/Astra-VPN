@@ -101,12 +101,29 @@ class ConnectionHistoryStore(context: Context) {
         }
 
         private fun isValidEntry(item: JSONObject): Boolean {
-            val timestamp = item.optLong("timestamp", -1L)
-            val state = item.optString("state", "")
-            val serverId = item.optString("serverId", "")
-            return timestamp > 0L &&
-                state in VALID_STATES &&
-                (serverId.isEmpty() || serverId.matches(Regex("[0-9a-fA-F]{64}")))
+            // JSONObject.optLong/optString coerce malformed JSON values (for
+            // example a numeric state or a string timestamp). History is
+            // best-effort data: reject malformed field types instead of
+            // silently turning them into plausible records.
+            val timestampValue = item.opt("timestamp") as? Number ?: return false
+            val timestamp = timestampValue.toLong()
+            if (timestamp <= 0L || timestampValue.toDouble() != timestamp.toDouble()) return false
+
+            val state = item.opt("state") as? String ?: return false
+            if (state !in VALID_STATES) return false
+
+            val serverId = if (item.has("serverId")) {
+                item.opt("serverId") as? String ?: return false
+            } else {
+                "" // Legacy entries predate profile fingerprints.
+            }
+            if (serverId.isNotEmpty() && !serverId.matches(Regex("[0-9a-fA-F]{64}"))) return false
+
+            val server = item.opt("server")
+            if (server != null && server !is String) return false
+            val protocol = item.opt("protocol")
+            if (protocol != null && protocol !is String) return false
+            return true
         }
     }
 }
