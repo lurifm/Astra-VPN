@@ -291,6 +291,24 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             token
         }
 
+        // Enforce consent at the service boundary too: widgets and stale intents
+        // must not reach TUN creation after Android has revoked VPN authorization.
+        val explicitStartAuthorization = if (intent?.action == ACTION_START) {
+            VpnStartAuthorizationPolicy.decide(
+                vpnConsentGranted = runCatching { VpnService.prepare(this) == null }
+                    .getOrDefault(false)
+            )
+        } else {
+            VpnStartAuthorization.ALLOWED
+        }
+        if (explicitStartAuthorization == VpnStartAuthorization.REQUIRE_USER_CONSENT) {
+            failStartRequest(
+                requestToken,
+                "Для подключения нужно подтвердить системное разрешение VPN. Нажми «Подключить» и подтверди запрос Android."
+            )
+            return START_NOT_STICKY
+        }
+
         startForeground(
             NOTIFICATION_ID,
             AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
@@ -313,6 +331,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             )
             when (decision) {
                 VpnRecoveryDecision.START -> {
+                    // Restore the exact encrypted profile before libbox starts.
+                    activeProfileLink = savedProfile
                     activeProfileName = "Восстановление VPN"
                     activeProtocol = "—"
                     runCatching { SingBoxConfigBuilder.build(savedProfile!!) }.getOrElse {
@@ -566,7 +586,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun connectSSHAgent(): Int = -1
 
     override fun onRevoke() {
+        // Consent revocation is actionable and must not be shown as a normal disconnect.
         stopTunnel()
+        publishState(
+            STATE_ERROR,
+            "Системное разрешение VPN отозвано. Нажми «Подключить» и подтверди запрос Android."
+        )
         super.onRevoke()
     }
 
@@ -640,6 +665,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         configurationAccepted = false
         activeTunRequestToken = null
         tunReadyRequestToken = null
+        // Clear the durable active-profile marker on orderly stop/failure.
+        // Process death skips this path, preserving the marker for sticky recovery.
+        runCatching { ProfileStore(this).setActiveTunnelProfile(null) }
+            .onFailure { Log.w(TAG, "Не удалось очистить активный профиль остановленного VPN") }
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
