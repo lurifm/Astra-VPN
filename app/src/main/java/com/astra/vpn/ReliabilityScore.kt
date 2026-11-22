@@ -29,6 +29,23 @@ internal object ReliabilityScore {
     }
 
     /**
+     * A validated recovery supersedes earlier errors for the same profile.
+     * Keep successful outcomes and only failures that happened after the
+     * latest success, so old incidents do not permanently poison the score.
+     */
+    fun outcomesAfterLatestSuccess(
+        eventsNewestFirst: List<ConnectionHistoryStore.Entry>
+    ): List<ConnectionHistoryStore.Entry> {
+        val latestSuccess = eventsNewestFirst.asSequence()
+            .filter { it.timestamp > 0L && it.state == "connected" }
+            .maxOfOrNull { it.timestamp } ?: 0L
+        if (latestSuccess == 0L) return eventsNewestFirst
+        return eventsNewestFirst.filter {
+            it.state == "connected" || (it.state == "error" && it.timestamp > latestSuccess)
+        }
+    }
+
+    /**
      * Convert the observed success ratio into a conservative selector penalty.
      * Early samples have low confidence, so their influence ramps up gradually
      * instead of treating three outcomes like a mature reliability record.
