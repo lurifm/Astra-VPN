@@ -4053,6 +4053,21 @@ class MainActivity : Activity() {
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
         connectRetryTask = Runnable {
+            // Validate cancellation and connection state before deferring. Otherwise a
+            // stale retry could keep polling forever while the Activity is backgrounded.
+            val stillPending = TransientConnectRetryPolicy.shouldRemainPending(
+                generationCurrent = generation == connectRetryGeneration,
+                selectedProfileUnchanged = selectedProfile == retryProfile,
+                activityActive = !isFinishing && !isDestroyed,
+                userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+                connecting = connecting,
+                connected = connected,
+                disconnecting = disconnecting
+            )
+            if (!stillPending) {
+                connectRetryTask = null
+                return@Runnable
+            }
             val connectivity = getSystemService(ConnectivityManager::class.java)
             val hasValidatedInternet = hasValidatedPhysicalNetwork(connectivity)
             if (TransientConnectRetryPolicy.shouldDeferUntilConditions(
