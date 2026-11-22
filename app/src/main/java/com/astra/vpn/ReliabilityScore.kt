@@ -28,6 +28,21 @@ internal object ReliabilityScore {
         return Result(score.coerceIn(0, 100), sessions, failures, confidence)
     }
 
+    /**
+     * Convert the observed success ratio into a conservative selector penalty.
+     * Early samples have low confidence, so their influence ramps up gradually
+     * instead of treating three outcomes like a mature reliability record.
+     */
+    fun selectionPenaltyMs(result: Result, maxPenaltyMs: Long = 60L): Long {
+        if (maxPenaltyMs <= 0L) return 0L
+        val total = (result.sessions + result.failures).coerceAtLeast(0)
+        if (total < MIN_EVENTS) return 0L
+        val confidence = total.coerceAtMost(HIGH_CONFIDENCE_EVENTS).toLong()
+        val confidenceScale = confidence * 100L / HIGH_CONFIDENCE_EVENTS
+        val failureRate = (100 - result.score).coerceIn(0, 100).toLong()
+        return (maxPenaltyMs.coerceAtMost(60L) * failureRate * confidenceScale) / 10_000L
+    }
+
     private const val MAX_EVENTS = 100
     private const val MIN_EVENTS = 3
     private const val MEDIUM_CONFIDENCE_EVENTS = 8
