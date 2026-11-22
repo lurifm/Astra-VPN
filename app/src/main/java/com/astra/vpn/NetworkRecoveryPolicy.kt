@@ -8,6 +8,8 @@ internal object NetworkRecoveryPolicy {
     // Coalesce the burst of availability/capability/link-property callbacks
     // emitted by Android for one physical network handover.
     const val NETWORK_CHANGE_DEBOUNCE_MS = 250L
+    // Let Android finish routing/DNS handover before interpreting HTTPS timeouts as server failures.
+    const val HANDOVER_SETTLE_GRACE_MS = 2_000L
     const val MAX_HANDOVER_RETRIES = 2
 
     fun shouldRetryAfterHandover(previousRetries: Int): Boolean =
@@ -32,6 +34,12 @@ internal object NetworkRecoveryPolicy {
 
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
+
+    /** Do not attribute transient routing convergence failures to the VPN server. */
+    fun hasHandoverSettled(lastChangeAt: Long, now: Long): Boolean {
+        if (lastChangeAt < 0L || now < 0L || now < lastChangeAt) return false
+        return now - lastChangeAt >= HANDOVER_SETTLE_GRACE_MS
+    }
 
     fun retryDelayMs(attempt: Int): Long? = when (attempt) {
         0 -> 1_000L
