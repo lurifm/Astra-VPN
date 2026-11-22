@@ -56,6 +56,49 @@ class LatencyStabilityScorerTest {
     }
 
     @Test
+    fun penalizesSustainedRecentLatencyDegradationAgainstOlderBaseline() {
+        val now = 10_000_000L
+        val samples = listOf(
+            LatencyStabilityScorer.Sample(now - 60L * 60_000L, 50L),
+            LatencyStabilityScorer.Sample(now - 70L * 60_000L, 52L),
+            LatencyStabilityScorer.Sample(now - 80L * 60_000L, 48L),
+            LatencyStabilityScorer.Sample(now - 1L * 60_000L, 100L),
+            LatencyStabilityScorer.Sample(now - 2L * 60_000L, 105L),
+            LatencyStabilityScorer.Sample(now - 3L * 60_000L, 110L)
+        )
+
+        assertEquals(53L, LatencyStabilityScorer.penaltyMs(samples, now))
+    }
+
+    @Test
+    fun isolatedRecentSpikeDoesNotTriggerDegradationPenalty() {
+        val now = 10_000_000L
+        val samples = listOf(
+            LatencyStabilityScorer.Sample(now - 60L * 60_000L, 50L),
+            LatencyStabilityScorer.Sample(now - 70L * 60_000L, 52L),
+            LatencyStabilityScorer.Sample(now - 80L * 60_000L, 48L),
+            LatencyStabilityScorer.Sample(now - 1L * 60_000L, 500L)
+        )
+
+        assertEquals(2L, LatencyStabilityScorer.penaltyMs(samples, now))
+    }
+
+    @Test
+    fun recentDegradationRespectsCustomScoringWindow() {
+        val now = 10_000_000L
+        val samples = listOf(
+            LatencyStabilityScorer.Sample(now - 10_000L, 50L),
+            LatencyStabilityScorer.Sample(now - 20_000L, 52L),
+            LatencyStabilityScorer.Sample(now - 30_000L, 48L),
+            LatencyStabilityScorer.Sample(now - 40_000L, 100L),
+            LatencyStabilityScorer.Sample(now - 50_000L, 105L),
+            LatencyStabilityScorer.Sample(now - 60_000L, 110L)
+        )
+
+        assertEquals(0L, LatencyStabilityScorer.penaltyMs(samples, now, 25_000L))
+    }
+
+    @Test
     fun rejectsInvalidClockAndWindow() {
         val sample = LatencyStabilityScorer.Sample(1L, 50L)
         assertEquals(0L, LatencyStabilityScorer.penaltyMs(listOf(sample), -1L))
