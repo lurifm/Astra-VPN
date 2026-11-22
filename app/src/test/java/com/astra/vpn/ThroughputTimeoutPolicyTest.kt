@@ -16,6 +16,18 @@ class ThroughputTimeoutPolicyTest {
     }
 
     @Test
+    fun negativeMonotonicOriginsDoNotOverflowDeadlineArithmetic() {
+        assertEquals(
+            Int.MAX_VALUE,
+            ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, Long.MIN_VALUE)
+        )
+        assertEquals(
+            1,
+            ThroughputTimeoutPolicy.remainingMillis(-999_999L, -2_000_000L)
+        )
+    }
+
+    @Test
     fun millisecondsAreRoundedUpAndCapped() {
         assertEquals(2, ThroughputTimeoutPolicy.remainingMillis(2_000_001L, 1_000_000L))
         assertEquals(Int.MAX_VALUE, ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, 0L))
