@@ -5671,7 +5671,7 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(14), 0, dp(5))
             })
         }
-        addSectionLabel("Выбор сервера")
+        addSectionLabel("Подключение")
         panel.addView(TextView(this).apply {
             text = "Сортировка серверов"
             textSize = 15f
@@ -5776,7 +5776,9 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
-                showOrbitMapDialog()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) showOrbitMapDialog()
+                }
             }
         }
         addActionRow(orbitMapEntry)
@@ -5789,7 +5791,9 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
-                showUsageAndReliabilityDialog()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) showUsageAndReliabilityDialog()
+                }
             }
         }
         addActionRow(insightsEntry)
@@ -5815,7 +5819,7 @@ class MainActivity : Activity() {
         }
         addActionRow(streakEntry)
         val speedFailoverEntry = CheckBox(this).apply {
-            text = "Автопереключение при падении скорости (требует достоверной VPN-статистики)"
+            text = "Автопереключение при падении скорости"
             textSize = 13f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("auto_speed_failover", false)
@@ -5824,6 +5828,12 @@ class MainActivity : Activity() {
             }
         }
         addToggleRow(speedFailoverEntry)
+        panel.addView(TextView(this).apply {
+            text = "Переключает сервер при устойчивом снижении скорости. Для точной работы нужна достоверная статистика VPN."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(12), 0, dp(12), dp(8))
+        })
 
         val networkSecurityEntry = TextView(this).apply {
             text = getString(R.string.network_security_entry)
@@ -5869,7 +5879,7 @@ class MainActivity : Activity() {
         }
         addActionRow(bankingEntry)
 
-        addSectionLabel("Резервная копия")
+        addSectionLabel("Инструменты · резервная копия")
         val backupExportEntry = TextView(this).apply {
             text = "Экспортировать серверы и подписки"
             textSize = 14f
@@ -5891,7 +5901,7 @@ class MainActivity : Activity() {
         }
         addActionRow(backupImportEntry)
 
-        addSectionLabel("Защита соединения")
+        addSectionLabel("Безопасность")
         val vpnRecovery = android.widget.Switch(this).apply {
             text = "Восстанавливать VPN после сбоя приложения"
             textSize = 14f
@@ -5916,7 +5926,7 @@ class MainActivity : Activity() {
         }
         addActionRow(lockdownEntry)
 
-        addSectionLabel("Экономия энергии")
+        addSectionLabel("Энергия")
         val batterySaver = android.widget.Switch(this).apply {
             text = "Режим экономии батареи"
             textSize = 14f
@@ -5931,7 +5941,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(8))
         })
 
-        addSectionLabel("Автообновление")
+        addSectionLabel("Подписки")
         val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
