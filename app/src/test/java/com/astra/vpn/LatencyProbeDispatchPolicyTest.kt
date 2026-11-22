@@ -17,6 +17,18 @@ class LatencyProbeDispatchPolicyTest {
     @Test fun skipsProbesAlreadyCompletedByResultOrTimeout() {
         assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true))
     }
+
+    @Test fun acceptsLateNativeMeasurementOnlyForTimedOutProbe() {
+        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(false, false))
+        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(true, true))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(true, false))
+    }
+
+    @Test fun waitsForTimedOutNativeSlotsBeforeFinishingBatch() {
+        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(true, true))
+        assertTrue(LatencyProbeDispatchPolicy.shouldFinish(true, false))
+        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(false, false))
+    }
 }
 
 class NativeUrlTestTimingPolicyTest {
