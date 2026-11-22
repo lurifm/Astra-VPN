@@ -25,6 +25,33 @@ class ThroughputFreshnessPolicyTest {
     }
 
     @Test
+    fun throughputBonusDecaysAsMeasurementGetsOlder() {
+        val now = 1_800_000_000_000L
+        val fresh = ThroughputSample(1_000.0, 1_000.0, now)
+        val halfAge = ThroughputSample(
+            1_000.0, 1_000.0, now - ThroughputFreshnessPolicy.MAX_AGE_MS / 2L
+        )
+        val nearExpiry = ThroughputSample(
+            1_000.0, 1_000.0, now - ThroughputFreshnessPolicy.MAX_AGE_MS + 1L
+        )
+
+        val freshBonus = ThroughputFreshnessPolicy.selectionBonusMs(fresh, now)
+        val halfAgeBonus = ThroughputFreshnessPolicy.selectionBonusMs(halfAge, now)
+        val nearExpiryBonus = ThroughputFreshnessPolicy.selectionBonusMs(nearExpiry, now)
+
+        assertEquals(ThroughputFreshnessPolicy.MAX_SELECTION_BONUS_MS, freshBonus)
+        assertTrue(halfAgeBonus in 1L until freshBonus)
+        assertTrue(nearExpiryBonus <= 1L)
+    }
+
+    @Test
+    fun invalidClockCannotMakeThroughputSampleFresh() {
+        assertFalse(ThroughputFreshnessPolicy.isFresh(
+            ThroughputSample(100.0, 100.0, 1L), 0L
+        ))
+    }
+
+    @Test
     fun throughputBonusIsBoundedAndNeverDominatesLatency() {
         val now = 1_800_000_000_000L
         val slow = ThroughputFreshnessPolicy.selectionBonusMs(ThroughputSample(1.0, 1.0, now), now)
