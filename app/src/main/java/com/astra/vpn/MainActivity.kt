@@ -3970,8 +3970,28 @@ class MainActivity : Activity() {
         cancelConnectRetry(resetAttempts = true)
         connecting = false
         disconnecting = false
-        status.text = if (connected) "Подключено" else "Отключено"
-        status.setTextColor(if (connected) GREEN else MUTED)
+        // Cancelling a provisional start may leave the previous tunnel alive,
+        // but it does not make that tunnel healthy by itself. Preserve only a
+        // previously successful end-to-end check; otherwise keep the UI provisional.
+        when {
+            !connected -> {
+                status.text = "Отключено"
+                status.setTextColor(MUTED)
+            }
+            tunnelInternetOk == true -> {
+                status.text = "Подключено"
+                status.setTextColor(GREEN)
+            }
+            tunnelInternetOk == false -> {
+                status.text = "VPN без интернета"
+                status.setTextColor(RED)
+            }
+            else -> {
+                status.text = "Проверяем интернет через VPN…"
+                status.setTextColor(AMBER)
+                scheduleTunnelHealthCheck()
+            }
+        }
         updateProtectionLabels()
         renderProfiles()
         Toast.makeText(this, "Подключение отменено", Toast.LENGTH_SHORT).show()
