@@ -2184,8 +2184,13 @@ class MainActivity : Activity() {
         }
         val allCountries = profileFlags.values
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
-        val countryOptions = allCountries.map { "${it} ${CountryFlagResolver.countryNameForFlag(it)}" }
-        val filterOptions = listOf("🌍 Все страны") + countryOptions
+        // Use the same monochrome ISO language as the server badges; emoji flags
+        // remain internal resolver keys and are never shown in the filter.
+        val countryOptions = allCountries.map { flag ->
+            val code = CountryFlagResolver.countryCodeForFlag(flag) ?: "—"
+            "$code  ${CountryFlagResolver.countryNameForFlag(flag)}"
+        }
+        val filterOptions = listOf("Все страны") + countryOptions
         val currentOptions = (0 until countryFilter.count).mapNotNull { countryFilter.getItemAtPosition(it)?.toString() }
         if (currentOptions != filterOptions) {
             val previousSelection = countryFilter.selectedItem?.toString()
@@ -2194,7 +2199,10 @@ class MainActivity : Activity() {
             countryFilter.setSelection(restoreIndex, false)
         }
         val selectedCountry = countryFilter.selectedItem?.toString()
-            ?.takeIf { !it.startsWith("🌍") }?.substringBefore(" ")
+            ?.takeIf { it != "Все страны" }
+            ?.substringBefore("  ")?.let { code ->
+                allCountries.firstOrNull { CountryFlagResolver.countryCodeForFlag(it) == code }
+            }
         val query = serverSearch.text?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
         val filteredProfiles = profiles.filter { link ->
             val matchesText = query.isBlank() || normalizedNames[link].orEmpty().contains(query) ||
