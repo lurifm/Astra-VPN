@@ -90,17 +90,33 @@ internal class BankingForegroundMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                // Explicitly disabling the feature cancels any pending automatic resume.
-                runCatching {
-                    val stateStore = BankingAutomationStateStore(this)
-                    val state = stateStore.read()
-                    if (state.autoPausedByBanking) stateStore.write(state.cancelAutomaticResume())
-                    ProfileStore(this).clearBankPauseSnapshot()
-                }.onFailure { Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
+                // Stop observation immediately, then serialize durable cleanup behind
+                // any in-flight poll without blocking the main thread.
                 running = false
                 handler.removeCallbacksAndMessages(null)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                try {
+                    pollExecutor.execute {
+                        try {
+                            // Explicitly disabling the feature cancels any pending automatic resume.
+                            val stateStore = BankingAutomationStateStore(this)
+                            val state = stateStore.read()
+                            if (state.autoPausedByBanking) {
+                                stateStore.write(state.cancelAutomaticResume())
+                            }
+                            ProfileStore(this).clearBankPauseSnapshot()
+                        } catch (failure: Exception) {
+                            Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", failure)
+                        } finally {
+                            handler.post {
+                                stopForeground(STOP_FOREGROUND_REMOVE)
+                                stopSelf()
+                            }
+                        }
+                    }
+                } catch (_: RejectedExecutionException) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
             ACTION_START -> {
