@@ -313,6 +313,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             )
             when (decision) {
                 VpnRecoveryDecision.START -> {
+                    // Restore the exact encrypted profile into service memory before
+                    // libbox starts, so the normal TUN-ready path can persist the
+                    // correct active-tunnel identity after a process restart.
+                    activeProfileLink = savedProfile
                     activeProfileName = "Восстановление VPN"
                     activeProtocol = "—"
                     runCatching { SingBoxConfigBuilder.build(savedProfile!!) }.getOrElse {
