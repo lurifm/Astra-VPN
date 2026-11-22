@@ -190,6 +190,7 @@ class MainActivity : Activity() {
     private var disconnecting = false
     private val connectRetryHandler = Handler(Looper.getMainLooper())
     private var connectRetryTask: Runnable? = null
+    private var activityStarted = false
     private var connectRetryGeneration = 0L
     private var connectRetryAttempt = 0
     private var receiverRegistered = false
@@ -3621,6 +3622,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -3919,6 +3921,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
@@ -4030,14 +4033,28 @@ class MainActivity : Activity() {
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
         connectRetryTask = Runnable {
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            val hasValidatedInternet = hasValidatedPhysicalNetwork(connectivity)
+            if (TransientConnectRetryPolicy.shouldDeferUntilConditions(
+                    activityStarted = activityStarted,
+                    activityFinishing = isFinishing,
+                    activityDestroyed = isDestroyed,
+                    hasValidatedPhysicalInternet = hasValidatedInternet
+                )
+            ) {
+                // Keep the same bounded retry pending while backgrounded or offline.
+                connectRetryTask?.let { connectRetryHandler.postDelayed(it, 1_000L) }
+                return@Runnable
+            }
             val canExecute = TransientConnectRetryPolicy.shouldExecute(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
-                activityActive = !isFinishing && !isDestroyed,
+                activityActive = activityStarted,
                 userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
                 connecting = connecting,
                 connected = connected,
-                disconnecting = disconnecting
+                disconnecting = disconnecting,
+                hasValidatedPhysicalInternet = hasValidatedInternet
             )
             if (!canExecute) {
                 connectRetryTask = null
