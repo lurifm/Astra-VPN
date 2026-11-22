@@ -234,7 +234,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             connection.inputStream.use { input ->
                 while (true) {
                     if (stopped.get()) throw InterruptedException("cancelled")
-                    if (System.nanoTime() >= deadline) throw java.net.SocketTimeoutException("deadline")
+                    remainingTimeout(deadline)
                     val read = input.read(buffer)
                     if (read < 0) break
                     total += read
