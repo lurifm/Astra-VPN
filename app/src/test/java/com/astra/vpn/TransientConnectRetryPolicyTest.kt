@@ -32,6 +32,29 @@ class TransientConnectRetryPolicyTest {
         assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 4))
     }
 
+    @Test fun backgroundRetryWaitsForActivityToReturnWithoutBeingDiscarded() {
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+            activityStarted = false,
+            activityFinishing = false,
+            activityDestroyed = false
+        ))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+            activityStarted = true,
+            activityFinishing = false,
+            activityDestroyed = false
+        ))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+            activityStarted = false,
+            activityFinishing = true,
+            activityDestroyed = false
+        ))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+            activityStarted = false,
+            activityFinishing = false,
+            activityDestroyed = true
+        ))
+    }
+
     @Test fun staleOrUserCancelledRetriesCannotExecute() {
         assertTrue(TransientConnectRetryPolicy.shouldRemainPending(true, true, true, false, false, false, false))
         assertFalse(TransientConnectRetryPolicy.shouldRemainPending(false, true, true, false, false, false, false))
