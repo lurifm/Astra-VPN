@@ -192,15 +192,13 @@ class ServerFailureScorerTest {
         }
         val nameOf: (String) -> String = { it.substringAfterLast('#') }
         val protocolOf: (String) -> String = { it.substringBefore("://").uppercase() }
-        assertTrue(
+
+        assertEquals(
+            listOf(healthy),
             ServerFailureScorer.excludeRecentlyFailedProfiles(
                 profiles, entries, now,
                 nameOf = nameOf, protocolOf = protocolOf
             )
-        )
-        assertEquals(listOf(healthy), ServerFailureScorer.excludeRecentlyFailedProfiles(
-            profiles, entries, now, nameOf = nameOf, protocolOf = protocolOf
-        ))
         )
         assertEquals(
             profiles,
