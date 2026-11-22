@@ -2263,7 +2263,7 @@ class MainActivity : Activity() {
             "alphabet" -> "по алфавиту"
             else -> "как в подписке"
         }
-        val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
+        val measuredPingCount = profiles.count { freshLatencyMs(it) != null }
         serverCountLabel.text = if (latencyTestInFlight) {
             "${filteredProfiles.size} орбит  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
@@ -2380,13 +2380,15 @@ class MainActivity : Activity() {
         val displayProfiles = ServerLatencySort.sort(
             profiles = filteredProfiles,
             mode = sortMode,
-            latencyMs = latencyMs,
+            latencyMs = filteredProfiles.mapNotNull { profile ->
+                freshLatencyMs(profile)?.let { profile to it }
+            }.toMap(),
             favorites = favorites,
             locale = java.util.Locale.getDefault()
         )
         // In ping-sorted mode, make the best measured node explicit in the list.
         // Unknown/unmeasured nodes never receive this marker.
-        val fastestProfile = displayProfiles.firstOrNull { latencyMs[it] != null }
+        val fastestProfile = displayProfiles.firstOrNull { freshLatencyMs(it) != null }
             ?.takeIf { sortMode == "ping" }
 
         if (displayProfiles.isEmpty()) {
@@ -2586,7 +2588,7 @@ class MainActivity : Activity() {
             }
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
-                val measuredLatency = latencyMs[link]
+                val measuredLatency = freshLatencyMs(link)
                 text = when {
                     measuredLatency != null && isFastestProfile -> "ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
@@ -2674,7 +2676,7 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
-            val measuredOrbitLatency = latencyMs[link]
+            val measuredOrbitLatency = freshLatencyMs(link)
             val orbitQuality = when {
                 measuredOrbitLatency == null || measuredOrbitLatency <= 0L -> 0
                 measuredOrbitLatency <= 100L -> 3
@@ -3208,6 +3210,7 @@ class MainActivity : Activity() {
                         .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
                         .remove(KEY_LATENCY_PENDING_RESULTS)
                         .remove(KEY_LATENCY_LAST_RESULTS)
+                        .remove(KEY_LATENCY_LAST_RESULTS_AT)
                         .apply()
                     runCatching {
                         val physicalNetwork = networkForLatencyProbe()
@@ -3749,6 +3752,21 @@ class MainActivity : Activity() {
         }
         val cached = pending ?: prefs.getString(KEY_LATENCY_LAST_RESULTS, null)
         if (cached == null) {
+            if (latencyTestInFlight) renderProfiles()
+            return
+        }
+        val cacheSavedAt = prefs.getLong(KEY_LATENCY_LAST_RESULTS_AT, 0L)
+        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, System.currentTimeMillis())) {
+            prefs.edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS_AT)
+                .apply()
+            safeProfiles().orEmpty().forEach { profile ->
+                latencyMs.remove(profile)
+                latencyMeasuredAt.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
             if (latencyTestInFlight) renderProfiles()
             return
         }
@@ -7147,6 +7165,7 @@ class MainActivity : Activity() {
         private const val LATENCY_PREPARATION_TIMEOUT_MS = 10_000L
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
+        private const val KEY_LATENCY_LAST_RESULTS_AT = "last_results_at"
         private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
