@@ -2457,17 +2457,25 @@ class MainActivity : Activity() {
                 }
             }
             val countryFlag = profileFlags[link] ?: "🌐"
+            val countryCode = CountryFlagResolver.countryCodeForFlag(countryFlag)
             val flag = TextView(this).apply {
-                text = countryFlag
-                textSize = 23f
+                // Use a compact monochrome ISO badge instead of platform-dependent
+                // emoji flags. Unknown locations get a short label; the full node
+                // name remains visible beside it.
+                text = countryCode ?: name.take(3).uppercase(java.util.Locale.ROOT)
+                textSize = 11f
+                letterSpacing = .08f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFD98A.toInt())
                 gravity = Gravity.CENTER
                 background = GradientDrawable(
                     GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(0xFF302A20.toInt(), 0xFF1B2230.toInt())
+                    intArrayOf(0xFF29251D.toInt(), 0xFF171C29.toInt())
                 ).apply {
-                    cornerRadius = dp(14).toFloat()
+                    cornerRadius = dp(12).toFloat()
                     setStroke(dp(1), 0xFF806B3A.toInt())
                 }
+                contentDescription = countryCode?.let { "Страна сервера: $it" } ?: "Сервер без определённой страны"
             }
             val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val title = TextView(this).apply {
