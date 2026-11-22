@@ -4231,6 +4231,10 @@ class MainActivity : Activity() {
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
         // the same VPN Network object for the replacement sing-box configuration.
         tunnelHealthCheckGeneration.advance()
+        // A replacement tunnel must prove end-to-end connectivity independently;
+        // never carry the previous profile's validated state into this session.
+        tunnelInternetOk = null
+        lastHealthCheckAt = 0L
         activeProfile = pendingProfile ?: selectedProfile
         val intent = Intent(this, AstraVpnService::class.java)
             .setAction(AstraVpnService.ACTION_START)
