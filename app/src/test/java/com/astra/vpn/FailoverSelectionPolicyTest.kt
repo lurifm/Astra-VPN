@@ -82,4 +82,42 @@ class FailoverSelectionPolicyTest {
             FailoverSelectionPolicy.rollback(pending, "server-B", "server-B")
         )
     }
+
+    @Test
+    fun secondHopFailureRollsBackToOriginalKnownGoodProfile() {
+        val firstHop = FailoverSelectionPolicy.nextTransaction(
+            existing = null,
+            currentProfile = "server-A",
+            targetProfile = "server-B"
+        )
+        val secondHop = FailoverSelectionPolicy.nextTransaction(
+            existing = firstHop,
+            currentProfile = "server-B",
+            targetProfile = "server-C"
+        )
+
+        assertEquals(
+            "server-A",
+            FailoverSelectionPolicy.rollback(secondHop, "server-C", "server-C")
+        )
+    }
+
+    @Test
+    fun lateFailureFromFirstHopCannotRollbackNewerSecondHop() {
+        val firstHop = FailoverSelectionPolicy.nextTransaction(
+            existing = null,
+            currentProfile = "server-A",
+            targetProfile = "server-B"
+        )
+        val secondHop = FailoverSelectionPolicy.nextTransaction(
+            existing = firstHop,
+            currentProfile = "server-B",
+            targetProfile = "server-C"
+        )
+
+        assertEquals(
+            "server-C",
+            FailoverSelectionPolicy.rollback(secondHop, "server-C", "server-B")
+        )
+    }
 }
