@@ -108,4 +108,75 @@ class ServerFailureScorerTest {
         )
     }
 
+    @Test
+    fun repeatedRecentFailuresEscalateQuarantineForOnlyThatServer() {
+        val now = 10_000_000L
+        val bad = "vless://id@bad.example:443#Bad"
+        val good = "tuic://id:pass@good.example:443#Good"
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(now - 2L * 60L * 1_000L, "error", "Bad", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 60_000L, "error", "Bad", "VLESS")
+        )
+        assertEquals(
+            listOf(good),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(bad, good), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
+    fun escalatedQuarantineExpiresFromMostRecentFailure() {
+        val now = 10_000_000L
+        val profile = "vless://id@bad.example:443#Bad"
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(now - 11L * 60L * 1_000L, "error", "Bad", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 10L * 60L * 1_000L, "error", "Bad", "VLESS")
+        )
+        assertEquals(
+            listOf(profile),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
+    fun quarantineEscalationDoesNotCrossProtocolAliases() {
+        val now = 10_000_000L
+        val hysteria = "hysteria2://id@node.example:443#Node"
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(now - 60_000L, "error", "Node", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 30_000L, "error", "Node", "VLESS")
+        )
+        assertEquals(
+            listOf(hysteria),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(hysteria), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
+    @Test
+    fun invalidEscalationWindowDisablesQuarantineSafely() {
+        val now = 1_000_000L
+        val profile = "vless://id@bad.example:443#Bad"
+        val entries = listOf(ConnectionHistoryStore.Entry(now, "error", "Bad", "VLESS"))
+        assertEquals(
+            listOf(profile),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() },
+                escalationWindowMs = 0L
+            )
+        )
+    }
+
 }
