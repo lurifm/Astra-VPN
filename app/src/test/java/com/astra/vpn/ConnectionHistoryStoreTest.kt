@@ -1,10 +1,54 @@
 package com.astra.vpn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectionHistoryStoreTest {
+
+    @Test
+    fun createEntryJsonValidatesAndBoundsNewHistoryRecords() {
+        val privateProfile = "vless://secret-user:secret-pass@example.com:443?type=tcp"
+        val json = ConnectionHistoryStore.createEntryJson(
+            state = "connected",
+            serverName = "S".repeat(120),
+            protocol = "P".repeat(40),
+            profile = privateProfile,
+            timestamp = 1700000000000L
+        )
+
+        assertEquals(1700000000000L, json.getLong("timestamp"))
+        assertEquals("connected", json.getString("state"))
+        assertEquals(100, json.getString("server").length)
+        assertEquals(32, json.getString("protocol").length)
+        assertEquals(ProfileIdentity.of(privateProfile), json.getString("serverId"))
+        assertFalse(json.toString().contains(privateProfile))
+        assertEquals(64, json.getString("serverId").length)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun createEntryJsonRejectsUnsupportedStates() {
+        ConnectionHistoryStore.createEntryJson(
+            state = "tunnel_ready",
+            serverName = "Server",
+            protocol = "VLESS",
+            profile = "",
+            timestamp = 1700000000000L
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun createEntryJsonRejectsNonPositiveTimestamps() {
+        ConnectionHistoryStore.createEntryJson(
+            state = "connected",
+            serverName = "Server",
+            protocol = "VLESS",
+            profile = "",
+            timestamp = 0L
+        )
+    }
+
     @Test
     fun decodeKeepsValidEntriesAndSkipsCorruptedRows() {
         val raw = """

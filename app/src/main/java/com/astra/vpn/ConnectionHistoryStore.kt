@@ -23,14 +23,7 @@ class ConnectionHistoryStore(context: Context) {
         synchronized(STORE_LOCK) {
         val entries = readArray()
         val updated = JSONArray()
-        updated.put(
-            JSONObject()
-                .put("timestamp", System.currentTimeMillis())
-                .put("state", state.take(24))
-                .put("server", serverName.take(100))
-                .put("protocol", protocol.take(32))
-                .put("serverId", ProfileIdentity.of(profile))
-        )
+        updated.put(createEntryJson(state, serverName, protocol, profile, System.currentTimeMillis()))
         for (index in 0 until entries.length()) {
             val item = entries.optJSONObject(index) ?: continue
             if (!isValidEntry(item)) continue
@@ -62,10 +55,27 @@ class ConnectionHistoryStore(context: Context) {
     }
 
     companion object {
-        val STORE_LOCK = Any()
-        const val KEY_ENTRIES = "entries"
-        const val MAX_ENTRIES = 100
+        private val STORE_LOCK = Any()
+        private const val KEY_ENTRIES = "entries"
+        private const val MAX_ENTRIES = 100
         private val VALID_STATES = setOf("connecting", "connected", "disconnected", "error")
+
+        internal fun createEntryJson(
+            state: String,
+            serverName: String,
+            protocol: String,
+            profile: String,
+            timestamp: Long
+        ): JSONObject {
+            require(state in VALID_STATES) { "Unsupported connection history state" }
+            require(timestamp > 0L) { "Connection history timestamp must be positive" }
+            return JSONObject()
+                .put("timestamp", timestamp)
+                .put("state", state)
+                .put("server", serverName.take(100))
+                .put("protocol", protocol.take(32))
+                .put("serverId", ProfileIdentity.of(profile))
+        }
 
         internal fun decodeEntries(raw: String?): List<Entry> {
             if (raw.isNullOrBlank()) return emptyList()
