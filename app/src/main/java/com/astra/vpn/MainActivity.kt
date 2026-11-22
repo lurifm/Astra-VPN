@@ -2026,6 +2026,15 @@ class MainActivity : Activity() {
         }
         val profiles = safeProfiles() ?: return
         val summaries = safeSubscriptionSummaries() ?: return
+        // Persisted/previously measured Ping values are useful only for a bounded
+        // period in this process. Build one fresh snapshot for every visible
+        // decision so stale numbers cannot affect sorting, badges or "fastest".
+        val freshLatencySnapshot = LatencyFreshnessPolicy.freshLatencies(
+            latencies = latencyMs,
+            measuredAtElapsedMs = latencyMeasuredAt,
+            nowElapsedMs = android.os.SystemClock.elapsedRealtime(),
+            candidates = profiles
+        )
         val previousScrollY = if (::profileScroll.isInitialized) profileScroll.scrollY else 0
         profileList.removeAllViews()
         // Latency updates and favorite changes rebuild the current rows. Keep the user's
@@ -2247,7 +2256,7 @@ class MainActivity : Activity() {
             "alphabet" -> "по алфавиту"
             else -> "как в подписке"
         }
-        val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
+        val measuredPingCount = freshLatencySnapshot.size
         serverCountLabel.text = if (latencyTestInFlight) {
             "${filteredProfiles.size} орбит  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
@@ -2364,13 +2373,13 @@ class MainActivity : Activity() {
         val displayProfiles = ServerLatencySort.sort(
             profiles = filteredProfiles,
             mode = sortMode,
-            latencyMs = latencyMs,
+            latencyMs = freshLatencySnapshot,
             favorites = favorites,
             locale = java.util.Locale.getDefault()
         )
         // In ping-sorted mode, make the best measured node explicit in the list.
         // Unknown/unmeasured nodes never receive this marker.
-        val fastestProfile = displayProfiles.firstOrNull { latencyMs[it] != null }
+        val fastestProfile = displayProfiles.firstOrNull { freshLatencySnapshot[it] != null }
             ?.takeIf { sortMode == "ping" }
 
         // Read persisted throughput samples in one batch before constructing rows.
@@ -2486,7 +2495,11 @@ class MainActivity : Activity() {
                     append(", ")
                     append(protocolLabel)
                     append(", ")
-                    append(pingInfo[link] ?: "задержка не проверена")
+                    append(freshLatencySnapshot[link]?.let { "Пинг $it мс" } ?: when (pingInfo[link]) {
+                        "Проверяем…" -> "пинг проверяется"
+                        "н/д" -> "пинг не измерен"
+                        else -> "задержка не проверена"
+                    })
                     if (isSelected) append(", выбран")
                     if (connected && link == activeProfile) append(", активное VPN-соединение")
                 }
@@ -2585,7 +2598,7 @@ class MainActivity : Activity() {
             }
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
-                val measuredLatency = latencyMs[link]
+                val measuredLatency = freshLatencySnapshot[link]
                 text = when {
                     measuredLatency != null && isFastestProfile -> "МИНИМАЛЬНЫЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "ПИНГ  ·  ${measuredLatency} мс"
@@ -2667,7 +2680,7 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
-            val measuredOrbitLatency = latencyMs[link]
+            val measuredOrbitLatency = freshLatencySnapshot[link]
             val orbitQuality = when {
                 measuredOrbitLatency == null || measuredOrbitLatency <= 0L -> 0
                 measuredOrbitLatency <= 100L -> 3
