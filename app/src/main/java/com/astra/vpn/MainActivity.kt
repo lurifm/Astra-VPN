@@ -2016,7 +2016,7 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(15), dp(13), dp(15), dp(13))
                     background = rounded(CARD, 16).apply {
-                        setStroke(dp(1), if (isSubscriptionRefreshing) 0xFF665A9D.toInt() else 0xFF2B3A55.toInt())
+                        setStroke(dp(if (isSubscriptionRefreshing) 2 else 1), if (isSubscriptionRefreshing) 0xFFD6B36A.toInt() else 0xFF2B3A55.toInt())
                     }
                     isClickable = true
                     isFocusable = true
@@ -2028,7 +2028,7 @@ class MainActivity : Activity() {
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 subscriptionHeader.addView(TextView(this).apply {
-                    text = "☁  ${subscription.title.takeUnless { title -> title.startsWith("base64:", true) || (title.length > 48 && title.matches(Regex("[A-Za-z0-9+/=_-]+"))) } ?: (Uri.parse(subscription.sourceUrl).host ?: "Подписка")}"
+                    text = "◈  ${subscription.title.takeUnless { title -> title.startsWith("base64:", true) || (title.length > 48 && title.matches(Regex("[A-Za-z0-9+/=_-]+"))) } ?: (Uri.parse(subscription.sourceUrl).host ?: "Подписка")}"
                     textSize = 15f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.WHITE)
@@ -2372,7 +2372,7 @@ class MainActivity : Activity() {
                 // A restrained Material-style ripple gives immediate touch feedback
                 // without changing the selected/unselected server card colors.
                 foreground = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(0x26A9B8FF),
+                    android.content.res.ColorStateList.valueOf(0x26D6A84F),
                     null,
                     null
                 )
@@ -2453,10 +2453,10 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
                 background = GradientDrawable(
                     GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(0xFF29365A.toInt(), 0xFF1B2540.toInt())
+                    intArrayOf(0xFF302A20.toInt(), 0xFF1B2230.toInt())
                 ).apply {
                     cornerRadius = dp(14).toFloat()
-                    setStroke(dp(1), 0xFF394A70.toInt())
+                    setStroke(dp(1), 0xFF806B3A.toInt())
                 }
             }
             val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -2479,7 +2479,7 @@ class MainActivity : Activity() {
                 setTextColor(LIGHT_ACCENT)
                 // Keep protocol/country metadata visually separate from the server
                 // name, like a compact badge rather than another plain text line.
-                background = rounded(0x1C8298FF, 7)
+                background = rounded(0x1CD6A84F, 7)
                 setPadding(dp(7), dp(4), dp(7), dp(4))
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -2564,9 +2564,9 @@ class MainActivity : Activity() {
                 minimumHeight = dp(48)
                 isClickable = true
                 isFocusable = true
-                background = rounded(0x1A9AA6BF, 14)
+                background = rounded(0x1AD6A84F, 14)
                 foreground = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(0x40A9B8FF),
+                    android.content.res.ColorStateList.valueOf(0x40D6A84F),
                     null,
                     null
                 )
@@ -6792,7 +6792,7 @@ class MainActivity : Activity() {
             active -> 0xFF55B99A.toInt()
             else -> 0xFF26344D.toInt()
         }
-        setStroke(dp(if (selected || active) 1.5f else 1f).toInt().coerceAtLeast(1), outline)
+        setStroke(dp(if (selected || active) 2 else 1), outline)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
