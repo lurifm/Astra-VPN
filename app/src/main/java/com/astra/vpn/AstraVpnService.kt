@@ -327,7 +327,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 userRequestedDisconnect = getSharedPreferences("astra_settings", MODE_PRIVATE)
                     .getBoolean("vpn_disconnect_requested", false),
                 savedProfileAvailable = !savedProfile.isNullOrBlank(),
-                vpnConsentGranted = VpnService.prepare(this) == null
+                // A platform/security exception must fail closed rather than crash-loop
+                // the sticky service while Android is restoring the process.
+                vpnConsentGranted = runCatching { VpnService.prepare(this) == null }
+                    .onFailure { Log.w(TAG, "Не удалось проверить разрешение VPN при восстановлении", it) }
+                    .getOrDefault(false)
             )
             when (decision) {
                 VpnRecoveryDecision.START -> {
