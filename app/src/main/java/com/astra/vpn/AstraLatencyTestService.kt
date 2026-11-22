@@ -344,13 +344,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         // Preserve partial measurements if the Activity was recreated and misses
         // this terminal error broadcast. Never turn an engine failure into
         // evidence that every proxy is offline.
-        if (expectedTags.isNotEmpty()) {
+        if (latestResults.hasAnyMeasurement()) {
             val snapshot = latestResults.snapshot()
             val json = JSONObject()
             snapshot.forEach { (tag, delay) -> json.put(tag, delay ?: JSONObject.NULL) }
             getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_PENDING_RESULTS, json.toString())
                 .putString(KEY_LAST_RESULTS, json.toString())
+                .remove(KEY_ACTIVE_SESSION_ID)
+                .apply()
+        } else {
+            // An engine failure before the first measurement is not a result.
+            // Keep the previous successful cache intact for Activity recreation.
+            getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
                 .remove(KEY_ACTIVE_SESSION_ID)
                 .apply()
         }
