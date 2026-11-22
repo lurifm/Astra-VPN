@@ -25,8 +25,6 @@ import io.nekohasekai.libbox.SystemProxyStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -34,9 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    // URLTest calls are dispatched independently: a blocked native call for one
-    // profile must not prevent other profiles from starting their own deadlines.
-    private val urlTestDispatcher = ThreadPoolExecutor(URL_TEST_DISPATCH_CONCURRENCY, URL_TEST_DISPATCH_CONCURRENCY, 0L, java.util.concurrent.TimeUnit.MILLISECONDS, ArrayBlockingQueue(URL_TEST_QUEUE_CAPACITY), ThreadPoolExecutor.AbortPolicy())
+    // Fixed concurrency keeps native calls bounded; the executor queue is sized
+    // by the actual subscription workload so large server lists are not dropped.
+    private val urlTestDispatcher = Executors.newFixedThreadPool(URL_TEST_DISPATCH_CONCURRENCY)
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
@@ -173,10 +171,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     // engine is connected, every server receives its own full 10s
                     // budget when an actual worker starts its URLTest call.
                 }
-                // A bounded pool prevents one blocking native call from holding
-                // the single startup worker and keeps the number of threads finite.
-                // Bound active and queued native calls; a ten-second batch must not retain thousands of pending profiles.
-                val notDispatched = ArrayList<String>()
+                // A fixed-size pool prevents one blocking native call from holding
+                // the startup worker. Its queue retains every profile in this batch;
+                // unlike a fixed-capacity queue, it cannot silently drop servers
+                // merely because a subscription contains more than 1,024 entries.
                 expectedTags.forEach { outboundTag ->
                     if (stopped.get()) return@forEach
                     try {
@@ -204,13 +202,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                             }
                         }
                     } catch (_: RejectedExecutionException) {
-                        notDispatched += outboundTag
-                    }
-                }
-                if (notDispatched.isNotEmpty()) {
-                    // Coalesce overflow into one handler message. Unmeasured is not offline.
-                    handler.post {
-                        if (!stopped.get()) notDispatched.forEach { completeUnmeasuredTag(it, timedOut = false) }
+                        // Rejection is expected only during shutdown. If the session
+                        // is still active, expose it as an error rather than offline.
+                        if (!stopped.get()) {
+                            handler.post { completeUnmeasuredTag(outboundTag, timedOut = false) }
+                        }
                     }
                 }
             }
@@ -477,7 +473,6 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val ENGINE_STARTUP_TIMEOUT_MS = 8_000L
         private const val SERVER_URLTEST_TIMEOUT_MS = 10_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
-        private const val URL_TEST_QUEUE_CAPACITY = 1_024
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
