@@ -1350,7 +1350,7 @@ class MainActivity : Activity() {
         val pasteButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "📋 Вставить"
+            text = "Из буфера"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -1391,7 +1391,7 @@ class MainActivity : Activity() {
         val fileButton = MaterialButton(
             this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
         ).apply {
-            text = "📁 Файл"
+            text = "Файл"
             isAllCaps = false
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
@@ -1434,8 +1434,8 @@ class MainActivity : Activity() {
             text = "Импортировать"
             isAllCaps = false
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF6556D9.toInt())
+            setTextColor(0xFF17120A.toInt())
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFD6A84F.toInt())
             elevation = dp(2).toFloat()
         }
         actions.addView(cancelButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
