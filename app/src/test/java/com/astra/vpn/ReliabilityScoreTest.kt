@@ -1,0 +1,62 @@
+package com.astra.vpn
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class ReliabilityScoreTest {
+    private fun event(timestamp: Long, state: String) =
+        ConnectionHistoryStore.Entry(timestamp, state, "Node", "VLESS")
+
+    @Test
+    fun scoreUsesObservedSuccessRatio() {
+        val result = ReliabilityScore.calculate(
+            listOf(event(4L, "connected"), event(3L, "connected"), event(2L, "error"))
+        )
+        assertEquals(67, result?.score)
+        assertEquals(2, result?.sessions)
+        assertEquals(1, result?.failures)
+        assertEquals("предварительная", result?.confidence)
+    }
+
+    @Test
+    fun allFailuresProduceZeroAndAllSuccessesProduceOneHundred() {
+        assertEquals(
+            0,
+            ReliabilityScore.calculate(listOf(event(3L, "error"), event(2L, "error"), event(1L, "error")))?.score
+        )
+        assertEquals(
+            100,
+            ReliabilityScore.calculate(listOf(event(3L, "connected"), event(2L, "connected"), event(1L, "connected")))?.score
+        )
+    }
+
+    @Test
+    fun ignoresInvalidAndUnrelatedEventsBeforeApplyingSampleLimit() {
+        val events = listOf(
+            event(0L, "connected"),
+            event(5L, "connecting"),
+            event(4L, "unknown"),
+            event(3L, "connected"),
+            event(2L, "error"),
+            event(1L, "connected")
+        )
+        val result = ReliabilityScore.calculate(events)
+        assertEquals(67, result?.score)
+        assertEquals(2, result?.sessions)
+        assertEquals(1, result?.failures)
+    }
+
+    @Test
+    fun requiresAtLeastThreeValidOutcomes() {
+        assertNull(ReliabilityScore.calculate(listOf(event(2L, "connected"), event(1L, "error"))))
+    }
+
+    @Test
+    fun confidenceReflectsValidSampleSize() {
+        val medium = (1..8).map { event(it.toLong(), if (it % 2 == 0) "connected" else "error") }
+        val high = (1..20).map { event(it.toLong(), "connected") }
+        assertEquals("средняя", ReliabilityScore.calculate(medium)?.confidence)
+        assertEquals("высокая", ReliabilityScore.calculate(high)?.confidence)
+    }
+}
