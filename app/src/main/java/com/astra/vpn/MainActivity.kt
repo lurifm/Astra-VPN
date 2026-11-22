@@ -1848,6 +1848,11 @@ class MainActivity : Activity() {
         addDetail("СЕРВЕРЫ", item.serverCount.toString())
         addDetail("ТРАФИК", trafficDetails)
         addDetail("СРОК ДЕЙСТВИЯ", expiry)
+        addDetail(
+            "ИНТЕРВАЛ ОТ ПРОВАЙДЕРА",
+            item.updateIntervalHours?.let { "Рекомендуется раз в $it ч" }
+                ?: "Провайдер не указал"
+        )
         MaterialAlertDialogBuilder(this)
             .setTitle(item.title)
             .setView(detailsPanel)
