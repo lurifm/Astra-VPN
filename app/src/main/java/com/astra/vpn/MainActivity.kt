@@ -4225,8 +4225,20 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             disconnecting = true
-            // Preserve the in-flight action across Activity/process recreation.
-            settingsPrefs.edit().putBoolean("vpn_disconnect_requested", true).apply()
+            // This marker gates START_STICKY recovery. Flush it to disk before
+            // dispatching STOP so a process death cannot resurrect the tunnel
+            // from an older preference snapshot.
+            val stopIntentPersisted = settingsPrefs.edit()
+                .putBoolean("vpn_disconnect_requested", true)
+                .commit()
+            if (!stopIntentPersisted) {
+                disconnecting = false
+                status.text = "Не удалось сохранить отключение VPN"
+                status.setTextColor(RED)
+                Toast.makeText(this, "Не удалось надёжно сохранить команду отключения. Повтори попытку.", Toast.LENGTH_LONG).show()
+                renderProfiles()
+                return
+            }
             startService(intent)
             // Keep the last confirmed tunnel state until the service reports that
             // it has actually stopped. Do not briefly show "Подключиться" while
