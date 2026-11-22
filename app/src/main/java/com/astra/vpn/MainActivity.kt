@@ -5187,8 +5187,8 @@ class MainActivity : Activity() {
             // Keep map browsing provisional: closing the dialog must not silently
             // change the active profile or cancel an Android VPN consent request.
             chosen = index
-            val mappedProfile = profiles.take(36)[index]
-            selectedInfo.text = profileSummary(mappedProfile)
+            // The map itself highlights the preview; the home-screen summary
+            // remains tied to the committed selection until confirmation.
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
