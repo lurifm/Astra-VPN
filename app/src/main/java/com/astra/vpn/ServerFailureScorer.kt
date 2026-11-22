@@ -91,7 +91,6 @@ internal object ServerFailureScorer {
         if (quarantined.isEmpty()) return profiles
         val preferred = profiles.filter { profile ->
             val profileKey = identityOf?.invoke(profile)?.takeIf { it.isNotBlank() }
-                ?.let { "profile:$it" }
             val legacyKey = ReliabilityScore.identity(nameOf(profile), protocolOf(profile))
             (profileKey == null || profileKey !in quarantined) && legacyKey !in quarantined
         }
