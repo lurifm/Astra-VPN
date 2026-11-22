@@ -6,6 +6,11 @@ import org.junit.Test
 
 class LatencyFreshnessPolicyTest {
     @Test
+    fun defaultFreshnessWindowMatchesFiveMinuteUiAndFailoverPolicy() {
+        assertEquals(5L * 60L * 1_000L, LatencyFreshnessPolicy.DEFAULT_MAX_AGE_MS)
+    }
+
+    @Test
     fun keepsOnlyFreshPositiveMeasurementsForRequestedCandidates() {
         val now = 1_000_000L
         val result = LatencyFreshnessPolicy.freshLatencies(

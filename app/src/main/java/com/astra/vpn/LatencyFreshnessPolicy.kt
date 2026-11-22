@@ -6,7 +6,7 @@ package com.astra.vpn
  * an unmeasured/stale server eligible for an immediate failover.
  */
 internal object LatencyFreshnessPolicy {
-    const val DEFAULT_MAX_AGE_MS = 10L * 60L * 1_000L
+    const val DEFAULT_MAX_AGE_MS = 5L * 60L * 1_000L
 
     fun freshLatencies(
         latencies: Map<String, Long>,
