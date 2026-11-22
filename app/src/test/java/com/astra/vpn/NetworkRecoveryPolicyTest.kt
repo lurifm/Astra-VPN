@@ -15,6 +15,14 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun eitherBatterySaverUsesReducedMonitorPollingCadence() {
+        assertTrue(NetworkRecoveryPolicy.monitorIntervalMs(false, false) == 1_000L)
+        assertTrue(NetworkRecoveryPolicy.monitorIntervalMs(true, false) == 4_000L)
+        assertTrue(NetworkRecoveryPolicy.monitorIntervalMs(false, true) == 4_000L)
+        assertTrue(NetworkRecoveryPolicy.monitorIntervalMs(true, true) == 4_000L)
+    }
+
+    @Test
     fun physicalInternetLossPausesTunnelHealthProbes() {
         assertFalse(NetworkRecoveryPolicy.shouldProbeTunnel(false))
     }

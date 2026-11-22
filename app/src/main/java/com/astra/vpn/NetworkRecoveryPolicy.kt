@@ -9,6 +9,11 @@ internal object NetworkRecoveryPolicy {
     // emitted by Android for one physical network handover.
     const val NETWORK_CHANGE_DEBOUNCE_MS = 250L
 
+    fun monitorIntervalMs(
+        appBatterySaverEnabled: Boolean,
+        systemBatterySaverEnabled: Boolean
+    ): Long = if (appBatterySaverEnabled || systemBatterySaverEnabled) 4_000L else 1_000L
+
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 

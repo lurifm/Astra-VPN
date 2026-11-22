@@ -274,8 +274,10 @@ class MainActivity : Activity() {
     private val batterySaverReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) return
-            val powerManager = getSystemService(android.os.PowerManager::class.java)
-            setHeroAnimationsAllowed(!powerManager.isPowerSaveMode)
+            setHeroAnimationsAllowed(!isBatterySaverActive())
+            // Apply the lower polling cadence immediately when system Battery Saver changes.
+            monitorHandler.removeCallbacks(monitorTick)
+            monitorHandler.post(monitorTick)
         }
     }
     private val physicalNetworkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -353,7 +355,10 @@ class MainActivity : Activity() {
             updateTrafficMonitor()
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
-            val interval = if (settingsPrefs.getBoolean("battery_saver_mode", false)) 4_000L else 1_000L
+            val interval = NetworkRecoveryPolicy.monitorIntervalMs(
+                appBatterySaverEnabled = settingsPrefs.getBoolean("battery_saver_mode", false),
+                systemBatterySaverEnabled = getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+            )
             monitorHandler.postDelayed(this, interval)
         }
     }
@@ -3540,7 +3545,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        setHeroAnimationsAllowed(!getSystemService(android.os.PowerManager::class.java).isPowerSaveMode)
+        setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
         monitorHandler.removeCallbacks(monitorTick)
@@ -3807,6 +3812,10 @@ class MainActivity : Activity() {
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
         super.onStop()
     }
+
+    private fun isBatterySaverActive(): Boolean =
+        settingsPrefs.getBoolean("battery_saver_mode", false) ||
+            getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
 
     private fun registerBatterySaverReceiver() {
         if (batterySaverReceiverRegistered) return
