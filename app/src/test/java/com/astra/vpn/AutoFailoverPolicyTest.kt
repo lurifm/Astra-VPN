@@ -45,4 +45,30 @@ class AutoFailoverPolicyTest {
     @Test fun ignoresClockMovingBackwards() {
         assertFalse(AutoFailoverPolicy.shouldSwitch(4, 100_000L, 99_000L))
     }
+    @Test
+    fun cooldownGrowsWithRecentAutomaticHopsAndIsCapped() {
+        assertEquals(60_000L, AutoFailoverPolicy.cooldownMs(0))
+        assertEquals(60_000L, AutoFailoverPolicy.cooldownMs(1))
+        assertEquals(120_000L, AutoFailoverPolicy.cooldownMs(2))
+        assertEquals(180_000L, AutoFailoverPolicy.cooldownMs(3))
+        assertEquals(AutoFailoverPolicy.MAX_COOLDOWN_MS, AutoFailoverPolicy.cooldownMs(100))
+        assertEquals(60_000L, AutoFailoverPolicy.cooldownMs(-1))
+    }
+
+    @Test
+    fun adaptiveCooldownIsAppliedToSwitchDecision() {
+        assertFalse(
+            AutoFailoverPolicy.shouldSwitch(
+                AutoFailoverPolicy.REQUIRED_FAILURES, 1_000L, 90_000L,
+                AutoFailoverPolicy.cooldownMs(2)
+            )
+        )
+        assertTrue(
+            AutoFailoverPolicy.shouldSwitch(
+                AutoFailoverPolicy.REQUIRED_FAILURES, 1_000L, 121_000L,
+                AutoFailoverPolicy.cooldownMs(2)
+            )
+        )
+    }
+
 }
