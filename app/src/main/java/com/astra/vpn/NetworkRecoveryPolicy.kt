@@ -56,6 +56,18 @@ internal object NetworkRecoveryPolicy {
         callbackIsPreferred: Boolean
     ): Boolean = !currentPreferredIsUsable || callbackIsPreferred
 
+    /**
+     * A ready platform adapter is authoritative, including when it finds no
+     * usable network. Callback snapshots are only a startup fallback before
+     * the adapter exists; using them after a null refresh can resurrect a
+     * stale underlay during an outage.
+     */
+    fun <T> chooseProbeFallback(
+        platformReady: Boolean,
+        refreshedCandidate: T?,
+        callbackCandidate: T?
+    ): T? = if (platformReady) refreshedCandidate else callbackCandidate
+
     fun isValidatedPhysicalUnderlay(
         isVpn: Boolean,
         hasInternet: Boolean,

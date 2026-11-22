@@ -127,6 +127,38 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun readyPlatformNullResultDoesNotResurrectStaleCallbackNetwork() {
+        assertEquals(
+            null,
+            NetworkRecoveryPolicy.chooseProbeFallback(
+                platformReady = true,
+                refreshedCandidate = null,
+                callbackCandidate = "stale-network"
+            )
+        )
+    }
+
+    @Test
+    fun callbackSnapshotIsOnlyUsedBeforePlatformAdapterIsReady() {
+        assertEquals(
+            "startup-network",
+            NetworkRecoveryPolicy.chooseProbeFallback(
+                platformReady = false,
+                refreshedCandidate = null,
+                callbackCandidate = "startup-network"
+            )
+        )
+        assertEquals(
+            "current-network",
+            NetworkRecoveryPolicy.chooseProbeFallback(
+                platformReady = true,
+                refreshedCandidate = "current-network",
+                callbackCandidate = "stale-network"
+            )
+        )
+    }
+
+    @Test
     fun callbackRejectsCaptivePortalAndSuspendedNetworks() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, false, true))
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, true, false))

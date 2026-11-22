@@ -586,9 +586,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
      * Wi-Fi network over the actual cellular underlay.
      */
     private fun selectFallbackProbeNetwork(lostNetwork: Network): Network? {
-        probePlatform?.clearPreferredPhysicalNetwork(lostNetwork)
-        return probePlatform?.refreshPreferredPhysicalNetwork()
-            ?: callbackNetworks.entries.maxByOrNull { it.value.transportPriority }?.key
+        val platform = probePlatform
+        platform?.clearPreferredPhysicalNetwork(lostNetwork)
+        val refreshed = platform?.refreshPreferredPhysicalNetwork()
+        return NetworkRecoveryPolicy.chooseProbeFallback(
+            platformReady = platform != null,
+            refreshedCandidate = refreshed,
+            callbackCandidate = callbackNetworks.entries
+                .maxByOrNull { it.value.transportPriority }?.key
+        )
     }
 
     private fun preferProbeNetwork(network: Network) {
