@@ -37,7 +37,8 @@ class ReliabilityScoreTest {
         val events = listOf(
             event(0L, "connected"),
             event(5L, "connecting"),
-            event(4L, "unknown"),
+            event(4L, "tunnel_ready"),
+            event(3L, "unknown"),
             event(3L, "connected"),
             event(2L, "error"),
             event(1L, "connected")

@@ -736,7 +736,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             .apply()
         val historyState = when (state) {
             STATE_CONNECTING -> "connecting"
-            STATE_CONNECTED -> "connected"
+            // A ready TUN is not proof of working internet. MainActivity records
+            // "connected" only after its end-to-end health check succeeds.
+            STATE_CONNECTED -> null
             STATE_DISCONNECTED -> "disconnected"
             STATE_ERROR -> "error"
             else -> null
