@@ -4109,8 +4109,21 @@ class MainActivity : Activity() {
         if (resetAttempts) connectRetryAttempt = 0
     }
     private fun startTunnel(config: String) {
-        // An explicit new start supersedes a previously persisted user stop request.
-        settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+        // A new explicit connect supersedes the durable stop marker. Flush the
+        // removal before dispatching START, otherwise a process death immediately
+        // after the tap could make the next sticky restart incorrectly stay offline.
+        val stopMarkerCleared = settingsPrefs.edit()
+            .remove("vpn_disconnect_requested")
+            .commit()
+        if (!stopMarkerCleared) {
+            connecting = false
+            status.text = "Не удалось сохранить подключение"
+            status.setTextColor(RED)
+            Toast.makeText(this, "Не удалось сохранить новое подключение. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+            updateProtectionLabels()
+            renderProfiles()
+            return
+        }
         cancelConnectRetry(resetAttempts = false)
         waitingForUnderlyingNetwork = false
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
