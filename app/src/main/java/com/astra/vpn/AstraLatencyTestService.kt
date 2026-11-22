@@ -358,6 +358,22 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
+
+        // A user may cancel after some servers have already returned valid Ping.
+        // Persist only when this run has at least one real sample: this lets a
+        // recreated Activity recover partial progress without replacing a good
+        // previous cache with an all-unknown snapshot.
+        val partialSnapshot = latestResults.snapshot()
+        if (latestResults.hasAnyMeasurement()) {
+            val partialJson = JSONObject()
+            partialSnapshot.forEach { (tag, delay) -> partialJson.put(tag, delay ?: JSONObject.NULL) }
+            val payload = partialJson.toString()
+            getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_PENDING_RESULTS, payload)
+                .putString(KEY_LAST_RESULTS, payload)
+                .apply()
+        }
+
         handler.removeCallbacks(batchTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()

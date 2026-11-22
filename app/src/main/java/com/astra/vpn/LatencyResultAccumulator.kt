@@ -27,4 +27,9 @@ internal class LatencyResultAccumulator(expectedTags: Set<String>) {
     @Synchronized
     fun allMeasured(): Boolean =
         results.isNotEmpty() && results.values.all { it != null && it > 0L }
+
+    /** True when at least one server has a real measurement worth recovering after cancellation. */
+    @Synchronized
+    fun hasAnyMeasurement(): Boolean =
+        results.values.any { it != null && it > 0L }
 }

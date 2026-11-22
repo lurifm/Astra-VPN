@@ -52,8 +52,23 @@ class LatencyResultAccumulatorTest {
     }
 
     @Test
-    fun emptyExpectedSetIsNotConsideredMeasured() {
-        assertFalse(LatencyResultAccumulator(emptySet()).allMeasured())
+    fun emptyExpectedSetIsNotConsideredMeasuredOrRecoverable() {
+        val accumulator = LatencyResultAccumulator(emptySet())
+        assertFalse(accumulator.allMeasured())
+        assertFalse(accumulator.hasAnyMeasurement())
+    }
+
+    @Test
+    fun partialPositiveResultsAreRecoverableButUnknownsAreNot() {
+        val accumulator = LatencyResultAccumulator(setOf("a", "b"))
+        assertFalse(accumulator.hasAnyMeasurement())
+
+        accumulator.merge(mapOf("a" to 0L, "b" to null))
+        assertFalse(accumulator.hasAnyMeasurement())
+
+        accumulator.merge(mapOf("a" to 37L))
+        assertTrue(accumulator.hasAnyMeasurement())
+        assertFalse(accumulator.allMeasured())
     }
 
     @Test
