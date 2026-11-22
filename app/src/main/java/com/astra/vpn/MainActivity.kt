@@ -3708,6 +3708,7 @@ class MainActivity : Activity() {
         }
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
+        restorePersistedConnectRetry()
         AstraHomeWidgetProvider.refreshAll(this)
         if (intent?.action == ACTION_TILE_TOGGLE) {
             intent.action = null
@@ -4062,11 +4063,12 @@ class MainActivity : Activity() {
     /** Schedule only explicitly retryable transient failures; never retry arbitrary config errors. */
     private fun scheduleTransientConnectRetry(
         retryable: Boolean,
-        isAutomaticFailover: Boolean
+        isAutomaticFailover: Boolean,
+        restoredState: PersistedConnectRetry? = null
     ): Boolean {
         val retryProfile = selectedProfile
         val userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false)
-        if (isFinishing || isDestroyed || disconnecting || connected ||
+        if (isFinishing || isDestroyed || disconnecting || connected || connecting ||
             !TransientConnectRetryPolicy.shouldSchedule(
                 retryable = retryable,
                 isAutomaticFailover = isAutomaticFailover,
@@ -4075,10 +4077,19 @@ class MainActivity : Activity() {
                 attempt = connectRetryAttempt
             )
         ) return false
-        val delay = TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
-        connectRetryAttempt++
+        val delay = restoredState?.let {
+            TransientConnectRetryStatePolicy.remainingDelayMs(it, System.currentTimeMillis())
+        } ?: TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
+        if (restoredState == null) {
+            connectRetryAttempt++
+        } else {
+            connectRetryAttempt = restoredState.attempt
+        }
         cancelConnectRetry(resetAttempts = false)
         val generation = connectRetryGeneration
+        if (restoredState == null) {
+            persistConnectRetryState(retryProfile, connectRetryAttempt, delay)
+        }
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
         lateinit var retryTask: Runnable
@@ -4124,6 +4135,7 @@ class MainActivity : Activity() {
                     status.text = "Ожидаем восстановления интернета…"
                     status.setTextColor(AMBER)
                     connectRetryTask = retryTask
+                    persistConnectRetryState(retryProfile, connectRetryAttempt, 4_000L)
                     connectRetryHandler.postDelayed(retryTask, 4_000L)
                     updateProtectionLabels()
                 } else {
@@ -4132,6 +4144,7 @@ class MainActivity : Activity() {
                 return@Runnable
             }
             connectRetryTask = null
+            clearPersistedConnectRetryState()
             connectSelectedProfile()
         }
         connectRetryTask = retryTask
@@ -4144,9 +4157,67 @@ class MainActivity : Activity() {
         connectRetryGeneration = if (connectRetryGeneration == Long.MAX_VALUE) 0L else connectRetryGeneration + 1L
         connectRetryTask?.let(connectRetryHandler::removeCallbacks)
         connectRetryTask = null
-        if (resetAttempts) connectRetryAttempt = 0
+        if (resetAttempts) {
+            connectRetryAttempt = 0
+            clearPersistedConnectRetryState()
+        }
     }
+
+    private fun persistConnectRetryState(profile: String?, attempt: Int, delayMs: Long) {
+        val fingerprint = TransientConnectRetryStatePolicy.fingerprint(profile) ?: return
+        val now = System.currentTimeMillis()
+        settingsPrefs.edit()
+            .putString(KEY_CONNECT_RETRY_PROFILE, fingerprint)
+            .putInt(KEY_CONNECT_RETRY_ATTEMPT, attempt)
+            .putLong(KEY_CONNECT_RETRY_CREATED_AT, now)
+            .putLong(KEY_CONNECT_RETRY_DUE_AT, now + delayMs.coerceAtLeast(0L))
+            .apply()
+    }
+
+    private fun readPersistedConnectRetryState(): PersistedConnectRetry? {
+        val fingerprint = settingsPrefs.getString(KEY_CONNECT_RETRY_PROFILE, null) ?: return null
+        val attempt = settingsPrefs.getInt(KEY_CONNECT_RETRY_ATTEMPT, 0)
+        val createdAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_CREATED_AT, 0L)
+        val dueAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_DUE_AT, 0L)
+        return PersistedConnectRetry(fingerprint, attempt, createdAt, dueAt)
+    }
+
+    private fun clearPersistedConnectRetryState() {
+        settingsPrefs.edit()
+            .remove(KEY_CONNECT_RETRY_PROFILE)
+            .remove(KEY_CONNECT_RETRY_ATTEMPT)
+            .remove(KEY_CONNECT_RETRY_CREATED_AT)
+            .remove(KEY_CONNECT_RETRY_DUE_AT)
+            .apply()
+    }
+
+    private fun restorePersistedConnectRetry() {
+        if (connectRetryTask != null || connected || connecting || disconnecting) return
+        val state = readPersistedConnectRetryState() ?: return
+        val profileFingerprint = TransientConnectRetryStatePolicy.fingerprint(selectedProfile)
+        val valid = TransientConnectRetryStatePolicy.isValid(
+            state = state,
+            currentProfileFingerprint = profileFingerprint,
+            nowWallClockMs = System.currentTimeMillis(),
+            userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+            hasSelectedProfile = !selectedProfile.isNullOrBlank()
+        )
+        if (!valid) {
+            clearPersistedConnectRetryState()
+            connectRetryAttempt = 0
+            return
+        }
+        connectRetryAttempt = state.attempt
+        scheduleTransientConnectRetry(
+            retryable = true,
+            isAutomaticFailover = false,
+            restoredState = state
+        )
+    }
+
     private fun startTunnel(config: String) {
+        // Once a new service start is handed to Android, the pending retry is no longer needed.
+        clearPersistedConnectRetryState()
         // An explicit new start supersedes a previously persisted user stop request.
         settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
         cancelConnectRetry(resetAttempts = false)
@@ -7296,6 +7367,10 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val KEY_CONNECT_RETRY_PROFILE = "connect_retry_profile_sha256"
+        private const val KEY_CONNECT_RETRY_ATTEMPT = "connect_retry_attempt"
+        private const val KEY_CONNECT_RETRY_CREATED_AT = "connect_retry_created_at"
+        private const val KEY_CONNECT_RETRY_DUE_AT = "connect_retry_due_at"
         const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_EXPORT_BACKUP = 7005
