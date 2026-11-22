@@ -2488,7 +2488,7 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "Не проверен"
                 val measuredLatency = latencyMs[link]
                 text = when {
-                    measuredLatency != null && isFastestProfile -> "✦  ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
+                    measuredLatency != null && isFastestProfile -> "ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
                     latency == "н/д" -> "○  PING  нет данных"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
@@ -4601,7 +4601,7 @@ class MainActivity : Activity() {
             background = rounded(BG, 22)
         }
         content.addView(TextView(this).apply {
-            text = "✦  СОСТОЯНИЕ СЕТИ В РЕАЛЬНОМ ВРЕМЕНИ"
+            text = "СОСТОЯНИЕ СЕТИ В РЕАЛЬНОМ ВРЕМЕНИ"
             textSize = 10f
             letterSpacing = 0.1f
             typeface = Typeface.DEFAULT_BOLD
@@ -5312,7 +5312,7 @@ class MainActivity : Activity() {
             background = rounded(BG, 22)
         }
         historyContent.addView(TextView(this).apply {
-            text = "✦  ИСТОРИЯ ПОДКЛЮЧЕНИЙ"
+            text = "ИСТОРИЯ ПОДКЛЮЧЕНИЙ"
             textSize = 10f
             letterSpacing = 0.12f
             typeface = Typeface.DEFAULT_BOLD
@@ -5504,15 +5504,15 @@ class MainActivity : Activity() {
         }
         fun addSectionLabel(label: String) {
             panel.addView(TextView(this).apply {
-                text = label
+                text = label.uppercase(java.util.Locale.getDefault())
                 textSize = 10f
                 letterSpacing = 0.14f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF8296D8.toInt())
+                setTextColor(0xFFD6B36A.toInt())
                 setPadding(dp(2), dp(14), 0, dp(5))
             })
         }
-        addSectionLabel("✦  ВЫБОР СЕРВЕРА")
+        addSectionLabel("Выбор сервера")
         panel.addView(TextView(this).apply {
             text = "Сортировка серверов"
             textSize = 15f
@@ -5520,7 +5520,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(0, dp(8), 0, dp(6))
         })
-        val sortGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val sortGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         val currentMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         listOf(
             "original" to "Как в подписке",
@@ -5531,20 +5531,23 @@ class MainActivity : Activity() {
                 id = View.generateViewId()
                 tag = value
                 text = label
-                textSize = 14f
+                textSize = 11f
                 setTextColor(Color.WHITE)
+                buttonTintList = android.content.res.ColorStateList.valueOf(0xFFD6B36A.toInt())
+                minHeight = dp(42)
+                gravity = Gravity.CENTER_VERTICAL
                 isChecked = currentMode == value
-            })
+            }, RadioGroup.LayoutParams(0, dp(46), 1f))
         }
         panel.addView(sortGroup)
-        addSectionLabel("✦  ИНСТРУМЕНТЫ")
+        addSectionLabel("Инструменты")
         val onboardingEntry = TextView(this).apply {
-            text = "✨  Повторить знакомство с Astra"
+            text = "Повторить знакомство с Astra"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
                 settingsPrefs.edit().putBoolean("onboarding_completed", false).apply()
@@ -5553,55 +5556,55 @@ class MainActivity : Activity() {
         }
         panel.addView(onboardingEntry)
         val whatsNewEntry = TextView(this).apply {
-            text = "📰  Что нового и поддержка"
+            text = "Что нового и поддержка"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showWhatsNewDialog() }
         }
         panel.addView(whatsNewEntry)
         val monitorEntry = TextView(this).apply {
-            text = "📶  Мониторинг сети"
+            text = "Мониторинг сети"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showNetworkMonitorDialog() }
         }
         panel.addView(monitorEntry)
 
         val speedTestEntry = TextView(this).apply {
-            text = "🚀  Тест скорости и внешнего IP"
+            text = "Тест скорости и внешнего IP"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { runCombinedSpeedAndIpTest() }
         }
         panel.addView(speedTestEntry)
 
         val diagnosticsEntry = TextView(this).apply {
-            text = "🩺  Диагностика соединения"
+            text = "Диагностика соединения"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showConnectionDiagnostics() }
         }
         panel.addView(diagnosticsEntry)
 
         val orbitMapEntry = TextView(this).apply {
-            text = "✦  Интерактивная карта орбит"
+            text = "Интерактивная карта орбит"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
                 showOrbitMapDialog()
@@ -5609,12 +5612,12 @@ class MainActivity : Activity() {
         }
         panel.addView(orbitMapEntry)
         val insightsEntry = TextView(this).apply {
-            text = "📊  Прогноз трафика и надёжность"
+            text = "Прогноз трафика и надёжность"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
                 showUsageAndReliabilityDialog()
@@ -5623,22 +5626,22 @@ class MainActivity : Activity() {
         panel.addView(insightsEntry)
 
         val familyQrEntry = TextView(this).apply {
-            text = "👨‍👩‍👧  Семейный доступ по QR"
+            text = "Семейный доступ по QR"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showFamilyQrDialog() }
         }
         panel.addView(familyQrEntry)
         val streakEntry = TextView(this).apply {
-            text = "🛡  Дни под защитой"
+            text = "Дни под защитой"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showProtectionStreakDialog() }
         }
         panel.addView(streakEntry)
@@ -5658,68 +5661,68 @@ class MainActivity : Activity() {
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showNetworkSecurityDialog() }
         }
         panel.addView(networkSecurityEntry)
 
         val historyEntry = TextView(this).apply {
-            text = "🕘  История подключений"
+            text = "История подключений"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showConnectionHistoryDialog() }
         }
         panel.addView(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
-            text = "📱  Приложения через VPN"
+            text = "Приложения через VPN"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showAppRoutingDialog() }
         }
         panel.addView(appRoutingEntry)
 
         val bankingEntry = TextView(this).apply {
-            text = "🏦  Автопауза VPN для банков"
+            text = "Автопауза VPN для банков"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showBankingProtectionDialog() }
         }
         panel.addView(bankingEntry)
 
-        addSectionLabel("✦  РЕЗЕРВНАЯ КОПИЯ")
+        addSectionLabel("Резервная копия")
         val backupExportEntry = TextView(this).apply {
-            text = "📤  Экспортировать серверы и подписки"
+            text = "Экспортировать серверы и подписки"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { startBackupExport() }
         }
         panel.addView(backupExportEntry)
         val backupImportEntry = TextView(this).apply {
-            text = "📥  Восстановить из резервной копии"
+            text = "Восстановить из резервной копии"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { startBackupImport() }
         }
         panel.addView(backupImportEntry)
 
-        addSectionLabel("✦  ЗАЩИТА СОЕДИНЕНИЯ")
+        addSectionLabel("Защита соединения")
         val vpnRecovery = android.widget.Switch(this).apply {
             text = "Восстанавливать VPN после сбоя приложения"
             textSize = 14f
@@ -5734,17 +5737,17 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(8))
         })
         val lockdownEntry = TextView(this).apply {
-            text = "🛡️  Системная блокировка без VPN"
+            text = "Системная блокировка без VPN"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(13), dp(12), dp(13))
-            background = rounded(0xFF172238.toInt(), 13)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showAndroidLockdownGuide() }
         }
         panel.addView(lockdownEntry)
 
-        addSectionLabel("✦  ЭКОНОМИЯ ЭНЕРГИИ")
+        addSectionLabel("Экономия энергии")
         val batterySaver = android.widget.Switch(this).apply {
             text = "Режим экономии батареи"
             textSize = 14f
@@ -5759,7 +5762,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(8))
         })
 
-        addSectionLabel("✦  АВТООБНОВЛЕНИЕ")
+        addSectionLabel("Автообновление")
         val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
@@ -6019,7 +6022,7 @@ class MainActivity : Activity() {
             )
         }
         val presetsEntry = TextView(this).apply {
-            text = "✦  Готовые пресеты маршрутизации"
+            text = "Готовые пресеты маршрутизации"
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(LIGHT_ACCENT)
@@ -6097,7 +6100,7 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, dp(10))
             })
             addView(TextView(this@MainActivity).apply {
-                text = "✦  ПРАВИЛА МАРШРУТИЗАЦИИ"
+                text = "ПРАВИЛА МАРШРУТИЗАЦИИ"
                 textSize = 10f
                 letterSpacing = 0.12f
                 typeface = Typeface.DEFAULT_BOLD
