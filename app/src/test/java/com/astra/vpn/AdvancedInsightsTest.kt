@@ -51,4 +51,20 @@ class AdvancedInsightsTest {
         assertEquals(67, score!!.score)
         assertEquals("предварительная", score.confidence)
     }
+
+    @Test
+    fun reliabilityPenaltyScalesWithEvidenceAndNeverExceedsCap() {
+        val sparse = ReliabilityScore.Result(0, sessions = 0, failures = 3, confidence = "предварительная")
+        val mature = ReliabilityScore.Result(0, sessions = 0, failures = 20, confidence = "высокая")
+        assertTrue(ReliabilityScore.selectionPenaltyMs(sparse) < ReliabilityScore.selectionPenaltyMs(mature))
+        assertEquals(60L, ReliabilityScore.selectionPenaltyMs(mature))
+        assertEquals(0L, ReliabilityScore.selectionPenaltyMs(mature, maxPenaltyMs = 0L))
+    }
+
+    @Test
+    fun perfectReliabilityHasNoSelectionPenalty() {
+        val perfect = ReliabilityScore.Result(100, sessions = 20, failures = 0, confidence = "высокая")
+        assertEquals(0L, ReliabilityScore.selectionPenaltyMs(perfect))
+    }
+
 }
