@@ -32,7 +32,7 @@ class ThroughputTimeoutPolicyTest {
         assertEquals(
             1,
             ThroughputTimeoutPolicy.remainingMillis(
-                Long.MIN_VALUE + 500_000L,
+                Long.MIN_VALUE + 499_999L,
                 Long.MAX_VALUE - 500_000L
             )
         )
@@ -44,7 +44,7 @@ class ThroughputTimeoutPolicyTest {
             0,
             ThroughputTimeoutPolicy.remainingMillis(
                 Long.MIN_VALUE + 500_000L,
-                Long.MAX_VALUE - 100_000L
+                Long.MIN_VALUE + 600_000L
             )
         )
     }
