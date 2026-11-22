@@ -306,7 +306,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         val payload = json.toString()
         // Only the terminal snapshot is persisted for Activity recreation.
         // Partial snapshots are live UI updates and must not replace the final result.
-        if (finished) {
+        if (finished && latestResults.hasAnyMeasurement()) {
             // Keep the latest completed measurements between app launches.
             // The pending copy is one-shot recovery for Activity recreation;
             // the last-results copy is a reusable display cache.
