@@ -203,6 +203,12 @@ class MainActivity : Activity() {
     // adapter/selection callbacks from scheduling duplicate full list rebuilds.
     private var renderedCountryFilterSelection: String? = null
     private var subscriptionsExpanded = false
+    // Reuse parsed node metadata between ping/throughput UI refreshes. These values
+    // change only when the stored profile list changes, not on every measurement.
+    private var cachedProfileOrder: List<String> = emptyList()
+    private var cachedProfileDetails: Map<String, Pair<String, String>> = emptyMap()
+    private var cachedProfileFlags: Map<String, String> = emptyMap()
+    private var cachedNormalizedProfileNames: Map<String, String> = emptyMap()
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
     private val searchRenderHandler = Handler(Looper.getMainLooper())
@@ -2169,28 +2175,34 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(8), 0, dp(8))
             })
         }
-        // Parse each imported URI once per render. Partial ping updates can rebuild
-        // this list frequently, so keep both the display name and protocol together.
-        val profileDetails = profiles.associateWith { link ->
-            val uri = Uri.parse(link)
-            val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-            val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
-            val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
-            val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
-            val protocol = when (uri.scheme?.lowercase()) {
-                "vless" -> "VLESS"
-                "hysteria2", "hy2" -> "Hysteria2"
-                "tuic" -> "TUIC"
-                else -> "VPN"
+        // Ping and throughput updates can trigger frequent row refreshes. Profile
+        // names, protocols and country resolution are invariant until the profile
+        // list itself changes, so parse them once and reuse the immutable snapshot.
+        if (cachedProfileOrder != profiles) {
+            val details = profiles.associateWith { link ->
+                val uri = Uri.parse(link)
+                val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
+                val cleanFragment = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "").trim()
+                val looksEncoded = cleanFragment.startsWith("base64:", true) || (cleanFragment.length > 48 && cleanFragment.matches(Regex("[A-Za-z0-9+/=_-]+")))
+                val name = cleanFragment.takeUnless { it.isBlank() || looksEncoded } ?: uri.host.orEmpty().ifBlank { "Сервер" }
+                val protocol = when (uri.scheme?.lowercase()) {
+                    "vless" -> "VLESS"
+                    "hysteria2", "hy2" -> "Hysteria2"
+                    "tuic" -> "TUIC"
+                    else -> "VPN"
+                }
+                name to protocol
             }
-            name to protocol
+            cachedProfileOrder = profiles.toList()
+            cachedProfileDetails = details
+            cachedProfileFlags = details.mapValues { (_, value) -> CountryFlagResolver.flagFor(value.first) }
+            cachedNormalizedProfileNames = details.mapValues { (_, value) ->
+                value.first.lowercase(java.util.Locale.getDefault())
+            }
         }
-        val profileFlags = profileDetails.mapValues { (_, details) ->
-            CountryFlagResolver.flagFor(details.first)
-        }
-        val normalizedNames = profileDetails.mapValues { (_, details) ->
-            details.first.lowercase(java.util.Locale.getDefault())
-        }
+        val profileDetails = cachedProfileDetails
+        val profileFlags = cachedProfileFlags
+        val normalizedNames = cachedNormalizedProfileNames
         val allCountries = profileFlags.values
             .filter { it.isNotBlank() && it != "🌐" }.distinct().sorted()
         // Use the same monochrome ISO language as the server badges; emoji flags
