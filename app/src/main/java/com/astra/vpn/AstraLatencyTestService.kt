@@ -47,7 +47,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
     private val batchTimeout = Runnable { finishAndPublish() }
-    private val completedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // Main-handler-owned scheduler state. URLTest() only triggers an asynchronous
+    // native probe; a slot remains occupied until a result or its deadline arrives.
+    private val completedTags = linkedSetOf<String>()
+    private val inFlightTags = linkedSetOf<String>()
+    private val pendingTags = java.util.ArrayDeque<String>()
     private val timedOutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val errorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
@@ -111,7 +115,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 }
                 server = commandServer
 
-                val options = CommandClientOptions().apply { addCommand(Libbox.CommandGroup) }
+                val options = CommandClientOptions().apply { addCommand(Libbox.CommandOutbounds) }
                 val commandClient = CommandClient(resultHandler, options)
                 createdClient = commandClient
                 client = commandClient
@@ -167,47 +171,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 handler.post {
                     if (stopped.get()) return@post
                     handler.removeCallbacks(batchTimeout)
-                    // The global deadline protects engine startup only. Once the
-                    // engine is connected, every server receives its own full 10s
-                    // budget when an actual worker starts its URLTest call.
-                }
-                // A fixed-size pool prevents one blocking native call from holding
-                // the startup worker. Its queue retains every profile in this batch;
-                // unlike a fixed-capacity queue, it cannot silently drop servers
-                // merely because a subscription contains more than 1,024 entries.
-                expectedTags.forEach { outboundTag ->
-                    if (stopped.get()) return@forEach
-                    try {
-                        urlTestDispatcher.execute {
-                            if (!LatencyProbeDispatchPolicy.shouldDispatch(
-                                    stopped = stopped.get(),
-                                    alreadyCompleted = outboundTag in completedTags
-                                )) return@execute
-
-                            // Start this server's hard timeout at the exact dispatch
-                            // moment. postAtTime preserves the deadline even if the UI
-                            // thread is briefly busy processing other updates.
-                            val dispatchStartedAt = SystemClock.uptimeMillis()
-                            handler.post {
-                                if (!stopped.get() && outboundTag !in completedTags) {
-                                    val deadline = Runnable { completeUnmeasuredTag(outboundTag, timedOut = true) }
-                                    perServerTimeouts[outboundTag] = deadline
-                                    handler.postAtTime(deadline, dispatchStartedAt + SERVER_URLTEST_TIMEOUT_MS)
-                                }
-                            }
-                            runCatching {
-                                activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
-                            }.onFailure {
-                                handler.post { completeUnmeasuredTag(outboundTag, timedOut = false) }
-                            }
-                        }
-                    } catch (_: RejectedExecutionException) {
-                        // Rejection is expected only during shutdown. If the session
-                        // is still active, expose it as an error rather than offline.
-                        if (!stopped.get()) {
-                            handler.post { completeUnmeasuredTag(outboundTag, timedOut = false) }
-                        }
-                    }
+                    // URLTest() is asynchronous in libbox. Limit actual native probes
+                    // until their result arrives, rather than merely limiting RPC calls.
+                    pendingTags.clear()
+                    pendingTags.addAll(expectedTags)
+                    dispatchNextUrlTests(activeClient)
                 }
             }
         }
@@ -243,58 +211,81 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
         override fun writeStatus(message: StatusMessage?) = Unit
 
-        override fun writeGroups(message: OutboundGroupIterator) {
+        override fun writeGroups(message: OutboundGroupIterator) = Unit
+
+        override fun writeOutbounds(message: OutboundGroupItemIterator) {
             val snapshot = linkedMapOf<String, Long?>()
             while (message.hasNext()) {
-                val group = message.next()
-                val outboundTag = SingBoxUrlTestConfig.outboundTagForGroup(group.tag)
-                    ?: continue
-                if (outboundTag !in expectedTags) continue
-                val items = group.getItems()
-                while (items.hasNext()) {
-                    val item = items.next()
-                    if (item.tag != outboundTag) continue
-                    val delay = item.urlTestDelay.toLong()
-                    if (delay > 0L) snapshot[item.tag] = delay
-                }
+                val item = message.next()
+                if (item.tag !in expectedTags) continue
+                val delay = item.urlTestDelay.toLong()
+                if (delay > 0L) snapshot[item.tag] = delay
             }
             if (snapshot.isNotEmpty()) {
-                // Consume native iterators on the callback thread, but serialize all
-                // state mutation and broadcasts with timeout/finish on the main handler.
+                // Plain proxy outbounds publish URLTest history on this stream.
+                // Consume the native iterator here; serialize state changes on main.
                 handler.post {
                     if (stopped.get()) return@post
                     val accepted = snapshot.filterKeys { it !in completedTags }
                     if (accepted.isEmpty()) return@post
                     accepted.keys.forEach(::completeMeasuredTag)
-                    // Merge into the cumulative accumulator for the terminal snapshot,
-                    // but broadcast only newly accepted measurements. Sending the full
-                    // growing snapshot after every node made UI parsing and IPC work
-                    // quadratic for large subscriptions.
                     latestResults.merge(accepted)
                     publishResults(accepted, finished = false)
+                    dispatchNextUrlTests(client)
                     finishIfAllTagsCompleted()
                 }
             }
         }
 
-        override fun writeOutbounds(message: OutboundGroupItemIterator) = Unit
         override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
         override fun updateClashMode(newMode: String) = Unit
         override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
     }
 
+    private fun dispatchNextUrlTests(activeClient: CommandClient?) {
+        if (stopped.get() || activeClient == null) return
+        while (inFlightTags.size < URL_TEST_DISPATCH_CONCURRENCY && pendingTags.isNotEmpty()) {
+            val tag = pendingTags.removeFirst()
+            if (!LatencyProbeDispatchPolicy.shouldDispatch(
+                    stopped = stopped.get(),
+                    alreadyCompleted = tag in completedTags
+                ) || !inFlightTags.add(tag)
+            ) continue
+
+            val startedAt = SystemClock.uptimeMillis()
+            val deadline = Runnable { completeUnmeasuredTag(tag, timedOut = true) }
+            perServerTimeouts[tag] = deadline
+            handler.postAtTime(deadline, startedAt + SERVER_URLTEST_TIMEOUT_MS)
+
+            try {
+                urlTestDispatcher.execute {
+                    if (stopped.get()) return@execute
+                    runCatching { activeClient.urlTest(tag) }
+                        .onFailure {
+                            handler.post { completeUnmeasuredTag(tag, timedOut = false) }
+                        }
+                }
+            } catch (_: RejectedExecutionException) {
+                if (!stopped.get()) completeUnmeasuredTag(tag, timedOut = false)
+            }
+        }
+    }
+
     private fun completeMeasuredTag(tag: String) {
         if (completedTags.add(tag)) {
+            inFlightTags.remove(tag)
             perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         }
     }
 
     private fun completeUnmeasuredTag(tag: String, timedOut: Boolean) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
+        inFlightTags.remove(tag)
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         if (timedOut) timedOutTags.add(tag) else errorTags.add(tag)
         // Publish completion and its reason even without a positive latency.
         publishResults(mapOf(tag to null), finished = false)
+        dispatchNextUrlTests(client)
         finishIfAllTagsCompleted()
     }
 
@@ -389,6 +380,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handler.removeCallbacks(batchTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()
+        inFlightTags.clear()
+        pendingTags.clear()
         // Interrupt queued dispatch tasks; native URLTest calls already in progress
         // may be non-interruptible, but they cannot publish after stopped becomes true.
         urlTestDispatcher.shutdownNow()
