@@ -16,16 +16,13 @@ import java.security.MessageDigest
  * in a separate lifecycle component so a probe can never disturb the active VPN.
  */
 internal object SingBoxUrlTestConfig {
-    const val TEST_URL = ServiceProbeUrlPolicy.DEFAULT_URL
-
     data class Result(
         val json: String,
         /** Opaque sing-box outbound tag -> original profile URI. Never log this map. */
         val profileByOutboundTag: Map<String, String>
     )
 
-    fun build(profileLinks: List<String>, testUrl: String = TEST_URL): Result {
-        val validatedTestUrl = ServiceProbeUrlPolicy.validate(testUrl)
+    fun build(profileLinks: List<String>): Result {
         val profiles = profileLinks.map(String::trim).filter(String::isNotEmpty).distinct()
         require(profiles.isNotEmpty()) { "Нет серверов для проверки задержки" }
 
