@@ -19,24 +19,7 @@ object SingBoxConfigBuilder {
             .put(JSONObject().put("type", "direct").put("tag", "direct"))
         val config = JSONObject()
             .put("log", JSONObject().put("level", "warn"))
-            .put("dns", JSONObject()
-                .put("servers", JSONArray()
-                    .put(JSONObject()
-                        .put("type", "https")
-                        .put("tag", "dns-remote")
-                        .put("server", "1.1.1.1")
-                        .put("server_port", 443)
-                        .put("path", "/dns-query")
-                        .put("tls", JSONObject()
-                            .put("enabled", true)
-                            .put("server_name", "cloudflare-dns.com"))
-                        // Keep DNS transport explicitly outside the proxy/TUN route.
-                        .put("detour", "direct"))
-                    .put(JSONObject()
-                        .put("type", "local")
-                        .put("tag", "dns-direct")))
-                .put("final", "dns-remote")
-                .put("independent_cache", options.dnsCacheEnabled))
+            .put("dns", buildDnsConfig(options))
             .put("inbounds", JSONArray().put(JSONObject()
                 .put("type", "tun")
                 .put("tag", "tun-in")
@@ -69,6 +52,35 @@ object SingBoxConfigBuilder {
         Libbox.checkConfig(json)
         return json
     }
+
+    /**
+     * Keep DNS requests on an explicit IP-literal DoH endpoint, so bootstrap
+     * never depends on Android's system resolver or the VPN tunnel itself.
+     * Optimistic cache serves recently expired answers during short network
+     * handovers while refreshing them in the background (sing-box 1.14+).
+     */
+    internal fun buildDnsConfig(options: SingBoxAdvancedOptions): JSONObject =
+        JSONObject()
+            .put("servers", JSONArray()
+                .put(JSONObject()
+                    .put("type", "https")
+                    .put("tag", "dns-remote")
+                    .put("server", "1.1.1.1")
+                    .put("server_port", 443)
+                    .put("path", "/dns-query")
+                    .put("tls", JSONObject()
+                        .put("enabled", true)
+                        .put("server_name", "cloudflare-dns.com"))
+                    .put("detour", "direct"))
+                .put(JSONObject()
+                    .put("type", "local")
+                    .put("tag", "dns-direct")))
+            .put("final", "dns-remote")
+            .put("optimistic", if (options.dnsCacheEnabled) {
+                JSONObject().put("enabled", true).put("timeout", "30m")
+            } else {
+                false
+            })
 
     /** Validates one imported outbound with the bundled core using a minimal non-TUN config. */
     internal fun validateProxyOutbound(serverLink: String): Boolean = runCatching {
