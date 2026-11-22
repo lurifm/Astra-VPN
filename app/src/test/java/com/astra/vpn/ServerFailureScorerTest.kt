@@ -132,8 +132,8 @@ class ServerFailureScorerTest {
         val now = 10_000_000L
         val profile = "vless://id@bad.example:443#Bad"
         val entries = listOf(
-            ConnectionHistoryStore.Entry(now - 11L * 60L * 1_000L, "error", "Bad", "VLESS"),
-            ConnectionHistoryStore.Entry(now - 10L * 60L * 1_000L, "error", "Bad", "VLESS")
+            ConnectionHistoryStore.Entry(now - 12L * 60L * 1_000L, "error", "Bad", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 11L * 60L * 1_000L, "error", "Bad", "VLESS")
         )
         assertEquals(
             listOf(profile),
