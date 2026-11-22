@@ -570,7 +570,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun connectSSHAgent(): Int = -1
 
     override fun onRevoke() {
+        // Android has revoked the user's VPN consent. Tear down the TUN first,
+        // then persist an actionable error instead of leaving the UI at the
+        // generic DISCONNECTED state. Do not mark this as retryable: retrying
+        // without a fresh VpnService.prepare() consent flow would just fail again.
         stopTunnel()
+        publishState(
+            STATE_ERROR,
+            "Системное разрешение VPN отозвано. Нажми «Подключить» и подтверди запрос Android."
+        )
         super.onRevoke()
     }
 
