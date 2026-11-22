@@ -5682,9 +5682,9 @@ class MainActivity : Activity() {
             ))
             if (group.childCount > 1) {
                 val divider = View(this).apply { setBackgroundColor(0xFF29364C.toInt()) }
-                group.addView(divider, LinearLayout.LayoutParams(
+                group.addView(divider, group.childCount - 1, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
-                ).apply { leftMargin = dp(43); rightMargin = dp(12) }, group.childCount - 1)
+                ).apply { leftMargin = dp(43); rightMargin = dp(12) })
             }
         }
         fun addToggleRow(toggle: android.widget.CompoundButton) {
