@@ -3664,6 +3664,23 @@ class MainActivity : Activity() {
         checkSubscriptionWarnings()
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_PHONE_STATE_PERMISSION) return
+
+        // Permission state changes should be reflected immediately instead of
+        // waiting for the next throttled network-monitor tick.
+        lastNetworkLabelAt = 0L
+        updateNetworkLabel()
+        if (grantResults.firstOrNull() != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            android.util.Log.i("AstraVPN", "Дополнительные сведения об операторе недоступны без разрешения READ_PHONE_STATE")
+        }
+    }
+
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         if (intent == null) return
