@@ -53,7 +53,7 @@ internal object LatencyStabilityScorer {
             .filter { sample ->
                 sample.timestampMs > 0L &&
                     sample.timestampMs <= now &&
-                    now - sample.timestampMs <= RECENT_WINDOW_MS &&
+                    now - sample.timestampMs <= minOf(RECENT_WINDOW_MS, windowMs) &&
                     sample.latencyMs > 0L
             }
             .map { it.latencyMs }
