@@ -5502,6 +5502,26 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(8), dp(18), dp(12))
             background = rounded(BG, 22)
         }
+        fun addActionRow(row: TextView) {
+            val marker = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xFFD6B36A.toInt())
+                setSize(dp(7), dp(7))
+            }
+            row.setCompoundDrawablesWithIntrinsicBounds(marker, null, null, null)
+            row.compoundDrawablePadding = dp(12)
+            row.minHeight = dp(48)
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(dp(14), dp(9), dp(12), dp(9))
+            row.textSize = 13.5f
+            row.typeface = Typeface.DEFAULT
+            row.background = rounded(0xFF141F31.toInt(), 11)
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            params.bottomMargin = dp(6)
+            panel.addView(row, params)
+        }
         fun addSectionLabel(label: String) {
             panel.addView(TextView(this).apply {
                 text = label.uppercase(java.util.Locale.getDefault())
@@ -5554,7 +5574,7 @@ class MainActivity : Activity() {
                 window.decorView.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding(force = true) }
             }
         }
-        panel.addView(onboardingEntry)
+        addActionRow(onboardingEntry)
         val whatsNewEntry = TextView(this).apply {
             text = "Что нового и поддержка"
             textSize = 14f
@@ -5564,7 +5584,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showWhatsNewDialog() }
         }
-        panel.addView(whatsNewEntry)
+        addActionRow(whatsNewEntry)
         val monitorEntry = TextView(this).apply {
             text = "Мониторинг сети"
             textSize = 14f
@@ -5574,7 +5594,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showNetworkMonitorDialog() }
         }
-        panel.addView(monitorEntry)
+        addActionRow(monitorEntry)
 
         val speedTestEntry = TextView(this).apply {
             text = "Тест скорости и внешнего IP"
@@ -5585,7 +5605,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { runCombinedSpeedAndIpTest() }
         }
-        panel.addView(speedTestEntry)
+        addActionRow(speedTestEntry)
 
         val diagnosticsEntry = TextView(this).apply {
             text = "Диагностика соединения"
@@ -5596,7 +5616,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showConnectionDiagnostics() }
         }
-        panel.addView(diagnosticsEntry)
+        addActionRow(diagnosticsEntry)
 
         val orbitMapEntry = TextView(this).apply {
             text = "Интерактивная карта орбит"
@@ -5610,7 +5630,7 @@ class MainActivity : Activity() {
                 showOrbitMapDialog()
             }
         }
-        panel.addView(orbitMapEntry)
+        addActionRow(orbitMapEntry)
         val insightsEntry = TextView(this).apply {
             text = "Прогноз трафика и надёжность"
             textSize = 14f
@@ -5623,7 +5643,7 @@ class MainActivity : Activity() {
                 showUsageAndReliabilityDialog()
             }
         }
-        panel.addView(insightsEntry)
+        addActionRow(insightsEntry)
 
         val familyQrEntry = TextView(this).apply {
             text = "Семейный доступ по QR"
@@ -5634,7 +5654,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showFamilyQrDialog() }
         }
-        panel.addView(familyQrEntry)
+        addActionRow(familyQrEntry)
         val streakEntry = TextView(this).apply {
             text = "Дни под защитой"
             textSize = 14f
@@ -5644,7 +5664,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showProtectionStreakDialog() }
         }
-        panel.addView(streakEntry)
+        addActionRow(streakEntry)
         val speedFailoverEntry = CheckBox(this).apply {
             text = "Автопереключение при падении скорости (требует достоверной VPN-статистики)"
             textSize = 13f
@@ -5665,7 +5685,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showNetworkSecurityDialog() }
         }
-        panel.addView(networkSecurityEntry)
+        addActionRow(networkSecurityEntry)
 
         val historyEntry = TextView(this).apply {
             text = "История подключений"
@@ -5676,7 +5696,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showConnectionHistoryDialog() }
         }
-        panel.addView(historyEntry)
+        addActionRow(historyEntry)
 
         val appRoutingEntry = TextView(this).apply {
             text = "Приложения через VPN"
@@ -5687,7 +5707,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showAppRoutingDialog() }
         }
-        panel.addView(appRoutingEntry)
+        addActionRow(appRoutingEntry)
 
         val bankingEntry = TextView(this).apply {
             text = "Автопауза VPN для банков"
@@ -5698,7 +5718,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showBankingProtectionDialog() }
         }
-        panel.addView(bankingEntry)
+        addActionRow(bankingEntry)
 
         addSectionLabel("Резервная копия")
         val backupExportEntry = TextView(this).apply {
@@ -5710,7 +5730,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { startBackupExport() }
         }
-        panel.addView(backupExportEntry)
+        addActionRow(backupExportEntry)
         val backupImportEntry = TextView(this).apply {
             text = "Восстановить из резервной копии"
             textSize = 14f
@@ -5720,7 +5740,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { startBackupImport() }
         }
-        panel.addView(backupImportEntry)
+        addActionRow(backupImportEntry)
 
         addSectionLabel("Защита соединения")
         val vpnRecovery = android.widget.Switch(this).apply {
@@ -5745,7 +5765,7 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener { showAndroidLockdownGuide() }
         }
-        panel.addView(lockdownEntry)
+        addActionRow(lockdownEntry)
 
         addSectionLabel("Экономия энергии")
         val batterySaver = android.widget.Switch(this).apply {
