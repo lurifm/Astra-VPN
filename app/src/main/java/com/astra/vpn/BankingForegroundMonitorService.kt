@@ -35,13 +35,16 @@ internal class BankingForegroundMonitorService : Service() {
     private var lastQueryTime = 0L
     @Volatile private var running = false
     @Volatile private var stopCleanupPending = false
+    // Invalidates work and delayed callbacks belonging to an earlier start/stop cycle.
+    @Volatile private var monitorGeneration = 0L
 
     private val poll: Runnable = object : Runnable {
         override fun run() {
             if (!running) return
+            val pollGeneration = monitorGeneration
             try {
                 pollExecutor.execute {
-                    if (!running) return@execute
+                    if (!running || pollGeneration != monitorGeneration) return@execute
                     val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
                     if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
                         !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
@@ -52,6 +55,9 @@ internal class BankingForegroundMonitorService : Service() {
                     val observed = runCatching { readForegroundPackage() }
                         .onFailure { Log.w(TAG, "Usage events unavailable", it) }
                         .getOrNull()
+                    // A stop/restart may have happened while UsageEvents were being read.
+                    // Discard the old session's observation instead of applying it to the new one.
+                    if (!running || pollGeneration != monitorGeneration) return@execute
                     // Require two consecutive non-ambiguous observations before publishing
                     // a foreground change. Null means unknown (transition, split-screen,
                     // missing Usage Access), never proof that a banking app was closed.
@@ -74,7 +80,9 @@ internal class BankingForegroundMonitorService : Service() {
                         systemBatterySaverEnabled = getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
                     )
                     handler.post {
-                        if (running) handler.postDelayed(poll, interval)
+                        if (running && pollGeneration == monitorGeneration) {
+                            handler.postDelayed(poll, interval)
+                        }
                     }
                 }
             } catch (_: RejectedExecutionException) {
@@ -94,6 +102,7 @@ internal class BankingForegroundMonitorService : Service() {
                 // Stop observation immediately, then serialize durable cleanup behind
                 // any in-flight poll without blocking the main thread.
                 running = false
+                monitorGeneration++
                 stopCleanupPending = true
                 handler.removeCallbacksAndMessages(null)
                 try {
@@ -156,6 +165,7 @@ internal class BankingForegroundMonitorService : Service() {
      */
     private fun startMonitoringIfNeeded() {
         if (running) return
+        monitorGeneration++
         running = true
         stopCleanupPending = false
         activeActivities.clear()
@@ -179,6 +189,7 @@ internal class BankingForegroundMonitorService : Service() {
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
+        monitorGeneration++
         if (!stopCleanupPending) {
             handler.post {
                 // The feature may be re-enabled after this poll queued its stop.
@@ -455,6 +466,7 @@ internal class BankingForegroundMonitorService : Service() {
 
     override fun onDestroy() {
         running = false
+        monitorGeneration++
         handler.removeCallbacksAndMessages(null)
         pollExecutor.shutdownNow()
         super.onDestroy()
