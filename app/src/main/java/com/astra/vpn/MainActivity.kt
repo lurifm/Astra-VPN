@@ -1583,6 +1583,9 @@ class MainActivity : Activity() {
         settingsPrefs.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
         status.text = "Обновляем подписки…"
         status.setTextColor(AMBER)
+        // Reflect the in-flight state on subscription cards immediately,
+        // rather than waiting until the network requests finish.
+        renderProfiles()
         importExecutor.execute {
             var updated = 0
             var totalProfiles = 0
@@ -1922,6 +1925,9 @@ class MainActivity : Activity() {
         refreshingSubscriptions = true
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
+        // Keep the expanded subscription card and its badge in sync with
+        // the single-subscription refresh action.
+        renderProfiles()
         importExecutor.execute {
             SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
             val result = runCatching {
