@@ -47,6 +47,18 @@ class AstraPlatform(
     fun updatePreferredPhysicalNetwork(network: Network) {
         preferredPhysicalNetwork = network
     }
+
+    /** Clear a lost underlay only if it is still the preferred one. */
+    fun clearPreferredPhysicalNetwork(network: Network) {
+        if (preferredPhysicalNetwork == network) preferredPhysicalNetwork = null
+    }
+
+    /** Select the best remaining physical network after the preferred one is lost. */
+    fun refreshPreferredPhysicalNetwork(): Network? {
+        val selected = probeNetworkCandidates().firstOrNull() ?: return null
+        preferredPhysicalNetwork = selected
+        return selected
+    }
     private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var interfaceListener: InterfaceUpdateListener? = null
     private var lastUnderlyingNetwork: Network? = null

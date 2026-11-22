@@ -3,6 +3,9 @@ package com.astra.vpn
 import android.content.Context
 import android.content.Intent
 import android.net.Network
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Handler
 import android.os.SystemClock
@@ -47,6 +50,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var probePlatform: AstraPlatform? = null
     // Covers a handover delivered before the native platform adapter is ready.
     @Volatile private var pendingPreferredNetwork: Network? = null
+    @Volatile private var probeNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
@@ -102,6 +106,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
         latestResults = LatencyResultAccumulator(expectedTags)
 
+        registerProbeNetworkCallback()
         startForeground(
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
@@ -419,6 +424,63 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             .putExtra(EXTRA_SESSION, sessionId))
     }
 
+    /**
+     * Keep physical-network selection alive with the foreground probe service,
+     * even when MainActivity is stopped or the app is backgrounded.
+     */
+    private fun registerProbeNetworkCallback() {
+        if (probeNetworkCallback != null) return
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                preferProbeNetwork(network)
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                ) preferProbeNetwork(network)
+            }
+
+            override fun onLost(network: Network) {
+                val platform = probePlatform ?: return
+                platform.clearPreferredPhysicalNetwork(network)
+                platform.refreshPreferredPhysicalNetwork()
+            }
+        }
+        try {
+            connectivity.registerNetworkCallback(request, callback)
+            probeNetworkCallback = callback
+        } catch (failure: Exception) {
+            Log.w(TAG, "Не удалось включить мониторинг сети для Ping", failure)
+        }
+    }
+
+    private fun preferProbeNetwork(network: Network) {
+        if (stopped.get()) return
+        pendingPreferredNetwork = network
+        probePlatform?.updatePreferredPhysicalNetwork(network)
+    }
+
+    private fun unregisterProbeNetworkCallback() {
+        val callback = probeNetworkCallback ?: return
+        probeNetworkCallback = null
+        runCatching {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
+        }.onFailure {
+            Log.w(TAG, "Не удалось остановить мониторинг сети Ping", it)
+        }
+    }
+
     private fun finish() {
         if (!stopped.compareAndSet(false, true)) return
 
@@ -457,6 +519,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         server = null
         probePlatform = null
         pendingPreferredNetwork = null
+        unregisterProbeNetworkCallback()
         closeLibboxResourcesAsync(currentClient, currentServer)
         getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_ACTIVE_SESSION_ID).apply()
