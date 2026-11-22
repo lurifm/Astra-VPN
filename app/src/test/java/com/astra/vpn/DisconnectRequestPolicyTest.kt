@@ -23,6 +23,20 @@ class DisconnectRequestPolicyTest {
     @Test
     fun disconnectedAcknowledgementClearsPendingUserDisconnect() {
         assertTrue(DisconnectRequestPolicy.shouldClearAfterServiceState("disconnected"))
+        assertFalse(DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending("disconnected"))
+    }
+
+    @Test
+    fun nonTerminalAndErrorBroadcastsAreIgnoredWhileStopIsPending() {
+        assertTrue(DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending("connecting"))
+        assertTrue(DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending("connected"))
+        assertTrue(DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending("error"))
+    }
+
+    @Test
+    fun missingOrUnknownBroadcastDoesNotAcknowledgeStop() {
+        assertFalse(DisconnectRequestPolicy.shouldClearAfterServiceState(null))
+        assertTrue(DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending("unknown"))
     }
 
     @Test

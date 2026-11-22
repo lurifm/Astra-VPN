@@ -404,8 +404,16 @@ class MainActivity : Activity() {
             // CONNECTING/CONNECTED may be delayed broadcasts from a request that
             // was already in flight when the user pressed Disconnect. Only the
             // terminal DISCONNECTED acknowledgement may clear that stop intent.
+            val disconnectPending = settingsPrefs.getBoolean("vpn_disconnect_requested", false)
             if (DisconnectRequestPolicy.shouldClearAfterServiceState(serviceState)) {
                 settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+            } else if (disconnectPending &&
+                DisconnectRequestPolicy.shouldIgnoreWhileDisconnectPending(serviceState)
+            ) {
+                // Keep the last confirmed tunnel state until STOP is acknowledged.
+                // Delayed CONNECTING/CONNECTED/ERROR broadcasts belong to an older
+                // request and must not revive the UI or trigger a retry/dialog.
+                return
             }
             when (serviceState) {
                 AstraVpnService.STATE_CONNECTING -> {
