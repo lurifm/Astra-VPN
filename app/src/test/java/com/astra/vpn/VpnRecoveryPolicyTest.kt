@@ -6,8 +6,8 @@ import org.junit.Test
 class VpnRecoveryPolicyTest {
     @Test
     fun consentCheckReturnsTrueOnlyWhenPlatformConfirmsGrant() {
-        assertEquals(true, VpnRecoveryPolicy.isVpnConsentGranted { true })
-        assertEquals(false, VpnRecoveryPolicy.isVpnConsentGranted { false })
+        assertEquals(true, VpnRecoveryPolicy.isVpnConsentGranted(check = { true }))
+        assertEquals(false, VpnRecoveryPolicy.isVpnConsentGranted(check = { false }))
     }
 
     @Test
