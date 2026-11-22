@@ -315,7 +315,6 @@ class MainActivity : Activity() {
         // one transition so a probe is not repeatedly invalidated mid-handover.
         lastNetworkLabelAt = 0L
         lastHealthCheckAt = 0L
-        tunnelHealthCheckGeneration.advance()
         consecutiveHealthFailures = 0
         tunnelInternetOk = null
         if (connected) {
@@ -346,6 +345,11 @@ class MainActivity : Activity() {
             monitorHandler.post { onPhysicalNetworkChanged() }
             return
         }
+        // Invalidate an in-flight HTTPS result immediately, not after the
+        // debounce. Otherwise a probe started on the old underlay could finish
+        // during the 250 ms handover window and count as a server failure.
+        tunnelHealthCheckGeneration.advance()
+        lastHealthCheckAt = 0L
         monitorHandler.removeCallbacks(physicalNetworkChangeDebounce)
         monitorHandler.postDelayed(
             physicalNetworkChangeDebounce,
