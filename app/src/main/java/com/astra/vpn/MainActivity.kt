@@ -6968,7 +6968,9 @@ class MainActivity : Activity() {
                     it.protocol.trim().lowercase(java.util.Locale.ROOT)
                         .let { value -> if (value == "hy2") "hysteria2" else value } == protocol
             }
-            val score = ReliabilityScore.calculate(outcomes) ?: return@mapNotNull null
+            val score = ReliabilityScore.calculate(
+                ReliabilityScore.outcomesAfterLatestSuccess(outcomes)
+            ) ?: return@mapNotNull null
             val penalty = ReliabilityScore.selectionPenaltyMs(score)
             if (penalty > 0L) profile to penalty else null
         }.toMap()
