@@ -34,6 +34,7 @@ internal class BankingForegroundMonitorService : Service() {
     private val observationPolicy = BankingForegroundObservationPolicy()
     private var lastQueryTime = 0L
     @Volatile private var running = false
+    @Volatile private var stopCleanupPending = false
 
     private val poll = object : Runnable {
         override fun run() {
@@ -93,6 +94,7 @@ internal class BankingForegroundMonitorService : Service() {
                 // Stop observation immediately, then serialize durable cleanup behind
                 // any in-flight poll without blocking the main thread.
                 running = false
+                stopCleanupPending = true
                 handler.removeCallbacksAndMessages(null)
                 try {
                     pollExecutor.execute {
@@ -149,6 +151,7 @@ internal class BankingForegroundMonitorService : Service() {
     private fun startMonitoringIfNeeded() {
         if (running) return
         running = true
+        stopCleanupPending = false
         activeActivities.clear()
         observationPolicy.reset()
         lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
@@ -170,10 +173,14 @@ internal class BankingForegroundMonitorService : Service() {
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
-        handler.post {
-            handler.removeCallbacks(poll)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+        if (!stopCleanupPending) {
+            handler.post {
+                if (!stopCleanupPending) {
+                    handler.removeCallbacks(poll)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
         }
     }
 
