@@ -4719,7 +4719,12 @@ class MainActivity : Activity() {
                         }
                         updateProtectionLabels()
                         renderProfiles()
-                    } else if (!isFinishing && !isDestroyed && connected) {
+                    } else if (TunnelHealthProbeResumePolicy.shouldReschedule(
+                            activityActive = !isFinishing && !isDestroyed,
+                            connected = connected,
+                            generationCurrent = tunnelHealthCheckGeneration.isCurrent(probeGeneration)
+                        )
+                    ) {
                         // The Activity may have stopped (screen lock/background) while
                         // this HTTPS probe was running. onStop invalidates its generation;
                         // once the old worker releases the in-flight gate, immediately
