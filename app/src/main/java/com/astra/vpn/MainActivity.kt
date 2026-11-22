@@ -1577,15 +1577,18 @@ class MainActivity : Activity() {
      * Refresh each previously imported HTTPS subscription independently.
      * The previous server set is kept whenever download, parsing or storage fails.
      */
-    private fun refreshSubscriptions(showResult: Boolean = true) {
+    private fun refreshSubscriptions(showResult: Boolean = true, onlySources: List<String>? = null) {
         // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
-        val sources = safeSubscriptionSources() ?: return
+        val currentSources = safeSubscriptionSources() ?: return
+        val sources = onlySources?.filter { it in currentSources } ?: currentSources
         if (sources.isEmpty()) {
-            Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
+            if (onlySources == null) {
+                Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
+            }
             return
         }
         val selectionSnapshot = selectedProfile
@@ -1620,7 +1623,7 @@ class MainActivity : Activity() {
             // Keep manual/foreground refresh failures in the same fingerprint-only
             // retry queue used by WorkManager, so a later background run retries
             // only failed providers rather than downloading every successful one.
-            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
+            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, currentSources)
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
@@ -6762,16 +6765,46 @@ class MainActivity : Activity() {
         if (refreshingSubscriptions) return
         val enabled = settingsPrefs.getBoolean("auto_update", false)
         val updateOnOpen = settingsPrefs.getBoolean("update_on_open", false)
+        if (!enabled && !(onOpen && updateOnOpen)) return
         val now = System.currentTimeMillis()
         val last = settingsPrefs.getLong("last_subscription_update", 0L)
         val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", last)
-        val intervalMs = SubscriptionRefreshInterval.intervalMillis(settingsPrefs.getInt("update_interval_hours", 2))
-        val shouldUpdate = (onOpen && updateOnOpen && now - lastAttempt > 5 * 60_000L) ||
-            (enabled && now - lastAttempt >= intervalMs)
+        val intervalMs = SubscriptionRefreshInterval.intervalMillis(
+            settingsPrefs.getInt("update_interval_hours", 2)
+        )
+        val currentSources = safeSubscriptionSources() ?: return
+        if (currentSources.isEmpty()) return
+        val pending = settingsPrefs.getStringSet("subscription_retry_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val known = settingsPrefs.getStringSet("subscription_known_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val summaries = profileStore.subscriptionSummaries().associateBy { it.sourceUrl }
+        val candidates = currentSources.map { source ->
+            val history = SubscriptionRefreshHistory.get(settingsPrefs, source, now)
+            SubscriptionRefreshCandidate(
+                fingerprint = SubscriptionSourceFingerprint.of(source),
+                intervalHours = summaries[source]?.updateIntervalHours
+                    ?: settingsPrefs.getInt("update_interval_hours", 2),
+                lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
+            )
+        }
+        val dueFingerprints = SubscriptionRefreshDuePolicy.select(
+            candidates = candidates,
+            pendingFingerprints = pending,
+            knownFingerprints = known,
+            defaultIntervalHours = settingsPrefs.getInt("update_interval_hours", 2),
+            now = now
+        ).toSet()
+        val dueSources = currentSources.filter {
+            SubscriptionSourceFingerprint.of(it) in dueFingerprints
+        }
+        if (dueSources.isEmpty()) return
+        val onOpenThrottlePassed = now < lastAttempt || now - lastAttempt > 5 * 60_000L
+        val periodicThrottlePassed = now < lastAttempt || now - lastAttempt >= intervalMs
+        val shouldUpdate = (onOpen && updateOnOpen && onOpenThrottlePassed) ||
+            (enabled && periodicThrottlePassed)
         if (!shouldUpdate) return
-        val sources = safeSubscriptionSources() ?: return
-        if (sources.isEmpty()) return
-        refreshSubscriptions(showResult = false)
+        refreshSubscriptions(showResult = false, onlySources = dueSources)
     }
 
     private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
