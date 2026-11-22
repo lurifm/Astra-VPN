@@ -102,8 +102,7 @@ object SingBoxConfigBuilder {
                     .put("match_response", "primary-doh")
                     .put("invert", true)
                     .put("action", "route")
-                    .put("server", "dns-fallback")
-                    .put("timeout", "5s")))
+                    .put("server", "dns-fallback")))
             .put("optimistic", if (options.dnsCacheEnabled) {
                 JSONObject().put("enabled", true).put("timeout", "30m")
             } else {
