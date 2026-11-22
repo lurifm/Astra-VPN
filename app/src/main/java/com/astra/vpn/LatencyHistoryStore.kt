@@ -3,8 +3,6 @@ package com.astra.vpn
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
-import java.util.Locale
 
 /**
  * Stores a small history of successful URL-test latency samples.
@@ -54,11 +52,7 @@ internal class LatencyHistoryStore(context: Context) {
         }.sortedBy { it.timestampMs }.takeLast(MAX_SAMPLES)
     }
 
-    private fun storageKey(profile: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(profile.toByteArray(Charsets.UTF_8))
-        val suffix = digest.joinToString("") { "%02x".format(Locale.ROOT, it) }
-        return "profile_$suffix"
-    }
+    private fun storageKey(profile: String): String = "profile_${ProfileIdentity.of(profile)}"
 
     private companion object {
         const val MAX_SAMPLES = 12

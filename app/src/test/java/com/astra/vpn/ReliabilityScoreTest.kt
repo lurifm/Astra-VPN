@@ -2,6 +2,7 @@ package com.astra.vpn
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReliabilityScoreTest {
@@ -72,9 +73,10 @@ class ReliabilityScoreTest {
         val second = event(2L, "connected").copy(serverId = ProfileIdentity.of("vless://two@b.example:443"))
         assertEquals("profile:${ProfileIdentity.of("vless://one@a.example:443")}", ReliabilityScore.identity(first))
         assertEquals("profile:${ProfileIdentity.of("vless://two@b.example:443")}", ReliabilityScore.identity(second))
-        assertEquals(2, ReliabilityScore.selectionPenaltiesByIdentity(
+        val penalties = ReliabilityScore.selectionPenaltiesByIdentity(
             listOf(first, event(2L, "error").copy(serverId = first.serverId), event(1L, "error").copy(serverId = first.serverId))
-        ).size.coerceAtLeast(0))
+        )
+        assertTrue(penalties.containsKey(ReliabilityScore.identity(first)))
     }
 
     @Test

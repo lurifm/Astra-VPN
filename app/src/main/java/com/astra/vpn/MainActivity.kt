@@ -4556,7 +4556,8 @@ class MainActivity : Activity() {
             entries = historySnapshot,
             now = historyNow,
             nameOf = ::profileName,
-            protocolOf = ::protocolName
+            protocolOf = ::protocolName,
+            identityOf = ReliabilityScore::profileIdentity
         )
         if (recoveryCandidates.isEmpty()) return
         val adjusted = TimeOfDayServerOptimizer.adjustedLatencies(
@@ -4887,7 +4888,8 @@ class MainActivity : Activity() {
                                         connectionHistory.record(
                                             "connected",
                                             profileName(validatedProfile),
-                                            protocolName(validatedProfile)
+                                            protocolName(validatedProfile),
+                                            validatedProfile
                                         )
                                     }
                                 }
@@ -4972,7 +4974,7 @@ class MainActivity : Activity() {
         // back to it, while preserving a last-resort path if all nodes failed.
         if (current != null) {
             runCatching {
-                connectionHistory.record("error", profileName(current), protocolName(current))
+                connectionHistory.record("error", profileName(current), protocolName(current), current)
             }
         }
         val recentHistory = connectionHistory.getEntries()
@@ -4982,7 +4984,8 @@ class MainActivity : Activity() {
             entries = recentHistory,
             now = historyNow,
             nameOf = ::profileName,
-            protocolOf = ::protocolName
+            protocolOf = ::protocolName,
+            identityOf = ReliabilityScore::profileIdentity
         )
         val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
             failoverCandidates, freshLatencies, { profile -> latencyHistory.samples(profile) }
@@ -6999,8 +7002,10 @@ class MainActivity : Activity() {
         // Aggregate the bounded history once instead of rescanning it for every profile.
         val penaltiesByIdentity = ReliabilityScore.selectionPenaltiesByIdentity(entries)
         return profiles.mapNotNull { profile ->
-            val identity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
-            penaltiesByIdentity[identity]?.let { profile to it }
+            val identity = ReliabilityScore.profileIdentity(profile)
+            val legacyIdentity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
+            (penaltiesByIdentity[identity]?.takeIf { identity.isNotBlank() }
+                ?: penaltiesByIdentity[legacyIdentity])?.let { profile to it }
         }.toMap()
     }
 
@@ -7014,8 +7019,10 @@ class MainActivity : Activity() {
             now = now
         )
         return profiles.associateWith { profile ->
-            val identity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
-            failuresByName[identity] ?: 0
+            val identity = ReliabilityScore.profileIdentity(profile)
+            val legacyIdentity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
+            failuresByName[identity]?.takeIf { identity.isNotBlank() }
+                ?: failuresByName[legacyIdentity] ?: 0
         }
     }
 

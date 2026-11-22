@@ -15,11 +15,12 @@ class ConnectionHistoryStore(context: Context) {
         val timestamp: Long,
         val state: String,
         val serverName: String,
-        val protocol: String
+        val protocol: String,
+        val serverId: String = ""
     )
 
     @Synchronized
-    fun record(state: String, serverName: String, protocol: String) {
+    fun record(state: String, serverName: String, protocol: String, profile: String = "") {
         val entries = readArray()
         val updated = JSONArray()
         updated.put(
@@ -28,6 +29,7 @@ class ConnectionHistoryStore(context: Context) {
                 .put("state", state.take(24))
                 .put("server", serverName.take(100))
                 .put("protocol", protocol.take(32))
+                .put("serverId", ProfileIdentity.of(profile))
         )
         for (index in 0 until minOf(entries.length(), MAX_ENTRIES - 1)) {
             val item = entries.optJSONObject(index) ?: continue
@@ -47,7 +49,8 @@ class ConnectionHistoryStore(context: Context) {
                         timestamp = item.optLong("timestamp"),
                         state = item.optString("state", "unknown"),
                         serverName = item.optString("server", "Сервер не выбран"),
-                        protocol = item.optString("protocol", "—")
+                        protocol = item.optString("protocol", "—"),
+                        serverId = item.optString("serverId", "")
                     )
                 )
             }
