@@ -5245,9 +5245,21 @@ class MainActivity : Activity() {
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
-        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
-        }
+        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        // Explain the optional carrier details before Android displays a sensitive
+        // permission prompt. Core VPN and network monitoring work without this grant.
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Дополнительные данные мобильной сети")
+            .setMessage("Разрешение нужно только для названия оператора SIM и определения типа мобильной сети (3G/4G/5G). Astra VPN продолжит работать и без него. Разрешить доступ?")
+            .setNegativeButton("Не сейчас", null)
+            .setPositiveButton("Продолжить") { _, _ ->
+                if (!isFinishing && !isDestroyed &&
+                    checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
+                }
+            }
+            .show()
     }
 
     private fun showFamilyQrDialog() {
