@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class AstraThroughputProbeService : VpnService(), CommandServerHandler {
     private val stopped = AtomicBoolean(false)
+    // Exactly one terminal event (result or error) may win for a probe session.
+    private val terminalEventClaimed = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val timeoutRunnable = Runnable { fail("Проверка скорости превысила лимит времени") }
     private val started = AtomicBoolean(false)
@@ -206,6 +208,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 .put("uploadBytes", upload.bytes)
                 .put("durationMs", download.durationMs + upload.durationMs)
                 .put("measuredAt", System.currentTimeMillis())
+            if (stopped.get() || !terminalEventClaimed.compareAndSet(false, true)) return
             sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName)
                 .putExtra(EXTRA_RESULT, result.toString())
                 .putExtra(EXTRA_SESSION, sessionId))
@@ -303,6 +306,10 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private data class Sample(val bytes: Long, val durationMs: Long, val mbps: Double)
 
     private fun fail(message: String) {
+        // Claim the terminal event before posting to the main thread. Otherwise
+        // a worker could publish a successful sample while this error waits in
+        // the main queue (for example after the physical network is lost).
+        if (!terminalEventClaimed.compareAndSet(false, true)) return
         mainHandler.post {
             if (stopped.get()) return@post
             publishError(message)
