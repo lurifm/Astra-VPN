@@ -105,18 +105,23 @@ internal class BankingForegroundMonitorService : Service() {
                 // Stop observation immediately, then serialize durable cleanup behind
                 // any in-flight poll without blocking the main thread.
                 running = false
-                monitorGeneration.incrementAndGet()
+                val stopGeneration = monitorGeneration.incrementAndGet()
                 stopCleanupPending = true
                 handler.removeCallbacksAndMessages(null)
                 try {
                     pollExecutor.execute {
                         try {
-                            // Explicitly disabling the feature cancels any pending automatic resume.
+                            // A quick re-enable creates a newer generation; its session owns
+                            // the durable snapshot and pending-resume state, so stale cleanup
+                            // must not erase them.
+                            if (monitorGeneration.get() != stopGeneration) return@execute
                             val stateStore = BankingAutomationStateStore(this)
                             val state = stateStore.read()
+                            if (monitorGeneration.get() != stopGeneration) return@execute
                             if (state.autoPausedByBanking) {
                                 stateStore.write(state.cancelAutomaticResume())
                             }
+                            if (monitorGeneration.get() != stopGeneration) return@execute
                             ProfileStore(this).clearBankPauseSnapshot()
                         } catch (failure: Exception) {
                             Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", failure)
