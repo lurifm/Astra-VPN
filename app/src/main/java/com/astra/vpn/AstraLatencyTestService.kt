@@ -328,6 +328,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         val newlyCompleted = completedTags.add(tag)
         if (!newlyCompleted && !wasTimedOut) return false
         inFlightTags.remove(tag)
+        // A successful measurement closes this retry episode. A later, unrelated
+        // network handover must receive its own bounded retry budget.
+        handoverRetryCounts.remove(tag)
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         return true
