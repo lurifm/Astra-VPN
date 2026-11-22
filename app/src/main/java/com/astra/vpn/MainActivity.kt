@@ -4514,6 +4514,9 @@ class MainActivity : Activity() {
         ) return
 
         val now = android.os.SystemClock.elapsedRealtime()
+        val attemptsInWindow = autoFailoverBudget.attemptsInWindow(now)
+        val adaptiveCooldown = AutoFailoverPolicy.cooldownMs(attemptsInWindow)
+        if (!AutoFailoverPolicy.cooldownElapsed(lastAutoFailoverAt, now, adaptiveCooldown)) return
         if (!autoFailoverBudget.canAttempt(now)) {
             status.text = "Автопереключения временно приостановлены"
             status.setTextColor(AMBER)
