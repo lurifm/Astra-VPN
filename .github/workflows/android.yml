@@ -40,7 +40,7 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify unsigned debug APK
+      - name: Verify installable debug APK
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
@@ -53,7 +53,26 @@ jobs:
           fi
           sha256sum "$APK"
 
-      - name: Upload APK
+      # Compile the optimized variant on every change as an early release gate.
+      # It remains unsigned until a private release key is configured securely.
+      - name: Build release variant
+        run: gradle --no-daemon assembleRelease
+
+      - name: Verify release APK package
+        run: |
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          unzip -t "$APK"
+          APK_CONTENTS="$(unzip -Z1 "$APK")"
+          printf '%s\n' "$APK_CONTENTS" | grep -Fxq 'lib/arm64-v8a/libbox.so'
+          if printf '%s\n' "$APK_CONTENTS" | grep -E '^lib/.*\.so$' | grep -v '^lib/arm64-v8a/'; then
+            echo "Unexpected native ABI found in release APK"
+            exit 1
+          fi
+          sha256sum "$APK"
+
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
           name: AstraVPN-debug
