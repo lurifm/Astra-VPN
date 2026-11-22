@@ -2550,27 +2550,22 @@ class MainActivity : Activity() {
                 val latency = pingInfo[link] ?: "Не проверен"
                 val measuredLatency = latencyMs[link]
                 text = when {
-                    measuredLatency != null && isFastestProfile -> "ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
-                    measuredLatency != null -> "●  PING  ${measuredLatency} мс"
-                    latency == "н/д" -> "○  PING  нет данных"
-                    latency == "Проверяем…" -> "◌  PING  проверяем…"
-                    else -> "○  PING  не проверен"
+                    measuredLatency != null && isFastestProfile -> "МИНИМАЛЬНЫЙ ПИНГ  ·  ${measuredLatency} мс"
+                    measuredLatency != null -> "ПИНГ  ·  ${measuredLatency} мс"
+                    latency == "н/д" -> "ПИНГ  ·  нет данных"
+                    latency == "Проверяем…" -> "ПИНГ  ·  проверяем…"
+                    else -> "ПИНГ  ·  не проверен"
                 }
-                textSize = 11f
+                textSize = 10.5f
                 typeface = Typeface.DEFAULT_BOLD
-                val tone = if (isFastestProfile && measuredLatency != null) GREEN
-                    else measuredLatency?.let { latencyColor(it) }
-                    ?: when (latency) {
-                        "н/д" -> AMBER
-                        "Проверяем…" -> AMBER
-                        else -> MUTED
-                    }
+                // Keep the server list in Astra's gold palette. The exact millisecond
+                // value carries the information; color is not used as a fake estimate.
+                val tone = if (measuredLatency != null || latency == "Проверяем…") LIGHT_ACCENT else MUTED
                 setTextColor(tone)
-                val pillColor = when {
-                    measuredLatency != null -> 0x1A55D69A
-                    latency == "н/д" -> 0x1AFFC66D
-                    latency == "Проверяем…" -> 0x1AFFC66D
-                    else -> 0x1A9AA6BF
+                val pillColor = if (measuredLatency != null || latency == "Проверяем…") {
+                    0x1AD6A84F
+                } else {
+                    0x1A9AA6BF
                 }
                 background = rounded(pillColor, 8)
                 contentDescription = when {
