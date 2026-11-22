@@ -45,6 +45,7 @@ class NetworkRecoveryPolicyTest {
         assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, false, wifi, wifi, true))
         assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, wifi, false))
         assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(null, null, true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, null, null, true))
     }
 
     @Test
