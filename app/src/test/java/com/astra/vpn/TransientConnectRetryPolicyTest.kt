@@ -7,13 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TransientConnectRetryPolicyTest {
-    @Test fun schedulesTwoBoundedRetries() {
+    @Test fun schedulesFourBoundedRetriesWithIncreasingDelays() {
         assertEquals(3_000L, TransientConnectRetryPolicy.delayForAttempt(0))
         assertEquals(8_000L, TransientConnectRetryPolicy.delayForAttempt(1))
+        assertEquals(15_000L, TransientConnectRetryPolicy.delayForAttempt(2))
+        assertEquals(30_000L, TransientConnectRetryPolicy.delayForAttempt(3))
     }
 
-    @Test fun refusesThirdRetry() {
-        assertNull(TransientConnectRetryPolicy.delayForAttempt(2))
+    @Test fun refusesRetryAfterFourAttempts() {
+        assertNull(TransientConnectRetryPolicy.delayForAttempt(4))
     }
 
     @Test fun negativeAttemptUsesFirstDelay() {
@@ -26,17 +28,59 @@ class TransientConnectRetryPolicyTest {
         assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, true, false, true, 0))
         assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, true, true, 0))
         assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, false, 0))
-        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 2))
+        assertTrue(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 3))
+        assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 4))
+    }
+
+    @Test fun retryWaitsForForegroundAndValidatedInternet() {
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, false, false, true))
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilConditions(true, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(true, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, true, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, false, true, false))
+    }
+
+    @Test fun backgroundRetryWaitsForActivityToReturnWithoutBeingDiscarded() {
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(true, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(false, true, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(false, false, true))
+    }
+
+    @Test fun cancelledRetryIsDiscardedEvenWhileActivityIsBackgrounded() {
+        assertFalse(
+            TransientConnectRetryPolicy.shouldRemainPending(
+                generationCurrent = false,
+                selectedProfileUnchanged = true,
+                activityActive = true,
+                userRequestedDisconnect = false,
+                connecting = false,
+                connected = false,
+                disconnecting = false
+            )
+        )
+        assertFalse(
+            TransientConnectRetryPolicy.shouldRemainPending(
+                generationCurrent = true,
+                selectedProfileUnchanged = true,
+                activityActive = false,
+                userRequestedDisconnect = true,
+                connecting = false,
+                connected = false,
+                disconnecting = false
+            )
+        )
     }
 
     @Test fun staleOrUserCancelledRetriesCannotExecute() {
-        assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, false, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, false, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, true, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, true, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, true, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, true))
+        assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, false, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, false, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, true, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, true, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, true, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, true, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false, false))
     }
 }

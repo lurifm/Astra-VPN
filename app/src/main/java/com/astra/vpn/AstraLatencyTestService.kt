@@ -317,6 +317,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_PENDING_RESULTS, payload)
                 .putString(KEY_LAST_RESULTS, payload)
+                .putLong(KEY_LAST_RESULTS_AT, System.currentTimeMillis())
                 .apply()
         }
         sendBroadcast(
@@ -352,6 +353,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_PENDING_RESULTS, json.toString())
                 .putString(KEY_LAST_RESULTS, json.toString())
+                .putLong(KEY_LAST_RESULTS_AT, System.currentTimeMillis())
                 .remove(KEY_ACTIVE_SESSION_ID)
                 .apply()
         }
@@ -450,6 +452,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
         private const val KEY_LAST_RESULTS = "last_results"
+        private const val KEY_LAST_RESULTS_AT = "last_results_at"
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2

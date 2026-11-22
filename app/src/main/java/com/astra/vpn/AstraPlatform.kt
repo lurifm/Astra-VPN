@@ -404,7 +404,10 @@ class AstraPlatform(
      */
     private fun probeNetworkCandidates(): List<Network> {
         val active = runCatching { connectivity.activeNetwork }.getOrNull()
-        return (listOfNotNull(preferredPhysicalNetwork, active) + connectivity.allNetworks)
+        // The live Android default route outranks a remembered underlay.
+        // A previous Wi-Fi Network can remain VALIDATED briefly after mobile
+        // data becomes default, so do not let that stale preference win.
+        return (listOfNotNull(active, preferredPhysicalNetwork) + connectivity.allNetworks)
             .distinct()
             .mapNotNull { network ->
                 val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
@@ -432,8 +435,8 @@ class AstraPlatform(
             .filter { it.notSuspended }
             .sortedWith(
                 compareByDescending<ProbeNetworkCandidate> { it.validated }
-                    .thenByDescending { it.preferred }
                     .thenByDescending { it.active }
+                    .thenByDescending { it.preferred }
                     .thenByDescending { it.transportPriority }
             )
             .map { it.network }
@@ -473,14 +476,14 @@ class AstraPlatform(
             return true
         }
 
-        // URL-test receives the exact physical network selected by the main
-        // process. Keep interface metadata and socket binding on that same route.
-        if (isUsablePhysicalNetwork(preferredPhysicalNetwork)) return preferredPhysicalNetwork
-
-        // If Android exposes a physical default network, it is authoritative.
-        // Do not choose another simultaneously-connected transport just because
-        // it happens to be Wi-Fi (for example, when mobile data is the default).
+        // Android's live physical default route is authoritative. During a
+        // Wi-Fi <-> cellular handover the old network can remain VALIDATED briefly;
+        // selecting it first may pin the VPN to a stale underlay.
         if (isUsablePhysicalNetwork(active)) return active
+
+        // When activeNetwork is the VPN itself, fall back to the last selected
+        // physical underlay until Android exposes the new default route.
+        if (isUsablePhysicalNetwork(preferredPhysicalNetwork)) return preferredPhysicalNetwork
 
         // When the active network is this VPN, prefer the underlay Android has
         // already associated with this VpnService. allNetworks has no ordering

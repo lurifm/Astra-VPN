@@ -21,6 +21,10 @@ enum class VpnRecoveryDecision {
 }
 
 object VpnRecoveryPolicy {
+    /** Fail closed when the Android VPN-consent check itself cannot be completed. */
+    fun isVpnConsentGranted(check: () -> Boolean, onFailure: (Throwable) -> Unit = {}): Boolean =
+        runCatching(check).onFailure(onFailure).getOrDefault(false)
+
     /**
      * A stale recovery-settings command must not resurrect a service after
      * an explicit stop has already put its lifecycle into the stopping state.

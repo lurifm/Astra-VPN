@@ -35,7 +35,8 @@ data class SubscriptionSummary(
     val uploadBytes: Long? = null,
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
-    val expiresAtEpochSeconds: Long? = null
+    val expiresAtEpochSeconds: Long? = null,
+    val updateIntervalHours: Int? = null
 )
 
 class ProfileStore(context: Context) {
@@ -211,7 +212,14 @@ class ProfileStore(context: Context) {
         editor.putString(metadataKey, SubscriptionMetadataCodec.encode(metadata))
         // Provider metadata and the user's custom label are stored separately.
         // Missing title headers must not erase a name the user chose themselves.
-        metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, it.take(120)) }
+        if (metadata.title.isNullOrBlank()) {
+            // A provider may remove its title header on a later refresh. Do not
+            // keep showing the previous provider title; a custom user title is
+            // stored under a separate key and remains untouched.
+            editor.remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId)
+        } else {
+            editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, metadata.title.take(120))
+        }
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
         profilesCache = null
         summariesCache = null
@@ -295,7 +303,8 @@ class ProfileStore(context: Context) {
                         usage.uploadBytes,
                         usage.downloadBytes,
                         usage.totalBytes,
-                        usage.expiresAtEpochSeconds
+                        usage.expiresAtEpochSeconds,
+                        usage.updateIntervalHours
                     )
                 }
                 .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
@@ -450,7 +459,7 @@ class ProfileStore(context: Context) {
             lower.startsWith("tuic://")
         // A backup is untrusted input too: validate credentials, endpoint,
         // TLS and transport against the exact sing-box core before persisting.
-        link.length in 1..16_384 &&
+        return link.length in 1..16_384 &&
             supportedScheme &&
             SingBoxConfigBuilder.validateProxyOutbound(link)
     }

@@ -17,6 +17,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * User-started foreground observer and executor for conservative banking transitions.
@@ -24,39 +27,70 @@ import android.util.Log
  */
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    // UsageEvents replay and encrypted profile/state operations must never run on the main thread.
+    private val pollExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "Astra-BankingMonitor").apply { isDaemon = true }
+    }
     private val activeActivities = linkedSetOf<String>()
     private val observationPolicy = BankingForegroundObservationPolicy()
     private var lastQueryTime = 0L
-    private var running = false
+    @Volatile private var running = false
+    @Volatile private var stopCleanupPending = false
+    // Invalidates work and delayed callbacks belonging to an earlier start/stop cycle.
+    private val monitorGeneration = AtomicLong(0L)
 
-    private val poll = object : Runnable {
+    private val poll: Runnable = object : Runnable {
         override fun run() {
             if (!running) return
-            val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
-            if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
-                !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
-            ) {
-                cancelAutomationAndStop()
-                return
+            val pollGeneration = monitorGeneration.get()
+            try {
+                pollExecutor.execute {
+                    if (!running || pollGeneration != monitorGeneration.get()) return@execute
+                    val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
+                    if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
+                        !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
+                    ) {
+                        cancelAutomationAndStop(pollGeneration)
+                        return@execute
+                    }
+                    val observed = runCatching { readForegroundPackage() }
+                        .onFailure { Log.w(TAG, "Usage events unavailable", it) }
+                        .getOrNull()
+                    // A stop/restart may have happened while UsageEvents were being read.
+                    // Discard the old session's observation instead of applying it to the new one.
+                    if (!running || pollGeneration != monitorGeneration.get()) return@execute
+                    // Require two consecutive non-ambiguous observations before publishing
+                    // a foreground change. Null means unknown (transition, split-screen,
+                    // missing Usage Access), never proof that a banking app was closed.
+                    if (isCurrentSession(pollGeneration)) observationPolicy.observe(observed)?.let { stablePackage ->
+                        val observedAt = System.currentTimeMillis()
+                        if (!isCurrentSession(pollGeneration)) return@let
+                        sendBroadcast(
+                            Intent(ACTION_OBSERVATION)
+                                .setPackage(packageName)
+                                .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
+                                .putExtra(EXTRA_OBSERVED_AT, observedAt)
+                        )
+                        if (!isCurrentSession(pollGeneration)) return@let
+                        runCatching { executeBankingTransition(stablePackage, observedAt, pollGeneration) }
+                            .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
+                    }
+                    // Match the app's existing battery-aware monitor cadence:
+                    // keep one-second banking detection normally, but reduce repeated
+                    // UsageEvents queries to every four seconds in either saver mode.
+                    val interval = NetworkRecoveryPolicy.monitorIntervalMs(
+                        appBatterySaverEnabled = settings.getBoolean("battery_saver_mode", false),
+                        systemBatterySaverEnabled = getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+                    )
+                    handler.post {
+                        if (running && pollGeneration == monitorGeneration.get()) {
+                            handler.postDelayed(poll, interval)
+                        }
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                if (running) Log.w(TAG, "Banking monitor poll executor is unavailable")
             }
-            val observed = runCatching { readForegroundPackage() }
-                .onFailure { Log.w(TAG, "Usage events unavailable", it) }
-                .getOrNull()
-            // Require two consecutive non-ambiguous observations before publishing
-            // a foreground change. Null means unknown (transition, split-screen,
-            // missing Usage Access), never proof that a banking app was closed.
-            observationPolicy.observe(observed)?.let { stablePackage ->
-                val observedAt = System.currentTimeMillis()
-                sendBroadcast(
-                    Intent(ACTION_OBSERVATION)
-                        .setPackage(packageName)
-                        .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
-                        .putExtra(EXTRA_OBSERVED_AT, observedAt)
-                )
-                runCatching { executeBankingTransition(stablePackage, observedAt) }
-                    .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
-            }
-            handler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
 
@@ -68,17 +102,46 @@ internal class BankingForegroundMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                // Explicitly disabling the feature cancels any pending automatic resume.
-                runCatching {
-                    val stateStore = BankingAutomationStateStore(this)
-                    val state = stateStore.read()
-                    if (state.autoPausedByBanking) stateStore.write(state.cancelAutomaticResume())
-                    ProfileStore(this).clearBankPauseSnapshot()
-                }.onFailure { Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
+                // Stop observation immediately, then serialize durable cleanup behind
+                // any in-flight poll without blocking the main thread.
                 running = false
+                val stopGeneration = monitorGeneration.incrementAndGet()
+                stopCleanupPending = true
                 handler.removeCallbacksAndMessages(null)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                try {
+                    pollExecutor.execute {
+                        try {
+                            // A quick re-enable creates a newer generation; its session owns
+                            // the durable snapshot and pending-resume state, so stale cleanup
+                            // must not erase them.
+                            if (monitorGeneration.get() != stopGeneration) return@execute
+                            val stateStore = BankingAutomationStateStore(this)
+                            val state = stateStore.read()
+                            if (monitorGeneration.get() != stopGeneration) return@execute
+                            if (state.autoPausedByBanking) {
+                                stateStore.write(state.cancelAutomaticResume())
+                            }
+                            if (monitorGeneration.get() != stopGeneration) return@execute
+                            ProfileStore(this).clearBankPauseSnapshot()
+                        } catch (failure: Exception) {
+                            Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", failure)
+                        } finally {
+                            handler.post {
+                                // ACTION_START may arrive while durable stop cleanup is
+                                // queued. In that case the new monitoring session owns
+                                // the foreground service; do not tear it down afterward.
+                                stopCleanupPending = false
+                                if (!running) {
+                                    stopForeground(STOP_FOREGROUND_REMOVE)
+                                    stopSelf()
+                                }
+                            }
+                        }
+                    }
+                } catch (_: RejectedExecutionException) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -110,7 +173,9 @@ internal class BankingForegroundMonitorService : Service() {
      */
     private fun startMonitoringIfNeeded() {
         if (running) return
+        monitorGeneration.incrementAndGet()
         running = true
+        stopCleanupPending = false
         activeActivities.clear()
         observationPolicy.reset()
         lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
@@ -122,22 +187,40 @@ internal class BankingForegroundMonitorService : Service() {
      * If the user disables automation or revokes Usage Access, fail closed:
      * cancel any pending resume, erase the saved bank snapshot and leave VPN off.
      */
-    private fun cancelAutomationAndStop() {
+    private fun cancelAutomationAndStop(sessionGeneration: Long) {
+        if (!isCurrentSession(sessionGeneration)) return
         runCatching {
             val stateStore = BankingAutomationStateStore(this)
             val state = stateStore.read()
+            if (!isCurrentSession(sessionGeneration)) return
             if (state.autoPausedByBanking) {
                 stateStore.write(state.cancelAutomaticResume())
             }
+            if (!isCurrentSession(sessionGeneration)) return
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
+        if (!isCurrentSession(sessionGeneration)) return
         running = false
-        handler.removeCallbacksAndMessages(null)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        monitorGeneration.incrementAndGet()
+        if (!stopCleanupPending) {
+            handler.post {
+                // The feature may be re-enabled after this poll queued its stop.
+                // Only tear down the service if no newer monitoring session owns it.
+                if (!running && !stopCleanupPending) {
+                    handler.removeCallbacks(poll)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+        }
     }
 
-    private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
+    private fun executeBankingTransition(
+        foregroundPackage: String,
+        observedAt: Long,
+        sessionGeneration: Long
+    ) {
+        if (!isCurrentSession(sessionGeneration)) return
         val ledger = BankingAutomationCommandLedger(this)
         ledger.clearTerminal()
         val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
@@ -209,13 +292,16 @@ internal class BankingForegroundMonitorService : Service() {
                     return
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_PAUSE -> {
+                    if (!isCurrentSession(sessionGeneration)) return
                     startService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
                         .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
                     return
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_RESUME -> {
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!settings.edit().putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now).commit()) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startForegroundService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_RESUME)
                         .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, snapshot!!.profileLink)
@@ -224,6 +310,8 @@ internal class BankingForegroundMonitorService : Service() {
                 }
             }
         }
+
+        if (!isCurrentSession(sessionGeneration)) return
 
         val plan = BankingAutomationTransitionEngine.evaluate(
             state,
@@ -239,11 +327,13 @@ internal class BankingForegroundMonitorService : Service() {
             )
         )
 
+        if (!isCurrentSession(sessionGeneration)) return
         when (plan.command) {
             BankingAutomationTransitionEngine.Command.SAVE_PROFILE_AND_PAUSE -> {
                 val link = activeLink ?: return
                 // Commit encrypted exact profile first, then durable transition state,
                 // then issue the service command. Any failure leaves the tunnel untouched.
+                if (!isCurrentSession(sessionGeneration)) return
                 profileStore.setBankPauseSnapshot(link, now)
                 stateStore.write(plan.nextState)
                 val gate = BankingVpnCommandPolicy.decide(
@@ -269,7 +359,9 @@ internal class BankingForegroundMonitorService : Service() {
                     // earlier failed resume attempt.
                     settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
                     val command = BankingAutomationCommandRecord(plan.nextState.transitionId, BankingAutomationCommandRecord.Command.PAUSE, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!ledger.writePending(command)) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
@@ -303,12 +395,14 @@ internal class BankingForegroundMonitorService : Service() {
                     if (!BankingResumeRetryPolicy.shouldAttempt(lastAttempt, now)) return
                     // Commit before dispatch: if Android rejects the service start,
                     // the next stable observation retries after a bounded cooldown.
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!settings.edit()
                             .putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now)
                             .commit()
                     ) return
                     val command = BankingAutomationCommandRecord(state.transitionId, BankingAutomationCommandRecord.Command.RESUME, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
                     if (!ledger.writePending(command)) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startForegroundService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)
@@ -324,6 +418,10 @@ internal class BankingForegroundMonitorService : Service() {
             BankingAutomationTransitionEngine.Command.NONE -> Unit
         }
     }
+
+    /** Prevent a poll from issuing a VPN command after its monitoring session was stopped/replaced. */
+    private fun isCurrentSession(generation: Long): Boolean =
+        running && generation == monitorGeneration.get()
 
     private fun startAsForeground() {
         val notification = Notification.Builder(this, CHANNEL_ID)
@@ -400,7 +498,9 @@ internal class BankingForegroundMonitorService : Service() {
 
     override fun onDestroy() {
         running = false
+        monitorGeneration.incrementAndGet()
         handler.removeCallbacksAndMessages(null)
+        pollExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -413,7 +513,6 @@ internal class BankingForegroundMonitorService : Service() {
         private const val TAG = "AstraBankMonitor"
         private const val CHANNEL_ID = "astra_banking_monitor"
         private const val NOTIFICATION_ID = 43
-        private const val POLL_INTERVAL_MS = 1_000L
         private const val INITIAL_LOOKBACK_MS = 24L * 60L * 60L * 1_000L
         private const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
 

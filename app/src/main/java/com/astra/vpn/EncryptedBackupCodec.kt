@@ -96,12 +96,15 @@ internal object EncryptedBackupCodec {
 
     private fun deriveKey(password: CharArray, salt: ByteArray): SecretKeySpec {
         val spec = PBEKeySpec(password, salt, KDF_ITERATIONS, KEY_BITS)
+        var rawKey: ByteArray? = null
         return try {
-            val key = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            rawKey = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
                 .generateSecret(spec).encoded
-            SecretKeySpec(key, "AES")
+            // SecretKeySpec copies the key material; wipe the temporary PBKDF2 output.
+            SecretKeySpec(rawKey, "AES")
         } finally {
             spec.clearPassword()
+            rawKey?.fill(0)
         }
     }
 }

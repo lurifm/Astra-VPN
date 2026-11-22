@@ -190,6 +190,7 @@ class MainActivity : Activity() {
     private var disconnecting = false
     private val connectRetryHandler = Handler(Looper.getMainLooper())
     private var connectRetryTask: Runnable? = null
+    private var activityStarted = false
     private var connectRetryGeneration = 0L
     private var connectRetryAttempt = 0
     private var receiverRegistered = false
@@ -1576,15 +1577,18 @@ class MainActivity : Activity() {
      * Refresh each previously imported HTTPS subscription independently.
      * The previous server set is kept whenever download, parsing or storage fails.
      */
-    private fun refreshSubscriptions(showResult: Boolean = true) {
+    private fun refreshSubscriptions(showResult: Boolean = true, onlySources: List<String>? = null) {
         // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
-        val sources = safeSubscriptionSources() ?: return
+        val currentSources = safeSubscriptionSources() ?: return
+        val sources = onlySources?.filter { it in currentSources } ?: currentSources
         if (sources.isEmpty()) {
-            Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
+            if (onlySources == null) {
+                Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
+            }
             return
         }
         val selectionSnapshot = selectedProfile
@@ -1619,7 +1623,7 @@ class MainActivity : Activity() {
             // Keep manual/foreground refresh failures in the same fingerprint-only
             // retry queue used by WorkManager, so a later background run retries
             // only failed providers rather than downloading every successful one.
-            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
+            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, currentSources)
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
@@ -2936,12 +2940,7 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
-    private fun latencyQuality(ms: Long): String = when {
-        ms < 50L -> "отлично"
-        ms < 100L -> "хорошо"
-        ms <= 250L -> "средне"
-        else -> "высоко"
-    }
+    private fun latencyQuality(ms: Long): String = LatencyQualityPolicy.label(ms)
 
     private fun latencyColor(ms: Long): Int = when {
         ms < 200L -> GREEN
@@ -3204,6 +3203,7 @@ class MainActivity : Activity() {
                         .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
                         .remove(KEY_LATENCY_PENDING_RESULTS)
                         .remove(KEY_LATENCY_LAST_RESULTS)
+                        .remove(KEY_LATENCY_LAST_RESULTS_AT)
                         .apply()
                     runCatching {
                         val physicalNetwork = networkForLatencyProbe()
@@ -3625,6 +3625,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -3661,6 +3662,23 @@ class MainActivity : Activity() {
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
         checkSubscriptionWarnings()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_PHONE_STATE_PERMISSION) return
+
+        // Permission state changes should be reflected immediately instead of
+        // waiting for the next throttled network-monitor tick.
+        lastNetworkLabelAt = 0L
+        updateNetworkLabel()
+        if (grantResults.firstOrNull() != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            android.util.Log.i("AstraVPN", "Дополнительные сведения об операторе недоступны без разрешения READ_PHONE_STATE")
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -3727,15 +3745,42 @@ class MainActivity : Activity() {
             if (latencyTestInFlight) renderProfiles()
             return
         }
+        val nowWallClockMs = System.currentTimeMillis()
+        val cacheSavedAt = prefs.getLong(KEY_LATENCY_LAST_RESULTS_AT, 0L)
+        val cacheAgeMs = (nowWallClockMs - cacheSavedAt).coerceAtLeast(0L)
+        val nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, nowWallClockMs) ||
+            cacheAgeMs >= nowElapsedMs
+        ) {
+            prefs.edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS_AT)
+                .apply()
+            safeProfiles().orEmpty().forEach { profile ->
+                latencyMs.remove(profile)
+                latencyMeasuredAt.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+            if (latencyTestInFlight) renderProfiles()
+            return
+        }
         if (pending != null) {
             prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
         }
-        // Completed values remain visible after relaunch; pending is consumed
-        // only once, while the reusable cache is retained until the next test.
-        applyLatencyResults(cached, finished = true)
+        // Preserve the original sample age after process recreation.
+        applyLatencyResults(
+            cached,
+            finished = true,
+            measuredAtElapsedMs = nowElapsedMs - cacheAgeMs
+        )
     }
 
-    private fun applyLatencyResults(payload: String, finished: Boolean) {
+    private fun applyLatencyResults(
+        payload: String,
+        finished: Boolean,
+        measuredAtElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    ) {
         // Validate the snapshot before changing session state. A malformed final
         // payload must not leave auto-selection or the quick tile waiting forever.
         val values = runCatching { JSONObject(payload) }.getOrNull()
@@ -3780,7 +3825,7 @@ class MainActivity : Activity() {
                     latencyPresentationChanged = true
                 }
                 latencyMs[profile] = ms
-                latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
+                latencyMeasuredAt[profile] = measuredAtElapsedMs
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = nextInfo
             } else if (finished) {
@@ -3826,9 +3871,17 @@ class MainActivity : Activity() {
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         val androidVpnActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
 
-        // A saved flag alone is insufficient: Android may have revoked the
-        // tunnel while the Activity was in the background.
-        connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        // Require both Android's VPN transport and Astra's own encrypted
+        // active-profile marker; another VPN app may own the default route.
+        val hasAstraActiveProfile = runCatching {
+            !ProfileStore(this).activeTunnelProfile().isNullOrBlank()
+        }.getOrDefault(false)
+        connected = VpnUiRestorePolicy.isAstraTunnelConnected(
+            savedState = saved,
+            connectedState = AstraVpnService.STATE_CONNECTED,
+            androidVpnTransportActive = androidVpnActive,
+            activeProfileAvailable = hasAstraActiveProfile
+        )
         if (connected && settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L) <= 0L) {
             settingsPrefs.edit().putLong(KEY_VPN_CONNECTED_SINCE, System.currentTimeMillis()).apply()
         } else if (!connected) {
@@ -3888,6 +3941,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
@@ -3999,7 +4053,9 @@ class MainActivity : Activity() {
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
         connectRetryTask = Runnable {
-            val canExecute = TransientConnectRetryPolicy.shouldExecute(
+            // Validate cancellation and connection state before deferring. Otherwise a
+            // stale retry could keep polling forever while the Activity is backgrounded.
+            val stillPending = TransientConnectRetryPolicy.shouldRemainPending(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
                 activityActive = !isFinishing && !isDestroyed,
@@ -4007,6 +4063,33 @@ class MainActivity : Activity() {
                 connecting = connecting,
                 connected = connected,
                 disconnecting = disconnecting
+            )
+            if (!stillPending) {
+                connectRetryTask = null
+                return@Runnable
+            }
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            val hasValidatedInternet = hasValidatedPhysicalNetwork(connectivity)
+            if (TransientConnectRetryPolicy.shouldDeferUntilConditions(
+                    activityStarted = activityStarted,
+                    activityFinishing = isFinishing,
+                    activityDestroyed = isDestroyed,
+                    hasValidatedPhysicalInternet = hasValidatedInternet
+                )
+            ) {
+                // Keep the same bounded retry pending while backgrounded or offline.
+                connectRetryTask?.let { connectRetryHandler.postDelayed(it, 1_000L) }
+                return@Runnable
+            }
+            val canExecute = TransientConnectRetryPolicy.shouldExecute(
+                generationCurrent = generation == connectRetryGeneration,
+                selectedProfileUnchanged = selectedProfile == retryProfile,
+                activityActive = activityStarted && !isFinishing && !isDestroyed,
+                userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+                connecting = connecting,
+                connected = connected,
+                disconnecting = disconnecting,
+                hasValidatedPhysicalInternet = hasValidatedInternet
             )
             if (!canExecute) {
                 connectRetryTask = null
@@ -4026,8 +4109,27 @@ class MainActivity : Activity() {
         if (resetAttempts) connectRetryAttempt = 0
     }
     private fun startTunnel(config: String) {
-        // An explicit new start supersedes a previously persisted user stop request.
-        settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
+        // A new explicit connect supersedes the durable stop marker. Flush the
+        // removal before dispatching START, otherwise a process death immediately
+        // after the tap could make the next sticky restart incorrectly stay offline.
+        val stopMarkerCleared = settingsPrefs.edit()
+            .remove("vpn_disconnect_requested")
+            .commit()
+        if (!stopMarkerCleared) {
+            // The start was rejected before dispatch. Roll back any provisional
+            // failover choice and discard the captured config/profile so a later
+            // consent result or retry cannot accidentally reuse this request.
+            rollbackPendingFailoverSelection()
+            pendingConfig = null
+            pendingProfile = null
+            connecting = false
+            status.text = "Не удалось сохранить подключение"
+            status.setTextColor(RED)
+            Toast.makeText(this, "Не удалось сохранить новое подключение. Попробуй ещё раз.", Toast.LENGTH_LONG).show()
+            updateProtectionLabels()
+            renderProfiles()
+            return
+        }
         cancelConnectRetry(resetAttempts = false)
         waitingForUnderlyingNetwork = false
         // Invalidate an in-flight health probe before a profile reload, even if Android reuses
@@ -4142,8 +4244,20 @@ class MainActivity : Activity() {
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             disconnecting = true
-            // Preserve the in-flight action across Activity/process recreation.
-            settingsPrefs.edit().putBoolean("vpn_disconnect_requested", true).apply()
+            // This marker gates START_STICKY recovery. Flush it to disk before
+            // dispatching STOP so a process death cannot resurrect the tunnel
+            // from an older preference snapshot.
+            val stopIntentPersisted = settingsPrefs.edit()
+                .putBoolean("vpn_disconnect_requested", true)
+                .commit()
+            if (!stopIntentPersisted) {
+                disconnecting = false
+                status.text = "Не удалось сохранить отключение VPN"
+                status.setTextColor(RED)
+                Toast.makeText(this, "Не удалось надёжно сохранить команду отключения. Повтори попытку.", Toast.LENGTH_LONG).show()
+                renderProfiles()
+                return
+            }
             startService(intent)
             // Keep the last confirmed tunnel state until the service reports that
             // it has actually stopped. Do not briefly show "Подключиться" while
@@ -4318,8 +4432,14 @@ class MainActivity : Activity() {
     private fun maybeAutoSpeedFailover() {
         // Speed-based switching shares the same global retry budget as tunnel-health
         // failover. This prevents two independent detectors from creating a switch loop.
-        if (!connected || connecting || selectingFastest || pendingFailoverSelection != null ||
-            !settingsPrefs.getBoolean("auto_speed_failover", false)
+        if (!AutoSpeedFailoverEligibilityPolicy.shouldEvaluate(
+                connected = connected,
+                connecting = connecting,
+                tunnelInternetOk = tunnelInternetOk,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                enabled = settingsPrefs.getBoolean("auto_speed_failover", false)
+            )
         ) return
 
         val now = android.os.SystemClock.elapsedRealtime()
@@ -4648,6 +4768,16 @@ class MainActivity : Activity() {
                         }
                         updateProtectionLabels()
                         renderProfiles()
+                    } else if (TunnelHealthProbeResumePolicy.shouldReschedule(
+                            activityActive = !isFinishing && !isDestroyed,
+                            connected = connected,
+                            generationCurrent = tunnelHealthCheckGeneration.isCurrent(probeGeneration)
+                        )
+                    ) {
+                        // A probe invalidated while the Activity was backgrounded
+                        // must be replaced promptly when its worker releases the gate.
+                        lastHealthCheckAt = 0L
+                        scheduleTunnelHealthCheck()
                     }
                 }
             }
@@ -4662,9 +4792,18 @@ class MainActivity : Activity() {
      * probe or transient network handover must not cause a server change.
      */
     private fun maybeAutoFailover() {
-        if (!connected || connecting || selectingFastest) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
-        if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
+        val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+        if (!AutoFailoverEligibilityPolicy.shouldSwitch(
+                connected = connected,
+                connecting = connecting,
+                disconnecting = disconnecting,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                tunnelInternetOk = tunnelInternetOk,
+                hasValidatedPhysicalInternet = hasValidatedUnderlay
+            )
+        ) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
@@ -5169,9 +5308,21 @@ class MainActivity : Activity() {
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
-        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
-        }
+        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        // Explain the optional carrier details before Android displays a sensitive
+        // permission prompt. Core VPN and network monitoring work without this grant.
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Дополнительные данные мобильной сети")
+            .setMessage("Разрешение нужно только для названия оператора SIM и определения типа мобильной сети (3G/4G/5G). Astra VPN продолжит работать и без него. Разрешить доступ?")
+            .setNegativeButton("Не сейчас", null)
+            .setPositiveButton("Продолжить") { _, _ ->
+                if (!isFinishing && !isDestroyed &&
+                    checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE_STATE_PERMISSION)
+                }
+            }
+            .show()
     }
 
     private fun showFamilyQrDialog() {
@@ -5229,13 +5380,7 @@ class MainActivity : Activity() {
             // The orbit map must follow the same freshness rule as the server
             // list; an expired result is unknown, not a low-quality live Ping.
             val latency = freshLatencyMs(profile)
-            val quality = when {
-                latency == null -> 0
-                latency <= 80L -> 3
-                latency <= 180L -> 2
-                latency <= 350L -> 1
-                else -> 0
-            }
+            val quality = LatencyQualityPolicy.band(latency)
             OrbitMapView.Node(
                 label = profileName(profile),
                 quality = quality,
@@ -6695,16 +6840,46 @@ class MainActivity : Activity() {
         if (refreshingSubscriptions) return
         val enabled = settingsPrefs.getBoolean("auto_update", false)
         val updateOnOpen = settingsPrefs.getBoolean("update_on_open", false)
+        if (!enabled && !(onOpen && updateOnOpen)) return
         val now = System.currentTimeMillis()
         val last = settingsPrefs.getLong("last_subscription_update", 0L)
         val lastAttempt = settingsPrefs.getLong("last_subscription_attempt", last)
-        val intervalMs = SubscriptionRefreshInterval.intervalMillis(settingsPrefs.getInt("update_interval_hours", 2))
-        val shouldUpdate = (onOpen && updateOnOpen && now - lastAttempt > 5 * 60_000L) ||
-            (enabled && now - lastAttempt >= intervalMs)
+        val intervalMs = SubscriptionRefreshInterval.intervalMillis(
+            settingsPrefs.getInt("update_interval_hours", 2)
+        )
+        val currentSources = safeSubscriptionSources() ?: return
+        if (currentSources.isEmpty()) return
+        val pending = settingsPrefs.getStringSet("subscription_retry_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val known = settingsPrefs.getStringSet("subscription_known_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val summaries = profileStore.subscriptionSummaries().associateBy { it.sourceUrl }
+        val candidates = currentSources.map { source ->
+            val history = SubscriptionRefreshHistory.get(settingsPrefs, source, now)
+            SubscriptionRefreshCandidate(
+                fingerprint = SubscriptionSourceFingerprint.of(source),
+                intervalHours = summaries[source]?.updateIntervalHours
+                    ?: settingsPrefs.getInt("update_interval_hours", 2),
+                lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
+            )
+        }
+        val dueFingerprints = SubscriptionRefreshDuePolicy.select(
+            candidates = candidates,
+            pendingFingerprints = pending,
+            knownFingerprints = known,
+            defaultIntervalHours = settingsPrefs.getInt("update_interval_hours", 2),
+            now = now
+        ).toSet()
+        val dueSources = currentSources.filter {
+            SubscriptionSourceFingerprint.of(it) in dueFingerprints
+        }
+        if (dueSources.isEmpty()) return
+        val onOpenThrottlePassed = now < lastAttempt || now - lastAttempt > 5 * 60_000L
+        val periodicThrottlePassed = now < lastAttempt || now - lastAttempt >= intervalMs
+        val shouldUpdate = (onOpen && updateOnOpen && onOpenThrottlePassed) ||
+            (enabled && periodicThrottlePassed)
         if (!shouldUpdate) return
-        val sources = safeSubscriptionSources() ?: return
-        if (sources.isEmpty()) return
-        refreshSubscriptions(showResult = false)
+        refreshSubscriptions(showResult = false, onlySources = dueSources)
     }
 
     private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
@@ -7080,6 +7255,7 @@ class MainActivity : Activity() {
         private const val KEY_LATENCY_SESSION_ID = "active_session_id"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
+        private const val KEY_LATENCY_LAST_RESULTS_AT = "last_results_at"
         private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()

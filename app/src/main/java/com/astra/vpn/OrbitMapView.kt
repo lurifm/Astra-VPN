@@ -4,14 +4,15 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Touch-selectable server constellation styled for the Astra night-sky UI. */
+/** Touch-, keyboard- and accessibility-selectable server constellation. */
 internal class OrbitMapView(
     context: Context,
     private val nodes: List<Node>,
@@ -19,16 +20,65 @@ internal class OrbitMapView(
 ) : View(context) {
     data class Node(val label: String, val quality: Int, val selected: Boolean)
 
+    private companion object {
+        const val ACTION_NEXT_SERVER = 0x00A57001
+        const val ACTION_PREVIOUS_SERVER = 0x00A57002
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val positions = mutableListOf<Pair<Float, Float>>()
-    private var selectedIndex = nodes.indexOfFirst { it.selected }.coerceAtLeast(0)
+    private var selectedIndex = OrbitSelectionPolicy.initialIndex(nodes.map { it.selected })
     private val density = resources.displayMetrics.density
     private fun dp(value: Float) = value * density
 
     init {
         isClickable = true
-        contentDescription = "Карта VPN-серверов. Нажмите на звезду, чтобы выбрать сервер."
+        isFocusable = true
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        updateAccessibilityDescription()
     }
+
+    private fun updateAccessibilityDescription() {
+        val node = nodes.getOrNull(selectedIndex)
+        contentDescription = if (node == null) {
+            "Карта VPN-серверов. Серверов нет."
+        } else {
+            "Карта VPN-серверов. Выбран ${selectedIndex + 1} из ${nodes.size}: ${node.label}. " +
+                "Доступны действия «Следующий сервер» и «Предыдущий сервер»."
+        }
+    }
+
+    private fun moveSelection(delta: Int): Boolean {
+        if (nodes.isEmpty()) return false
+        selectedIndex = OrbitSelectionPolicy.nextIndex(selectedIndex, nodes.size, delta) ?: return false
+        updateAccessibilityDescription()
+        invalidate()
+        onSelected(selectedIndex)
+        sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED)
+        return true
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_NEXT_SERVER, "Следующий сервер"))
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_PREVIOUS_SERVER, "Предыдущий сервер"))
+    }
+
+    override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean =
+        when (action) {
+            ACTION_NEXT_SERVER -> moveSelection(1)
+            ACTION_PREVIOUS_SERVER -> moveSelection(-1)
+            else -> super.performAccessibilityAction(action, arguments)
+        }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean =
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> moveSelection(1)
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> moveSelection(-1)
+            else -> super.onKeyDown(keyCode, event)
+        }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -40,7 +90,7 @@ internal class OrbitMapView(
         val radius = min(width * .39f, height * .37f).coerceAtLeast(dp(36f))
         positions.clear()
 
-        // Quiet orbital rings instead of a polygon connecting every server.
+        // Quiet orbital rings retain the existing Astra gold visual language.
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(1f)
         paint.color = Color.argb(48, 218, 177, 91)
@@ -55,7 +105,6 @@ internal class OrbitMapView(
                 (cy + sin(angle).toFloat() * ring * .78f)
         }
 
-        // Tiny central star anchors the map without competing with server nodes.
         paint.style = Paint.Style.FILL
         paint.color = Color.rgb(218, 177, 91)
         canvas.drawCircle(cx, cy, dp(2.5f), paint)
@@ -64,8 +113,6 @@ internal class OrbitMapView(
 
         positions.forEachIndexed { index, (x, y) ->
             val isSelected = index == selectedIndex
-            // Keep the map within Astra's gold visual language. Ping is encoded
-            // by brightness and halo size rather than unrelated status colors.
             val quality = nodes[index].quality.coerceIn(0, 3)
             val core = when (quality) {
                 3 -> Color.rgb(255, 224, 158)
@@ -113,21 +160,18 @@ internal class OrbitMapView(
         when (event.action) {
             MotionEvent.ACTION_DOWN -> return true
             MotionEvent.ACTION_UP -> {
-                if (positions.isEmpty()) return true
-                val hitRadius = dp(30f)
-                val nearest = positions.indices.minByOrNull { index ->
-                    val dx = positions[index].first - event.x
-                    val dy = positions[index].second - event.y
-                    dx * dx + dy * dy
-                } ?: return true
-                val dx = positions[nearest].first - event.x
-                val dy = positions[nearest].second - event.y
-                if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-                    selectedIndex = nearest
-                    invalidate()
-                    performClick()
-                    onSelected(nearest)
-                }
+                val nearest = OrbitSelectionPolicy.hitTest(
+                    points = positions,
+                    touchX = event.x,
+                    touchY = event.y,
+                    hitRadius = dp(30f)
+                ) ?: return true
+                selectedIndex = nearest
+                updateAccessibilityDescription()
+                invalidate()
+                performClick()
+                onSelected(nearest)
+                sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> return true

@@ -2,7 +2,7 @@ package com.astra.vpn
 
 /** Bounded retry schedule for a transient TUN-creation timeout only. */
 internal object TransientConnectRetryPolicy {
-    private val delays = longArrayOf(3_000L, 8_000L)
+    private val delays = longArrayOf(3_000L, 8_000L, 15_000L, 30_000L)
 
     fun delayForAttempt(attempt: Int): Long? =
         delays.getOrNull(attempt.coerceAtLeast(0))
@@ -19,7 +19,21 @@ internal object TransientConnectRetryPolicy {
         hasSelectedProfile &&
         delayForAttempt(attempt) != null
 
-    fun shouldExecute(
+    fun shouldDeferUntilConditions(
+        activityStarted: Boolean,
+        activityFinishing: Boolean,
+        activityDestroyed: Boolean,
+        hasValidatedPhysicalInternet: Boolean
+    ): Boolean = !activityFinishing && !activityDestroyed &&
+        (!activityStarted || !hasValidatedPhysicalInternet)
+
+    fun shouldDeferUntilActivityStarted(
+        activityStarted: Boolean,
+        activityFinishing: Boolean,
+        activityDestroyed: Boolean
+    ): Boolean = !activityStarted && !activityFinishing && !activityDestroyed
+
+    fun shouldRemainPending(
         generationCurrent: Boolean,
         selectedProfileUnchanged: Boolean,
         activityActive: Boolean,
@@ -34,4 +48,23 @@ internal object TransientConnectRetryPolicy {
         !connecting &&
         !connected &&
         !disconnecting
+
+    fun shouldExecute(
+        generationCurrent: Boolean,
+        selectedProfileUnchanged: Boolean,
+        activityActive: Boolean,
+        userRequestedDisconnect: Boolean,
+        connecting: Boolean,
+        connected: Boolean,
+        disconnecting: Boolean,
+        hasValidatedPhysicalInternet: Boolean
+    ): Boolean = shouldRemainPending(
+        generationCurrent,
+        selectedProfileUnchanged,
+        activityActive,
+        userRequestedDisconnect,
+        connecting,
+        connected,
+        disconnecting
+    ) && hasValidatedPhysicalInternet
 }
