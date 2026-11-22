@@ -199,6 +199,9 @@ class MainActivity : Activity() {
     private var refreshingSubscriptions = false
     private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
+    // Tracks the last filter value actually used to render rows, preventing Spinner
+    // adapter/selection callbacks from scheduling duplicate full list rebuilds.
+    private var renderedCountryFilterSelection: String? = null
     private var subscriptionsExpanded = false
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
@@ -924,7 +927,13 @@ class MainActivity : Activity() {
             }
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) { renderProfiles() }
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val selected = parent?.getItemAtPosition(position)?.toString()
+                    if (selected != renderedCountryFilterSelection) {
+                        renderedCountryFilterSelection = selected
+                        renderProfiles()
+                    }
+                }
             }
         }
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -2198,6 +2207,7 @@ class MainActivity : Activity() {
             val restoreIndex = filterOptions.indexOf(previousSelection).takeIf { it >= 0 } ?: 0
             countryFilter.setSelection(restoreIndex, false)
         }
+        renderedCountryFilterSelection = countryFilter.selectedItem?.toString()
         val selectedCountry = countryFilter.selectedItem?.toString()
             ?.takeIf { it != "Все страны" }
             ?.substringBefore("  ")?.let { code ->
