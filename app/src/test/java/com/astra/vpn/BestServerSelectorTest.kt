@@ -248,4 +248,42 @@ class BestServerSelectorTest {
         assertEquals(muchFaster, selected)
     }
 
+
+    @Test
+    fun historicalReliabilityBreaksCloseLatencyTie() {
+        val unreliable = "vless://unreliable"
+        val reliable = "vless://reliable"
+        val selected = BestServerSelector.select(
+            profiles = listOf(unreliable, reliable),
+            latencyMs = mapOf(unreliable to 50L, reliable to 60L),
+            reliabilityPenaltyMs = mapOf(unreliable to 40L)
+        )
+        assertEquals(reliable, selected)
+    }
+
+    @Test
+    fun reliabilityPenaltyIsBoundedAndCannotHideLargeLatencyGap() {
+        val unreliable = "vless://unreliable"
+        val fast = "hysteria2://fast"
+        val selected = BestServerSelector.select(
+            profiles = listOf(unreliable, fast),
+            latencyMs = mapOf(unreliable to 300L, fast to 40L),
+            reliabilityPenaltyMs = mapOf(unreliable to Long.MAX_VALUE)
+        )
+        assertEquals(fast, selected)
+    }
+
+    @Test
+    fun missingReliabilityHistoryDoesNotPenalizeCandidate() {
+        val only = "vless://new-server"
+        assertEquals(
+            only,
+            BestServerSelector.select(
+                profiles = listOf(only),
+                latencyMs = mapOf(only to 45L)
+            )
+        )
+    }
+
+
 }
