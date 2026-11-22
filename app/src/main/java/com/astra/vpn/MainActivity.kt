@@ -432,9 +432,6 @@ class MainActivity : Activity() {
                     cancelConnectRetry(resetAttempts = true)
                     waitingForUnderlyingNetwork = false
                     waitingForVpnRoute = false
-                    if (pendingFailoverSelection?.let { FailoverSelectionPolicy.isCommitted(it, activeProfile) } == true) {
-                        pendingFailoverSelection = null
-                    }
                     tunnelHealthCheckGeneration.advance()
                     disconnecting = false
                     connected = true
@@ -4485,6 +4482,15 @@ class MainActivity : Activity() {
                         waitingForUnderlyingNetwork = false
                         tunnelInternetOk = ok
                         if (ok) {
+                            // A replacement is not committed merely because Android
+                            // created its TUN. Keep the previous known-good profile until
+                            // end-to-end traffic through this exact profile is verified.
+                            if (pendingFailoverSelection?.let {
+                                    FailoverSelectionPolicy.isCommitted(it, activeProfile)
+                                } == true
+                            ) {
+                                pendingFailoverSelection = null
+                            }
                             consecutiveHealthFailures = 0
                         } else {
                             consecutiveHealthFailures = AutoFailoverPolicy.nextFailureCount(consecutiveHealthFailures)
@@ -4574,7 +4580,14 @@ class MainActivity : Activity() {
         if (!autoFailoverBudget.recordAttempt(now)) return
         lastAutoFailoverAt = now
         consecutiveHealthFailures = 0
-        pendingFailoverSelection = FailoverSelectionTransaction(previousProfile = current, targetProfile = alternate)
+        // If this is the second/third hop of one recovery chain, preserve
+        // the original known-good profile rather than treating an unverified
+        // intermediate tunnel as the rollback destination.
+        pendingFailoverSelection = FailoverSelectionPolicy.nextTransaction(
+            existing = pendingFailoverSelection,
+            currentProfile = current,
+            targetProfile = alternate
+        )
         selectedProfile = alternate
         selectedInfo.text = profileSummary(alternate)
         status.text = "Переключаем сервер…"
