@@ -67,6 +67,17 @@ class ReliabilityScoreTest {
     }
 
     @Test
+    fun profileFingerprintSeparatesServersWithSameDisplayNameAndProtocol() {
+        val first = event(3L, "error").copy(serverId = ProfileIdentity.of("vless://one@a.example:443"))
+        val second = event(2L, "connected").copy(serverId = ProfileIdentity.of("vless://two@b.example:443"))
+        assertEquals("profile:${ProfileIdentity.of("vless://one@a.example:443")}", ReliabilityScore.identity(first))
+        assertEquals("profile:${ProfileIdentity.of("vless://two@b.example:443")}", ReliabilityScore.identity(second))
+        assertEquals(2, ReliabilityScore.selectionPenaltiesByIdentity(
+            listOf(first, event(2L, "error").copy(serverId = first.serverId), event(1L, "error").copy(serverId = first.serverId))
+        ).size.coerceAtLeast(0))
+    }
+
+    @Test
     fun recoveryKeepsOnlyLatestSuccessAndDropsEarlierOutcomes() {
         val events = listOf(
             event(6L, "connected"), event(5L, "connected"), event(4L, "error"),

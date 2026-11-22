@@ -228,6 +228,28 @@ class ServerFailureScorerTest {
 
 
     @Test
+    fun fingerprintedFailuresDoNotCrossServersWithSameNameAndProtocol() {
+        val now = 1_000_000L
+        val first = "vless://one@a.example:443#Same"
+        val second = "vless://two@b.example:443#Same"
+        val entry = ConnectionHistoryStore.Entry(
+            now - 60_000L, "error", "Same", "VLESS", ProfileIdentity.of(first)
+        )
+        val result = ServerFailureScorer.weightedFailures(listOf(entry), now)
+        assertEquals(3, result[ReliabilityScore.profileIdentity(first)])
+        assertEquals(null, result[ReliabilityScore.profileIdentity(second)])
+        assertEquals(
+            listOf(second),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(first, second), listOf(entry), now,
+                nameOf = { "Same" },
+                protocolOf = { "VLESS" },
+                identityOf = ReliabilityScore::profileIdentity
+            )
+        )
+    }
+
+    @Test
     fun validatedSuccessClearsOlderFailurePenalty() {
         val now = 1_000_000_000L
         val result = ServerFailureScorer.weightedFailures(
