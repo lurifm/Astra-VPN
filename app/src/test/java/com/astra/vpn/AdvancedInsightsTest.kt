@@ -96,4 +96,23 @@ class AdvancedInsightsTest {
         assertEquals(listOf("error", "connected"), filtered.map { it.state })
     }
 
+    @Test
+    fun oldSuccessesCannotHideFailuresAfterLatestRecovery() {
+        val oldSuccesses = (1L..30L).map {
+            ConnectionHistoryStore.Entry(it, "connected", "A", "VLESS")
+        }
+        val events = listOf(
+            ConnectionHistoryStore.Entry(103L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(102L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(101L, "connected", "A", "VLESS")
+        ) + oldSuccesses
+        val score = ReliabilityScore.calculate(
+            ReliabilityScore.outcomesAfterLatestSuccess(events)
+        )
+        assertNotNull(score)
+        assertEquals(33, score!!.score)
+        assertEquals(1, score.sessions)
+        assertEquals(2, score.failures)
+    }
+
 }
