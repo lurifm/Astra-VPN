@@ -35,6 +35,12 @@ class LatencyProbeDispatchPolicyTest {
         assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
             isInFlight = true, alreadyCompleted = true, previouslyTimedOut = false
         ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true,
+            alreadyCompleted = true,
+            previouslyTimedOut = true,
+            discardedByNetworkChange = true
+        ))
     }
 
     @Test fun waitsForTimedOutNativeSlotsBeforeFinishingBatch() {

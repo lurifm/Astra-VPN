@@ -558,6 +558,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 NetworkRecoveryPolicy.probeHandoverNativeCooldownMs()
             )
         }
+        // Use remaining free slots for queued servers on the new underlay.
+        dispatchNextUrlTests(client)
         // Explicitly publish unknown for probes interrupted by a handover.
         publishResults(affectedTags.associateWith { null }, finished = false)
     }

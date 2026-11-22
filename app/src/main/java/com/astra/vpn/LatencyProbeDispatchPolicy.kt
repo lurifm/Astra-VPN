@@ -13,8 +13,10 @@ internal object LatencyProbeDispatchPolicy {
     fun shouldAcceptOutboundUpdate(
         isInFlight: Boolean,
         alreadyCompleted: Boolean,
-        previouslyTimedOut: Boolean
-    ): Boolean = isInFlight && (!alreadyCompleted || previouslyTimedOut)
+        previouslyTimedOut: Boolean,
+        discardedByNetworkChange: Boolean = false
+    ): Boolean = !discardedByNetworkChange &&
+        isInFlight && (!alreadyCompleted || previouslyTimedOut)
 
     /** Do not tear down libbox while timed-out native probes may still publish results. */
     fun shouldFinish(completedAll: Boolean, nativeSlotsPending: Boolean): Boolean =
