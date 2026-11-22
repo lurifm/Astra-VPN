@@ -4116,6 +4116,12 @@ class MainActivity : Activity() {
             .remove("vpn_disconnect_requested")
             .commit()
         if (!stopMarkerCleared) {
+            // The start was rejected before dispatch. Roll back any provisional
+            // failover choice and discard the captured config/profile so a later
+            // consent result or retry cannot accidentally reuse this request.
+            rollbackPendingFailoverSelection()
+            pendingConfig = null
+            pendingProfile = null
             connecting = false
             status.text = "Не удалось сохранить подключение"
             status.setTextColor(RED)
