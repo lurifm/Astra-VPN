@@ -89,6 +89,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var connectButton: MaterialButton
     private var connectTintAnimator: android.animation.ValueAnimator? = null
+    private var connectTintTarget: Int? = null
     private lateinit var connectActionLabel: TextView
     private lateinit var connectionCard: LinearLayout
     private lateinit var constellationView: ConstellationView
@@ -7288,7 +7289,8 @@ class MainActivity : Activity() {
 
     /** Smoothly interpolate the star tint without delaying or blocking UI actions. */
     private fun animateConnectButtonTint(targetColor: Int) {
-        if (!::connectButton.isInitialized) return
+        if (!::connectButton.isInitialized || connectTintTarget == targetColor) return
+        connectTintTarget = targetColor
         val current = connectButton.backgroundTintList?.defaultColor ?: targetColor
         if (current == targetColor) return
         connectTintAnimator?.cancel()
@@ -7338,15 +7340,10 @@ class MainActivity : Activity() {
                 "disconnecting" -> 0xFF3A2608.toInt()
                 else -> 0xFF3A2B0D.toInt()
             }
-            val buttonColor = when (state) {
-                "connected" -> 0xFFFFD36E.toInt()
-                "connecting" -> 0xFFFFC45C.toInt()
-                "switching" -> 0xFFE7B95A.toInt()
-                "disconnecting" -> 0xFFFFC45C.toInt()
-                else -> 0xFFFFC95C.toInt()
-            }
             connectButton.setTextColor(starColor)
-            connectButton.backgroundTintList = android.content.res.ColorStateList.valueOf(buttonColor)
+            // Tint is owned by ConnectButtonHealthPolicy: silver at rest,
+            // amber while a transition is running, and health-colored when live.
+            // Avoid a one-frame gold flash before the policy animator applies it.
             connectButton.elevation = dp(if (state == "connected") 12 else 4).toFloat()
             connectButton.contentDescription = when (state) {
                 "connected" -> "Отключить VPN. Звезда активна"
