@@ -310,6 +310,10 @@ class MainActivity : Activity() {
         // the first timeout after handover must not trigger premature failover.
         consecutiveHealthFailures = 0
         tunnelInternetOk = null
+        if (connected) {
+            status.text = "Проверяем интернет через VPN…"
+            status.setTextColor(AMBER)
+        }
         updateProtectionLabels()
         updateNetworkLabel()
         if (connected) {
@@ -441,8 +445,12 @@ class MainActivity : Activity() {
                     connecting = false
                     tunnelInternetOk = null
                     lastHealthCheckAt = 0L
-                    status.text = "Подключено"
-                    status.setTextColor(GREEN)
+                    // Android CONNECTED confirms that a TUN exists, not that
+                    // internet traffic can pass through the selected proxy.
+                    status.text = "Проверяем интернет через VPN…"
+                    status.setTextColor(AMBER)
+                    updateProtectionLabels()
+                    scheduleTunnelHealthCheck()
                 }
                 AstraVpnService.STATE_DISCONNECTED -> {
                     // A user stop or a terminal failover failure can end in
@@ -3733,8 +3741,11 @@ class MainActivity : Activity() {
                 status.setTextColor(AMBER)
             }
             connected -> {
-                status.text = "Подключено"
-                status.setTextColor(GREEN)
+                // Restored Android tunnel state is provisional until an HTTPS
+                // health check confirms end-to-end internet through the VPN.
+                tunnelInternetOk = null
+                status.text = "Проверяем интернет через VPN…"
+                status.setTextColor(AMBER)
             }
             connectingIsRecent -> {
                 connected = false
@@ -3770,6 +3781,7 @@ class MainActivity : Activity() {
         renderProfiles()
         updateGeoLocationForState()
         updateProtectionLabels()
+        if (connected && !disconnecting) scheduleTunnelHealthCheck()
     }
 
     override fun onStop() {
