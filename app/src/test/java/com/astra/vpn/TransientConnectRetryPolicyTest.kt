@@ -33,13 +33,14 @@ class TransientConnectRetryPolicyTest {
     }
 
     @Test fun staleOrUserCancelledRetriesCannotExecute() {
-        assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, false, true, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, false, false, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, true, false, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, true, false, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, true, false))
-        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, true))
+        assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, false, true, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, false, false, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, true, false, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, true, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, true, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, true, true))
+        assertFalse(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false, false))
     }
 }
