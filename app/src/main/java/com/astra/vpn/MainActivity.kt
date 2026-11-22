@@ -757,7 +757,7 @@ class MainActivity : Activity() {
             text = "Все серверы  ›"; textSize = 11f; typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFC5D0FF.toInt()); gravity = Gravity.CENTER
             setPadding(dp(8), dp(5), dp(2), dp(5)); isClickable = true; isFocusable = true
-            setOnClickListener { profileScroll.smoothScrollTo(0, 0) }
+            setOnClickListener { profileScroll.post { profileScroll.smoothScrollTo(0, listHeader.top) } }
         })
         quickSwitchContainer.addView(quickSwitchHeader, matchWidth())
         connectCard.addView(quickSwitchContainer, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
