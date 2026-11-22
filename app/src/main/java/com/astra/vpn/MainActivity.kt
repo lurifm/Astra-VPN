@@ -2936,12 +2936,7 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
-    private fun latencyQuality(ms: Long): String = when {
-        ms < 50L -> "отлично"
-        ms < 100L -> "хорошо"
-        ms <= 250L -> "средне"
-        else -> "высоко"
-    }
+    private fun latencyQuality(ms: Long): String = LatencyQualityPolicy.label(ms)
 
     private fun latencyColor(ms: Long): Int = when {
         ms < 200L -> GREEN
@@ -5280,13 +5275,7 @@ class MainActivity : Activity() {
             // The orbit map must follow the same freshness rule as the server
             // list; an expired result is unknown, not a low-quality live Ping.
             val latency = freshLatencyMs(profile)
-            val quality = when {
-                latency == null -> 0
-                latency <= 80L -> 3
-                latency <= 180L -> 2
-                latency <= 350L -> 1
-                else -> 0
-            }
+            val quality = LatencyQualityPolicy.band(latency)
             OrbitMapView.Node(
                 label = profileName(profile),
                 quality = quality,
