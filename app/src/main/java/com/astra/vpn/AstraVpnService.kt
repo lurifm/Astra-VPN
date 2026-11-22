@@ -8,6 +8,8 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.OverrideOptions
@@ -41,6 +43,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var activeTunRequestToken: Long? = null
     private var tunReadyRequestToken: Long? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Keep potentially blocking libbox/native network work off the app main looper.
+    private val vpnExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "AstraVpnService").apply { isDaemon = true }
+    }
     // A distinct token is required for every TUN wait, including reloads that
     // reuse the same CommandServer and therefore the same lifecycle generation.
     private val tunTimeoutGeneration = TunCreationTimeoutGeneration()
@@ -378,106 +384,117 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
 
         if (existingServer != null) {
-            // A stop callback or another lifecycle transition may invalidate this
-            // request after the server was captured above. Recheck immediately
-            // before entering libbox so an already-obsolete request is not sent.
-            val requestStillActive = synchronized(lifecycleLock) {
-                !stopping &&
-                    startRequestGeneration.isCurrent(requestToken) &&
-                    commandServer === existingServer
-            }
-            if (!requestStillActive) return START_NOT_STICKY
+            enqueueVpnWork("profile reload") {
+                val requestStillActive = synchronized(lifecycleLock) {
+                    !stopping && startRequestGeneration.isCurrent(requestToken) && commandServer === existingServer
+                }
+                if (!requestStillActive) return@enqueueVpnWork
 
-            runCatching { runLibboxConfiguration(existingServer, config, requestToken) }
-                .onSuccess {
-                    synchronized(lifecycleLock) {
-                        if (stopping || !startRequestGeneration.isCurrent(requestToken) ||
-                            commandServer !== existingServer
-                        ) return@synchronized
-                        activeConfig = config
-                        configurationAccepted = true
-                        startTrafficMonitor()
-                        if (TunRequestReadinessPolicy.isReady(
-                                configurationAccepted = configurationAccepted,
-                                descriptorOwned = tunDescriptor != null,
-                                descriptorRequestToken = tunReadyRequestToken,
-                                requestToken = requestToken
-                            )
-                        ) {
-                            cancelTunTimeoutLocked()
-                            commitRecoveryProfileLocked()
-                            runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
-                                .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
-                            publishState(STATE_CONNECTED)
-                            completeBankingAutoResumeLocked()
-                        } else {
-                            publishState(STATE_CONNECTING)
-                            awaitTunCreation(requestToken)
+                runCatching { runLibboxConfiguration(existingServer, config, requestToken) }
+                    .onSuccess {
+                        synchronized(lifecycleLock) {
+                            if (stopping || !startRequestGeneration.isCurrent(requestToken) ||
+                                commandServer !== existingServer
+                            ) return@synchronized
+                            activeConfig = config
+                            configurationAccepted = true
+                            startTrafficMonitor()
+                            if (TunRequestReadinessPolicy.isReady(
+                                    configurationAccepted = configurationAccepted,
+                                    descriptorOwned = tunDescriptor != null,
+                                    descriptorRequestToken = tunReadyRequestToken,
+                                    requestToken = requestToken
+                                )
+                            ) {
+                                cancelTunTimeoutLocked()
+                                commitRecoveryProfileLocked()
+                                runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
+                                    .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
+                                publishState(STATE_CONNECTED)
+                                completeBankingAutoResumeLocked()
+                            } else {
+                                publishState(STATE_CONNECTING)
+                                awaitTunCreation(requestToken)
+                            }
                         }
                     }
-                }
-                .onFailure { error ->
-                    failStartRequest(
-                        requestToken,
-                        "Не удалось перезапустить VPN. Проверь выбранный сервер и подключение.",
-                        error
-                    )
-                }
+                    .onFailure { error ->
+                        failStartRequest(
+                            requestToken,
+                            "Не удалось перезапустить VPN. Проверь выбранный сервер и подключение.",
+                            error
+                        )
+                    }
+            }
             return restartMode
         }
 
-        val ownerGeneration: Long
-        val server: CommandServer
-        try {
-            synchronized(lifecycleLock) {
-                if (stopping || !startRequestGeneration.isCurrent(requestToken)) return START_NOT_STICKY
-                ownerGeneration = lifecycleGeneration.advance()
-                val platform = AstraPlatform(this, onTunCreated = { descriptor ->
-                    handleTunCreated(descriptor, ownerGeneration)
-                })
-                server = CommandServer(this, platform)
-                commandServer = server
-            }
-            server.start()
-            val requestStillActive = synchronized(lifecycleLock) {
-                !stopping && startRequestGeneration.isCurrent(requestToken) && commandServer === server
-            }
-            if (!requestStillActive) return START_NOT_STICKY
-            runLibboxConfiguration(server, config, requestToken)
-            synchronized(lifecycleLock) {
-                if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
-                    return START_NOT_STICKY
+        enqueueVpnWork("VPN start") {
+            try {
+                val ownerGeneration: Long
+                val server: CommandServer
+                synchronized(lifecycleLock) {
+                    if (stopping || !startRequestGeneration.isCurrent(requestToken)) return@enqueueVpnWork
+                    ownerGeneration = lifecycleGeneration.advance()
+                    val platform = AstraPlatform(this, onTunCreated = { descriptor ->
+                        handleTunCreated(descriptor, ownerGeneration)
+                    })
+                    server = CommandServer(this, platform)
+                    commandServer = server
                 }
-                activeConfig = config
-                configurationAccepted = true
-                startTrafficMonitor()
-                Log.i(TAG, "sing-box service accepted configuration")
-                if (TunRequestReadinessPolicy.isReady(
-                        configurationAccepted = configurationAccepted,
-                        descriptorOwned = tunDescriptor != null,
-                        descriptorRequestToken = tunReadyRequestToken,
-                        requestToken = requestToken
-                    )
-                ) {
-                    commitRecoveryProfileLocked()
-                    runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
-                        .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
-                    publishState(STATE_CONNECTED)
-                    completeBankingAutoResumeLocked()
-                } else {
-                    publishState(STATE_CONNECTING)
-                    awaitTunCreation(requestToken)
-                    Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
+                server.start()
+                val requestStillActive = synchronized(lifecycleLock) {
+                    !stopping && startRequestGeneration.isCurrent(requestToken) && commandServer === server
                 }
+                if (!requestStillActive) return@enqueueVpnWork
+                runLibboxConfiguration(server, config, requestToken)
+                synchronized(lifecycleLock) {
+                    if (stopping || !startRequestGeneration.isCurrent(requestToken) || commandServer !== server) {
+                        return@synchronized
+                    }
+                    activeConfig = config
+                    configurationAccepted = true
+                    startTrafficMonitor()
+                    Log.i(TAG, "sing-box service accepted configuration")
+                    if (TunRequestReadinessPolicy.isReady(
+                            configurationAccepted = configurationAccepted,
+                            descriptorOwned = tunDescriptor != null,
+                            descriptorRequestToken = tunReadyRequestToken,
+                            requestToken = requestToken
+                        )
+                    ) {
+                        commitRecoveryProfileLocked()
+                        runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
+                            .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
+                        publishState(STATE_CONNECTED)
+                        completeBankingAutoResumeLocked()
+                    } else {
+                        publishState(STATE_CONNECTING)
+                        awaitTunCreation(requestToken)
+                        Log.w(TAG, "sing-box accepted config; waiting for Android TUN creation")
+                    }
+                }
+            } catch (error: Exception) {
+                failStartRequest(
+                    requestToken,
+                    "Не удалось запустить VPN. Проверь конфигурацию сервера и разрешение на VPN.",
+                    error
+                )
             }
-        } catch (error: Exception) {
-            failStartRequest(
-                requestToken,
-                "Не удалось запустить VPN. Проверь конфигурацию сервера и разрешение на VPN.",
-                error
-            )
         }
         return restartMode
+    }
+
+    private fun enqueueVpnWork(label: String, work: () -> Unit) {
+        try {
+            vpnExecutor.execute {
+                runCatching(work).onFailure { failure ->
+                    Log.e(TAG, "VPN background task failed: " + label + " (" + failure.javaClass.simpleName + ")")
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            Log.w(TAG, "VPN background task rejected after service shutdown: " + label)
+        }
     }
 
     private fun failStartRequest(requestToken: Long, userMessage: String, error: Throwable? = null) {
@@ -505,52 +522,51 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             Triple(server, config, startRequestGeneration.current())
         }
         val (server, config, requestToken) = reload
-        runCatching { runLibboxConfiguration(server, config, requestToken) }
-            .onSuccess {
-                synchronized(lifecycleLock) {
-                    if (stopping ||
-                        !startRequestGeneration.isCurrent(requestToken) ||
-                        commandServer !== server ||
-                        activeConfig != config
-                    ) return@synchronized
-                    configurationAccepted = true
-                    startTrafficMonitor()
-                    if (TunRequestReadinessPolicy.isReady(
-                            configurationAccepted = configurationAccepted,
-                            descriptorOwned = tunDescriptor != null,
-                            descriptorRequestToken = tunReadyRequestToken,
-                            requestToken = requestToken
-                        )
-                    ) {
-                        cancelTunTimeoutLocked()
-                        publishState(STATE_CONNECTED)
-                    } else {
-                        publishState(STATE_CONNECTING)
-                        awaitTunCreation(requestToken)
+        enqueueVpnWork("service reload") {
+            runCatching { runLibboxConfiguration(server, config, requestToken) }
+                .onSuccess {
+                    synchronized(lifecycleLock) {
+                        if (stopping ||
+                            !startRequestGeneration.isCurrent(requestToken) ||
+                            commandServer !== server ||
+                            activeConfig != config
+                        ) return@synchronized
+                        configurationAccepted = true
+                        startTrafficMonitor()
+                        if (TunRequestReadinessPolicy.isReady(
+                                configurationAccepted = configurationAccepted,
+                                descriptorOwned = tunDescriptor != null,
+                                descriptorRequestToken = tunReadyRequestToken,
+                                requestToken = requestToken
+                            )
+                        ) {
+                            cancelTunTimeoutLocked()
+                            publishState(STATE_CONNECTED)
+                        } else {
+                            publishState(STATE_CONNECTING)
+                            awaitTunCreation(requestToken)
+                        }
                     }
                 }
-            }
-            .onFailure { error ->
-                synchronized(lifecycleLock) {
-                    if (stopping ||
-                        !startRequestGeneration.isCurrent(requestToken) ||
-                        commandServer !== server ||
-                        activeConfig != config
-                    ) return@synchronized
-                    Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
-                    // This is a reload of an already accepted profile, not a new
-                    // user-supplied configuration. A transient libbox/network
-                    // failure may recover; MainActivity applies its bounded 3s/8s
-                    // retry schedule and cancels it on profile change or Disconnect.
-                    stopTunnel()
-                    publishState(
-                        STATE_ERROR,
-                        "Не удалось обновить VPN. Проверь конфигурацию сервера.",
-                        retryable = true
-                    )
+                .onFailure { error ->
+                    synchronized(lifecycleLock) {
+                        if (stopping ||
+                            !startRequestGeneration.isCurrent(requestToken) ||
+                            commandServer !== server ||
+                            activeConfig != config
+                        ) return@synchronized
+                        Log.e(TAG, "Не удалось перезагрузить конфигурацию sing-box (" + error.javaClass.simpleName + ")")
+                        stopTunnel()
+                        publishState(
+                            STATE_ERROR,
+                            "Не удалось обновить VPN. Проверь конфигурацию сервера.",
+                            retryable = true
+                        )
+                    }
                 }
-            }
+        }
     }
+
     /**
      * OpenTun is called synchronously by libbox while StartOrReloadService is running.
      * Keep the request token active only for that call, so an old TUN descriptor
@@ -612,6 +628,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         ) {
             stopTunnel()
         }
+        vpnExecutor.shutdownNow()
         super.onDestroy()
     }
 
