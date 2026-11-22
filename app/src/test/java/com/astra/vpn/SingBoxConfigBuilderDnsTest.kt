@@ -20,7 +20,7 @@ class SingBoxConfigBuilderDnsTest {
     }
 
     @Test
-    fun failedPrimaryDnsAnswerFallsBackToIndependentGoogleDoh() {
+    fun racesPrimaryAndFallbackDohAndReturnsFirstSuccessfulResponse() {
         val dns = SingBoxConfigBuilder.buildDnsConfig(SingBoxAdvancedOptions())
         val servers = dns.getJSONArray("servers")
         val fallback = servers.getJSONObject(1)
@@ -32,24 +32,30 @@ class SingBoxConfigBuilderDnsTest {
         assertEquals("dns.google", fallback.getJSONObject("tls").getString("server_name"))
         assertEquals("direct", fallback.getString("detour"))
 
-        val evaluate = rules.getJSONObject(0)
-        assertEquals("evaluate", evaluate.getString("action"))
-        assertEquals("dns-remote", evaluate.getString("server"))
-        assertEquals("primary-doh", evaluate.getString("tag"))
-        assertEquals("5s", evaluate.getString("timeout"))
-        assertFalse(evaluate.getBoolean("speculative"))
+        val primaryEvaluate = rules.getJSONObject(0)
+        assertEquals("evaluate", primaryEvaluate.getString("action"))
+        assertEquals("dns-remote", primaryEvaluate.getString("server"))
+        assertEquals("primary-doh", primaryEvaluate.getString("tag"))
+        assertEquals("5s", primaryEvaluate.getString("timeout"))
 
-        val successfulPrimary = rules.getJSONObject(1)
-        assertEquals("primary-doh", successfulPrimary.getString("match_response"))
-        assertTrue(successfulPrimary.getBoolean("ip_accept_any"))
-        assertEquals("respond", successfulPrimary.getString("action"))
+        val primaryRace = rules.getJSONObject(1)
+        assertEquals("primary-doh", primaryRace.getString("match_response"))
+        assertEquals("NOERROR", primaryRace.getString("response_rcode"))
+        assertEquals("respond", primaryRace.getString("action"))
+        assertTrue(primaryRace.getBoolean("race"))
 
-        val fallbackRule = rules.getJSONObject(2)
-        assertEquals("primary-doh", fallbackRule.getString("match_response"))
-        assertTrue(fallbackRule.getBoolean("invert"))
-        assertEquals("route", fallbackRule.getString("action"))
-        assertEquals("dns-fallback", fallbackRule.getString("server"))
-        assertFalse(fallbackRule.has("timeout"))
+        val fallbackEvaluate = rules.getJSONObject(2)
+        assertEquals("evaluate", fallbackEvaluate.getString("action"))
+        assertEquals("dns-fallback", fallbackEvaluate.getString("server"))
+        assertEquals("fallback-doh", fallbackEvaluate.getString("tag"))
+        assertEquals("5s", fallbackEvaluate.getString("timeout"))
+        assertTrue(fallbackEvaluate.getBoolean("speculative"))
+
+        val fallbackRace = rules.getJSONObject(3)
+        assertEquals("fallback-doh", fallbackRace.getString("match_response"))
+        assertEquals("NOERROR", fallbackRace.getString("response_rcode"))
+        assertEquals("respond", fallbackRace.getString("action"))
+        assertTrue(fallbackRace.getBoolean("race"))
     }
 
     @Test
