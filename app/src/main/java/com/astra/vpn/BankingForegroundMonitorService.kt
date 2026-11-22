@@ -58,7 +58,7 @@ internal class BankingForegroundMonitorService : Service() {
                         .getOrNull()
                     // A stop/restart may have happened while UsageEvents were being read.
                     // Discard the old session's observation instead of applying it to the new one.
-                    if (!running || pollGeneration != monitorGeneration) return@execute
+                    if (!running || pollGeneration != monitorGeneration.get()) return@execute
                     // Require two consecutive non-ambiguous observations before publishing
                     // a foreground change. Null means unknown (transition, split-screen,
                     // missing Usage Access), never proof that a banking app was closed.
@@ -166,7 +166,7 @@ internal class BankingForegroundMonitorService : Service() {
      */
     private fun startMonitoringIfNeeded() {
         if (running) return
-        monitorGeneration++
+        monitorGeneration.incrementAndGet()
         running = true
         stopCleanupPending = false
         activeActivities.clear()
