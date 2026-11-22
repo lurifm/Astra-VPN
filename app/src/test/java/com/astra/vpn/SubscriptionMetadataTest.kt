@@ -88,5 +88,38 @@ class SubscriptionMetadataTest {
         assertNull(metadata.downloadBytes)
         assertNull(metadata.totalBytes)
         assertNull(metadata.expiresAtEpochSeconds)
+        assertNull(metadata.updateIntervalHours)
+    }
+
+    @Test fun acceptsOnlyHttpsSubscriptionUrlsWithoutEmbeddedCredentials() {
+        assertEquals(
+            "https",
+            SubscriptionParser.validateSubscriptionUrl("https://example.com/sub").protocol
+        )
+        assertRejectedUrl("http://example.com/sub")
+        assertRejectedUrl("https://user:password@example.com/sub")
+    }
+
+    @Test fun rejectsSubscriptionUrlsWithInvalidPorts() {
+        assertRejectedUrl("https://example.com:70000/sub")
+    }
+
+    @Test fun enforcesTwoMegabyteInputLimit() {
+        SubscriptionParser.validateInputSize("x".repeat(2 * 1024 * 1024))
+        try {
+            SubscriptionParser.validateInputSize("x".repeat(2 * 1024 * 1024 + 1))
+            org.junit.Assert.fail("Oversized subscription input must be rejected")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Текст подписки слишком большой (максимум 2 МБ)", expected.message)
+        }
+    }
+
+    private fun assertRejectedUrl(address: String) {
+        try {
+            SubscriptionParser.validateSubscriptionUrl(address)
+            org.junit.Assert.fail("Subscription URL should have been rejected: $address")
+        } catch (_: IllegalArgumentException) {
+            // Expected: insecure or malformed URL was rejected before any request.
+        }
     }
 }
