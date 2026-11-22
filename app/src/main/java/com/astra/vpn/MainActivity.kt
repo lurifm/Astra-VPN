@@ -3854,9 +3854,17 @@ class MainActivity : Activity() {
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         val androidVpnActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
 
-        // A saved flag alone is insufficient: Android may have revoked the
-        // tunnel while the Activity was in the background.
-        connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        // Require both Android's VPN transport and Astra's own encrypted
+        // active-profile marker; another VPN app may own the default route.
+        val hasAstraActiveProfile = runCatching {
+            !ProfileStore(this).activeTunnelProfile().isNullOrBlank()
+        }.getOrDefault(false)
+        connected = VpnUiRestorePolicy.isAstraTunnelConnected(
+            savedState = saved,
+            connectedState = AstraVpnService.STATE_CONNECTED,
+            androidVpnTransportActive = androidVpnActive,
+            activeProfileAvailable = hasAstraActiveProfile
+        )
         if (connected && settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L) <= 0L) {
             settingsPrefs.edit().putLong(KEY_VPN_CONNECTED_SINCE, System.currentTimeMillis()).apply()
         } else if (!connected) {
