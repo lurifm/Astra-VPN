@@ -267,7 +267,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 var offset = 0
                 while (offset < payload.size) {
                     if (stopped.get()) throw InterruptedException("cancelled")
-                    if (System.nanoTime() >= deadline) throw java.net.SocketTimeoutException("deadline")
+                    remainingTimeout(deadline)
                     val count = minOf(32 * 1024, payload.size - offset)
                     output.write(payload, offset, count)
                     offset += count
