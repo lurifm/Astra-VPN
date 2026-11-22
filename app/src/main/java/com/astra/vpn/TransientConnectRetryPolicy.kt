@@ -19,6 +19,22 @@ internal object TransientConnectRetryPolicy {
         hasSelectedProfile &&
         delayForAttempt(attempt) != null
 
+    fun shouldRemainPending(
+        generationCurrent: Boolean,
+        selectedProfileUnchanged: Boolean,
+        activityActive: Boolean,
+        userRequestedDisconnect: Boolean,
+        connecting: Boolean,
+        connected: Boolean,
+        disconnecting: Boolean
+    ): Boolean = generationCurrent &&
+        selectedProfileUnchanged &&
+        activityActive &&
+        !userRequestedDisconnect &&
+        !connecting &&
+        !connected &&
+        !disconnecting
+
     fun shouldExecute(
         generationCurrent: Boolean,
         selectedProfileUnchanged: Boolean,
@@ -28,12 +44,13 @@ internal object TransientConnectRetryPolicy {
         connected: Boolean,
         disconnecting: Boolean,
         hasValidatedPhysicalInternet: Boolean
-    ): Boolean = generationCurrent &&
-        selectedProfileUnchanged &&
-        activityActive &&
-        !userRequestedDisconnect &&
-        !connecting &&
-        !connected &&
-        !disconnecting &&
-        hasValidatedPhysicalInternet
+    ): Boolean = shouldRemainPending(
+        generationCurrent,
+        selectedProfileUnchanged,
+        activityActive,
+        userRequestedDisconnect,
+        connecting,
+        connected,
+        disconnecting
+    ) && hasValidatedPhysicalInternet
 }
