@@ -5579,42 +5579,57 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(8), dp(18), dp(12))
             background = rounded(BG, 22)
         }
+        var actionGroup: LinearLayout? = null
         fun addActionRow(row: TextView) {
+            val group = actionGroup ?: LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = rounded(0xFF141B2A.toInt(), 15).apply {
+                    setStroke(dp(1), 0xFF29364C.toInt())
+                }
+                panel.addView(this, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(5) })
+                actionGroup = this
+            }
             val marker = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFFD6B36A.toInt())
-                setSize(dp(7), dp(7))
+                setColor(Color.TRANSPARENT)
+                setSize(dp(17), dp(17))
+                setStroke(dp(1), 0xFFD6B36A.toInt())
             }
             row.setCompoundDrawablesWithIntrinsicBounds(marker, null, null, null)
             row.compoundDrawablePadding = dp(12)
-            row.minHeight = dp(48)
+            row.minHeight = dp(44)
             row.gravity = Gravity.CENTER_VERTICAL
             row.text = row.text.toString().trimEnd() + "     ›"
-            row.setPadding(dp(14), dp(9), dp(12), dp(9))
-            row.textSize = 13.5f
+            row.setPadding(dp(14), dp(6), dp(12), dp(6))
+            row.textSize = 13f
+            row.maxLines = 1
+            row.ellipsize = android.text.TextUtils.TruncateAt.END
             row.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             row.setTextColor(0xFFE9EDF6.toInt())
-            row.background = rounded(0xFF141B2A.toInt(), 13).apply {
-                setStroke(dp(1), 0xFF29364C.toInt())
-            }
-            val params = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            row.background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x22D6B36A),
+                null,
+                null
             )
-            params.bottomMargin = dp(6)
             // A settings row navigates to another screen/dialog. Dismiss this
-            // sheet before its click callback runs so repeated taps cannot
-            // stack identical windows on top of one another.
+            // sheet after click dispatch so repeated taps cannot stack windows.
             row.setOnTouchListener { view, event ->
                 if (event.action == android.view.MotionEvent.ACTION_UP && sheet.isShowing) {
-                    // Let Android dispatch performClick() first. Dismissing the
-                    // window directly from ACTION_UP can cancel the click itself.
-                    view.post {
-                        if (sheet.isShowing) sheet.dismiss()
-                    }
+                    view.post { if (sheet.isShowing) sheet.dismiss() }
                 }
                 false
             }
-            panel.addView(row, params)
+            group.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            if (group.childCount > 1) {
+                val divider = View(this).apply { setBackgroundColor(0xFF29364C.toInt()) }
+                group.addView(divider, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+                ).apply { leftMargin = dp(43); rightMargin = dp(12) }, group.childCount - 1)
+            }
         }
         fun addToggleRow(toggle: android.widget.CompoundButton) {
             toggle.textSize = 13f
@@ -5637,6 +5652,7 @@ class MainActivity : Activity() {
             panel.addView(toggle, params)
         }
         fun addSectionLabel(label: String) {
+            actionGroup = null
             panel.addView(TextView(this).apply {
                 text = label.uppercase(java.util.Locale.getDefault())
                 textSize = 10f
