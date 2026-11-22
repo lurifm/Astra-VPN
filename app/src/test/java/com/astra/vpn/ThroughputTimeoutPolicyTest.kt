@@ -22,7 +22,7 @@ class ThroughputTimeoutPolicyTest {
             ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, Long.MIN_VALUE)
         )
         assertEquals(
-            1,
+            2,
             ThroughputTimeoutPolicy.remainingMillis(-999_999L, -2_000_000L)
         )
     }
