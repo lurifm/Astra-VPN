@@ -2677,12 +2677,7 @@ class MainActivity : Activity() {
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
             val measuredOrbitLatency = freshLatencyMs(link)
-            val orbitQuality = when {
-                measuredOrbitLatency == null || measuredOrbitLatency <= 0L -> 0
-                measuredOrbitLatency <= 100L -> 3
-                measuredOrbitLatency <= 250L -> 2
-                else -> 1
-            }
+            val orbitQuality = LatencyQualityPolicy.band(measuredOrbitLatency)
             row.addView(OrbitMarkerView(this).apply {
                 quality = orbitQuality
                 this.isSelected = isSelected || isActiveServer
@@ -2795,14 +2790,16 @@ class MainActivity : Activity() {
             val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
             val healthColor = when {
                 activeAndFailed -> RED
-                measuredLatency != null && measuredLatency < 200L -> GREEN
-                measuredLatency != null -> AMBER
+                LatencyQualityPolicy.band(measuredLatency) == 3 -> GREEN
+                LatencyQualityPolicy.band(measuredLatency) == 2 -> AMBER
+                LatencyQualityPolicy.band(measuredLatency) == 1 -> LIGHT_ACCENT
                 else -> MUTED
             }
             val healthLabel = when {
                 activeAndFailed -> "НЕ ОТВЕЧАЕТ"
-                measuredLatency != null && measuredLatency < 200L -> "СТАБИЛЬНЫЙ"
-                measuredLatency != null -> "ВЫСОКАЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 3 -> "НИЗКАЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 2 -> "СРЕДНЯЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 1 -> "ВЫСОКАЯ ЗАДЕРЖКА"
                 else -> "НЕ ПРОВЕРЕН"
             }
             val tile = LinearLayout(this).apply {
@@ -2938,17 +2935,14 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
-    private fun latencyQuality(ms: Long): String = when {
-        ms < 50L -> "отлично"
-        ms < 100L -> "хорошо"
-        ms <= 250L -> "средне"
-        else -> "высоко"
-    }
+    private fun latencyQuality(ms: Long): String = LatencyQualityPolicy.label(ms)
 
-    private fun latencyColor(ms: Long): Int = when {
-        ms < 200L -> GREEN
+    private fun latencyColor(ms: Long): Int = when (LatencyQualityPolicy.band(ms)) {
+        3 -> GREEN
+        2 -> AMBER
         // High latency is degraded quality, not proof of server failure.
-        else -> AMBER
+        1 -> LIGHT_ACCENT
+        else -> MUTED
     }
 
 
