@@ -195,6 +195,8 @@ class MainActivity : Activity() {
     private var connectRetryTask: Runnable? = null
     private var connectRetryGeneration = 0L
     private var connectRetryAttempt = 0
+    // Retry tasks may outlive a visible Activity; never start a foreground VPN service from onStop().
+    @Volatile private var activityStarted = false
     private var receiverRegistered = false
     private var outboundTrafficRefresh: (() -> Unit)? = null
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
@@ -3676,6 +3678,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -3962,6 +3965,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
@@ -4074,6 +4078,13 @@ class MainActivity : Activity() {
         status.setTextColor(AMBER)
         lateinit var retryTask: Runnable
         retryTask = Runnable {
+            if (!activityStarted && !isFinishing && !isDestroyed) {
+                // Keep the bounded retry pending while Android backgrounds this Activity.
+                // onStart() resumes normal validation; no service start is attempted in background.
+                connectRetryTask = retryTask
+                connectRetryHandler.postDelayed(retryTask, 4_000L)
+                return@Runnable
+            }
             val retryStillRelevant = TransientConnectRetryPolicy.shouldRemainPending(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
