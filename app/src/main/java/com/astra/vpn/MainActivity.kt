@@ -4116,6 +4116,8 @@ class MainActivity : Activity() {
             )
             if (!retryStillRelevant) {
                 connectRetryTask = null
+                connectRetryAttempt = 0
+                clearPersistedConnectRetryState()
                 return@Runnable
             }
             val connectivity = getSystemService(ConnectivityManager::class.java)
@@ -4199,7 +4201,12 @@ class MainActivity : Activity() {
     }
 
     private fun restorePersistedConnectRetry() {
-        if (connectRetryTask != null || connected || connecting || disconnecting) return
+        if (connectRetryTask != null) return
+        if (connected || connecting || disconnecting) {
+            clearPersistedConnectRetryState()
+            connectRetryAttempt = 0
+            return
+        }
         val state = readPersistedConnectRetryState() ?: return
         val profileFingerprint = TransientConnectRetryStatePolicy.fingerprint(selectedProfile)
         val valid = TransientConnectRetryStatePolicy.isValid(
