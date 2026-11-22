@@ -171,20 +171,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 handler.post {
                     if (stopped.get()) return@post
                     handler.removeCallbacks(batchTimeout)
-                    // All servers share the original absolute deadline. Time spent
-                    // starting libbox is deducted rather than granting a second 10s.
-                    val remainingMs = LatencyBatchDeadlinePolicy.remainingMs(
-                        batchDeadlineElapsedMs, SystemClock.elapsedRealtime()
-                    )
-                    if (remainingMs == 0L) {
-                        finishAndPublish()
-                        return@post
-                    }
-                    expectedTags.forEach { outboundTag ->
-                        val deadline = Runnable { completeUnmeasuredTag(outboundTag) }
-                        perServerTimeouts[outboundTag] = deadline
-                        handler.postDelayed(deadline, remainingMs)
-                    }
+                    // The global deadline protects engine startup only. Once the
+                    // engine is connected, every server receives its own full 10s
+                    // budget when an actual worker starts its URLTest call.
                 }
                 // A bounded pool prevents one blocking native call from holding
                 // the single startup worker and keeps the number of threads finite.
@@ -194,16 +183,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     if (stopped.get()) return@forEach
                     try {
                         urlTestDispatcher.execute {
-                            val remainingMs = LatencyBatchDeadlinePolicy.remainingMs(
-                                batchDeadlineElapsedMs, SystemClock.elapsedRealtime()
-                            )
                             if (!LatencyProbeDispatchPolicy.shouldDispatch(
                                     stopped = stopped.get(),
-                                    alreadyCompleted = outboundTag in completedTags,
-                                    remainingMs = remainingMs
-                                )) {
-                                if (!stopped.get()) handler.post { completeUnmeasuredTag(outboundTag) }
-                                return@execute
+                                    alreadyCompleted = outboundTag in completedTags
+                                )) return@execute
+
+                            // Start this server's hard timeout at dispatch, not when
+                            // the batch was created and not while it waits in the queue.
+                            handler.post {
+                                if (!stopped.get() && outboundTag !in completedTags) {
+                                    val deadline = Runnable { completeUnmeasuredTag(outboundTag) }
+                                    perServerTimeouts[outboundTag] = deadline
+                                    handler.postDelayed(deadline, BATCH_TIMEOUT_MS)
+                                }
                             }
                             runCatching {
                                 activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
@@ -455,7 +447,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val NOTIFICATION_ID = 2
         private const val BATCH_TIMEOUT_MS = 10_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
-        private const val URL_TEST_QUEUE_CAPACITY = 128
+        private const val URL_TEST_QUEUE_CAPACITY = 1_024
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
