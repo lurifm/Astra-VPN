@@ -3679,6 +3679,8 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
+        // Resume a retained retry only after the Activity is foregrounded again.
+        connectRetryTask?.let { connectRetryHandler.postDelayed(it, 250L) }
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -3966,6 +3968,9 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         activityStarted = false
+        // Retain the pending Runnable and attempt budget, but remove its callback while
+        // backgrounded. onStart() will re-arm it; this avoids a four-second polling loop.
+        connectRetryTask?.let(connectRetryHandler::removeCallbacks)
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
@@ -4084,10 +4089,9 @@ class MainActivity : Activity() {
                     activityDestroyed = isDestroyed
                 )
             ) {
-                // Keep the bounded retry pending while Android backgrounds this Activity.
-                // onStart() resumes normal validation; no service start is attempted in background.
+                // onStop() normally removes this callback and onStart() re-arms it.
+                // This guard handles a lifecycle race without consuming the retry.
                 connectRetryTask = retryTask
-                connectRetryHandler.postDelayed(retryTask, 4_000L)
                 return@Runnable
             }
             val retryStillRelevant = TransientConnectRetryPolicy.shouldRemainPending(
