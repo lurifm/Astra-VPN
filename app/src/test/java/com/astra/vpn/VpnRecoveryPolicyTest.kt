@@ -5,6 +5,24 @@ import org.junit.Test
 
 class VpnRecoveryPolicyTest {
     @Test
+    fun consentCheckReturnsTrueOnlyWhenPlatformConfirmsGrant() {
+        assertEquals(true, VpnRecoveryPolicy.isVpnConsentGranted { true })
+        assertEquals(false, VpnRecoveryPolicy.isVpnConsentGranted { false })
+    }
+
+    @Test
+    fun consentCheckFailsClosedAndReportsPlatformException() {
+        val failure = SecurityException("permission state unavailable")
+        var reported: Throwable? = null
+        val granted = VpnRecoveryPolicy.isVpnConsentGranted(
+            check = { throw failure },
+            onFailure = { reported = it }
+        )
+        assertEquals(false, granted)
+        assertEquals(failure, reported)
+    }
+
+    @Test
     fun systemRestartStartsOnlyWhenOptedInAndConsentIsGranted() {
         assertEquals(
             VpnRecoveryDecision.START,
