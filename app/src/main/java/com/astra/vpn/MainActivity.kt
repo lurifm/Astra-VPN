@@ -2993,8 +2993,13 @@ class MainActivity : Activity() {
         )
         if (fastest != null) {
             selectedProfile = fastest
-            status.text = "Выбрана быстрая орбита"
-            status.setTextColor(GREEN)
+            // A successful latency selection is not a VPN connection.
+            // Keep the connection status neutral until the tunnel is validated.
+            if (!connected && !connecting) {
+                status.text = "Быстрый сервер выбран"
+                status.setTextColor(MUTED)
+                updateConnectionCardAppearance("idle")
+            }
             selectedInfo.text = profileSummary(fastest)
             Toast.makeText(this, "Выбрана орбита: " + profileName(fastest), Toast.LENGTH_LONG).show()
             if (tilePendingStart) {
