@@ -30,6 +30,20 @@ class VpnUiRestorePolicyTest {
     }
 
     @Test
+    fun rejectsRestorationAfterAndroidRevokesVpnAndAstraClearsActiveMarker() {
+        assertFalse(VpnUiRestorePolicy.isAstraTunnelConnected(
+            connected, connected, false, false
+        ))
+    }
+
+    @Test
+    fun rejectsRestorationWhenAndroidVpnExistsButAstraMarkerWasClearedOnStop() {
+        assertFalse(VpnUiRestorePolicy.isAstraTunnelConnected(
+            connected, connected, true, false
+        ))
+    }
+
+    @Test
     fun rejectsConnectingAndErrorSnapshotsAsConnected() {
         assertFalse(VpnUiRestorePolicy.isAstraTunnelConnected(
             AstraVpnService.STATE_CONNECTING, connected, true, true
