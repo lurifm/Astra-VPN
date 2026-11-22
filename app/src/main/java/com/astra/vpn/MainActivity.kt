@@ -5614,7 +5614,7 @@ class MainActivity : Activity() {
             row.textSize = 13.5f
             row.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             row.setTextColor(0xFFE9EDF6.toInt())
-            row.background = Color.TRANSPARENT
+            row.setBackgroundColor(Color.TRANSPARENT)
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
