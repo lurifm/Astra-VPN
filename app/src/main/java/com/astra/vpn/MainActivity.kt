@@ -2660,7 +2660,11 @@ class MainActivity : Activity() {
                 (it.length > 48 && it.matches(Regex("[A-Za-z0-9+/=_-]+")))
         } ?: uri.host.orEmpty().ifBlank { "Сервер" }
         val flag = CountryFlagResolver.flagFor(serverName)
-        val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
+        // Unknown labels must retain the actual server name. The resolver's
+        // fallback text ("Другая страна") is not a usable location and makes
+        // unrelated nodes look identical in the hero status line.
+        val country = CountryFlagResolver.countryNameForFlag(flag)
+            .takeUnless { it.isBlank() || it == "Другая страна" }
             ?: serverName
         val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "Пинг не проверен"
         orbitNameLabel.text = "$country  ·  $latency"
