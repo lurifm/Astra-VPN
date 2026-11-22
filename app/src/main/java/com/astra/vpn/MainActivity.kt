@@ -170,6 +170,8 @@ class MainActivity : Activity() {
     private var activeLatencySessionId: String? = null
 // A cancelled config build must not occupy a worker while a retry is queued.
     private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
+    private val latencyPreparationHandler = Handler(Looper.getMainLooper())
+    private var latencyPreparationTimeout: Runnable? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
@@ -3127,6 +3129,8 @@ class MainActivity : Activity() {
         if (!latencyTestInFlight && !selectingFastest) return
         latencyPreparationTask?.cancel(true)
         latencyPreparationTask = null
+        latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+        latencyPreparationTimeout = null
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
@@ -3193,6 +3197,8 @@ class MainActivity : Activity() {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles, SingBoxUrlTestConfig.TEST_URL) }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
+                latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+                latencyPreparationTimeout = null
                 latencyPreparationTask = null
                 prepared.onSuccess { testConfig ->
                     urlTestProfileMap = testConfig.profileByOutboundTag
@@ -3247,6 +3253,27 @@ class MainActivity : Activity() {
             }
         }
         latencyPreparationTask = preparationTask
+        val preparationTimeout = Runnable {
+            if (generation != latencyCheckGeneration.get() || !latencyTestInFlight) return@Runnable
+            // Config validation is part of the latency operation: a huge or
+            // pathological subscription must not leave the UI in "checking…".
+            latencyCheckGeneration.incrementAndGet()
+            latencyPreparationTask?.cancel(true)
+            latencyPreparationTask = null
+            latencyPreparationTimeout = null
+            latencyTestInFlight = false
+            pendingFastestSelection = false
+            selectingFastest = false
+            tilePendingStart = false
+            profiles.forEach { profile ->
+                latencyMs.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+            Toast.makeText(this, "Подготовка проверки превысила 10 секунд", Toast.LENGTH_LONG).show()
+            renderProfiles()
+        }
+        latencyPreparationTimeout = preparationTimeout
+        latencyPreparationHandler.postDelayed(preparationTimeout, LATENCY_PREPARATION_TIMEOUT_MS)
         pingExecutor.execute(preparationTask)
     }
 
@@ -7114,6 +7141,7 @@ class MainActivity : Activity() {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
         private const val KEY_LATENCY_SESSION_ID = "active_session_id"
+        private const val LATENCY_PREPARATION_TIMEOUT_MS = 10_000L
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
         private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
