@@ -2342,6 +2342,12 @@ class MainActivity : Activity() {
         val fastestProfile = displayProfiles.firstOrNull { latencyMs[it] != null }
             ?.takeIf { sortMode == "ping" }
 
+        // Read persisted throughput samples in one batch before constructing rows.
+        // The row builder then consumes this immutable snapshot instead of performing
+        // synchronized SharedPreferences/JSON work while each individual row is built.
+        val visibleThroughput = throughputHistory.getFresh(displayProfiles)
+        visibleThroughput.forEach { (profile, sample) -> throughputSamples[profile] = sample }
+
         if (displayProfiles.isEmpty()) {
             val hasProfiles = profiles.isNotEmpty()
             val emptyCard = LinearLayout(this).apply {
@@ -2600,8 +2606,7 @@ class MainActivity : Activity() {
             }
             details.addView(protocolText)
             details.addView(meta)
-            throughputHistory.get(link)?.let { sample ->
-                throughputSamples[link] = sample
+            visibleThroughput[link]?.let { sample ->
                 details.addView(TextView(this).apply {
                     text = "↓ ${String.format(java.util.Locale.US, "%.1f", sample.downloadMbps)}  ·  ↑ ${String.format(java.util.Locale.US, "%.1f", sample.uploadMbps)} Мбит/с"
                     textSize = 10f
