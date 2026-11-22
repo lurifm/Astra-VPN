@@ -55,7 +55,10 @@ class AstraPlatform(
 
     /** Select the best remaining physical network after the preferred one is lost. */
     fun refreshPreferredPhysicalNetwork(): Network? {
-        val selected = probeNetworkCandidates().firstOrNull() ?: return null
+        // Clear a lost/stale preference even when no replacement is currently
+        // usable. Otherwise a later caller can mistake the old Network handle
+        // for the current underlay after a prolonged outage.
+        val selected = probeNetworkCandidates().firstOrNull()
         preferredPhysicalNetwork = selected
         return selected
     }

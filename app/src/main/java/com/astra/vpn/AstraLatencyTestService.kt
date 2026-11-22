@@ -514,10 +514,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         if (!usable) {
             callbackNetworks.remove(network)
             if (pendingPreferredNetwork == network) {
-                val fallback = callbackNetworks.entries.maxByOrNull { it.value.transportPriority }?.key
+                val fallback = selectFallbackProbeNetwork(network)
                 if (fallback == null) {
                     pendingPreferredNetwork = null
-                    probePlatform?.clearPreferredPhysicalNetwork(network)
                     scheduleProbeNetworkHandoverInvalidation(null)
                 } else {
                     preferProbeNetwork(fallback)
@@ -565,10 +564,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         if (stopped.get()) return
         callbackNetworks.remove(network)
         if (pendingPreferredNetwork == network) {
-            val fallback = callbackNetworks.entries.maxByOrNull { it.value.transportPriority }?.key
+            val fallback = selectFallbackProbeNetwork(network)
             if (fallback == null) {
                 pendingPreferredNetwork = null
-                probePlatform?.clearPreferredPhysicalNetwork(network)
                 scheduleProbeNetworkHandoverInvalidation(null)
             } else {
                 preferProbeNetwork(fallback)
@@ -579,6 +577,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private data class ProbeNetworkState(val transportPriority: Int)
+
+    /**
+     * Re-select through AstraPlatform's canonical ordering: validated physical
+     * networks first, then the active/default route, then transport preference.
+     * The callback map is only a startup fallback while the platform adapter is
+     * not ready; choosing its highest transport alone can select a non-default
+     * Wi-Fi network over the actual cellular underlay.
+     */
+    private fun selectFallbackProbeNetwork(lostNetwork: Network): Network? {
+        probePlatform?.clearPreferredPhysicalNetwork(lostNetwork)
+        return probePlatform?.refreshPreferredPhysicalNetwork()
+            ?: callbackNetworks.entries.maxByOrNull { it.value.transportPriority }?.key
+    }
 
     private fun preferProbeNetwork(network: Network) {
         if (stopped.get()) return
