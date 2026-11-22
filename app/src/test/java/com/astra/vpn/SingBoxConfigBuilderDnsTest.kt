@@ -37,6 +37,7 @@ class SingBoxConfigBuilderDnsTest {
         assertEquals("dns-remote", evaluate.getString("server"))
         assertEquals("primary-doh", evaluate.getString("tag"))
         assertEquals("5s", evaluate.getString("timeout"))
+        assertFalse(evaluate.getBoolean("speculative"))
 
         val successfulPrimary = rules.getJSONObject(1)
         assertEquals("primary-doh", successfulPrimary.getString("match_response"))
@@ -48,6 +49,7 @@ class SingBoxConfigBuilderDnsTest {
         assertTrue(fallbackRule.getBoolean("invert"))
         assertEquals("route", fallbackRule.getString("action"))
         assertEquals("dns-fallback", fallbackRule.getString("server"))
+        assertFalse(fallbackRule.has("timeout"))
     }
 
     @Test
