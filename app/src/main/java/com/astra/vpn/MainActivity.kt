@@ -3204,6 +3204,7 @@ class MainActivity : Activity() {
                         .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
                         .remove(KEY_LATENCY_PENDING_RESULTS)
                         .remove(KEY_LATENCY_LAST_RESULTS)
+                        .remove(KEY_LATENCY_LAST_RESULTS_AT)
                         .apply()
                     runCatching {
                         val physicalNetwork = networkForLatencyProbe()
@@ -3727,15 +3728,42 @@ class MainActivity : Activity() {
             if (latencyTestInFlight) renderProfiles()
             return
         }
+        val nowWallClockMs = System.currentTimeMillis()
+        val cacheSavedAt = prefs.getLong(KEY_LATENCY_LAST_RESULTS_AT, 0L)
+        val cacheAgeMs = (nowWallClockMs - cacheSavedAt).coerceAtLeast(0L)
+        val nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, nowWallClockMs) ||
+            cacheAgeMs >= nowElapsedMs
+        ) {
+            prefs.edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS_AT)
+                .apply()
+            safeProfiles().orEmpty().forEach { profile ->
+                latencyMs.remove(profile)
+                latencyMeasuredAt.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+            if (latencyTestInFlight) renderProfiles()
+            return
+        }
         if (pending != null) {
             prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
         }
-        // Completed values remain visible after relaunch; pending is consumed
-        // only once, while the reusable cache is retained until the next test.
-        applyLatencyResults(cached, finished = true)
+        // Preserve the original sample age after process recreation.
+        applyLatencyResults(
+            cached,
+            finished = true,
+            measuredAtElapsedMs = nowElapsedMs - cacheAgeMs
+        )
     }
 
-    private fun applyLatencyResults(payload: String, finished: Boolean) {
+    private fun applyLatencyResults(
+        payload: String,
+        finished: Boolean,
+        measuredAtElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    ) {
         // Validate the snapshot before changing session state. A malformed final
         // payload must not leave auto-selection or the quick tile waiting forever.
         val values = runCatching { JSONObject(payload) }.getOrNull()
@@ -3780,7 +3808,7 @@ class MainActivity : Activity() {
                     latencyPresentationChanged = true
                 }
                 latencyMs[profile] = ms
-                latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
+                latencyMeasuredAt[profile] = measuredAtElapsedMs
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = nextInfo
             } else if (finished) {
@@ -7095,6 +7123,7 @@ class MainActivity : Activity() {
         private const val KEY_LATENCY_SESSION_ID = "active_session_id"
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
+        private const val KEY_LATENCY_LAST_RESULTS_AT = "last_results_at"
         private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
