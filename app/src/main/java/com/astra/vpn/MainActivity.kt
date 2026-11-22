@@ -4685,6 +4685,16 @@ class MainActivity : Activity() {
                         }
                         updateProtectionLabels()
                         renderProfiles()
+                    } else if (TunnelHealthProbeResumePolicy.shouldReschedule(
+                            activityActive = !isFinishing && !isDestroyed,
+                            connected = connected,
+                            generationCurrent = tunnelHealthCheckGeneration.isCurrent(probeGeneration)
+                        )
+                    ) {
+                        // A probe invalidated while the Activity was backgrounded
+                        // must be replaced promptly when its worker releases the gate.
+                        lastHealthCheckAt = 0L
+                        scheduleTunnelHealthCheck()
                     }
                 }
             }
