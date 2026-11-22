@@ -44,4 +44,17 @@ internal object NetworkRecoveryPolicy {
         isValidated: Boolean,
         isNotSuspended: Boolean
     ): Boolean = !isVpn && hasInternet && isValidated && isNotSuspended
+
+    /** A probe socket must never fall back to a captive, suspended, or VPN route. */
+    fun isProbeSocketNetworkEligible(
+        isVpn: Boolean,
+        hasInternet: Boolean,
+        isValidated: Boolean,
+        isNotSuspended: Boolean
+    ): Boolean = isValidatedPhysicalUnderlay(
+        isVpn = isVpn,
+        hasInternet = hasInternet,
+        isValidated = isValidated,
+        isNotSuspended = isNotSuspended
+    )
 }

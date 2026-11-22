@@ -428,16 +428,19 @@ class AstraPlatform(
             .mapNotNull { network ->
                 val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
                     ?: return@mapNotNull null
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                ) return@mapNotNull null
-
                 val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
                 } else {
                     true
                 }
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                if (!NetworkRecoveryPolicy.isProbeSocketNetworkEligible(
+                        isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                        hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                        isValidated = validated,
+                        isNotSuspended = notSuspended
+                    )
+                ) return@mapNotNull null
                 val isPreferred = network == preferred
                 val isActive = network == active
                 val transportPriority = when {

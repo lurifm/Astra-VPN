@@ -97,6 +97,15 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun probeSocketBindingRejectsUnvalidatedAndVpnNetworks() {
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, false, true))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(true, true, true, true))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, false))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, false, true, true))
+        assertTrue(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, true))
+    }
+
+    @Test
     fun callbackRejectsCaptivePortalAndSuspendedNetworks() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, false, true))
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, true, false))
