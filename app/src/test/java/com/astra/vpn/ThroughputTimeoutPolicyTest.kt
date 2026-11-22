@@ -28,6 +28,28 @@ class ThroughputTimeoutPolicyTest {
     }
 
     @Test
+    fun shortFutureDeadlineRemainsValidAcrossNanoTimeWraparound() {
+        assertEquals(
+            1,
+            ThroughputTimeoutPolicy.remainingMillis(
+                Long.MIN_VALUE + 500_000L,
+                Long.MAX_VALUE - 500_000L
+            )
+        )
+    }
+
+    @Test
+    fun wrappedDeadlineThatHasExpiredReturnsZero() {
+        assertEquals(
+            0,
+            ThroughputTimeoutPolicy.remainingMillis(
+                Long.MIN_VALUE + 500_000L,
+                Long.MAX_VALUE - 100_000L
+            )
+        )
+    }
+
+    @Test
     fun millisecondsAreRoundedUpAndCapped() {
         assertEquals(2, ThroughputTimeoutPolicy.remainingMillis(2_000_001L, 1_000_000L))
         assertEquals(Int.MAX_VALUE, ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, 0L))
