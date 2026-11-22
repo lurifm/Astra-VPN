@@ -2663,10 +2663,12 @@ class MainActivity : Activity() {
         val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
             ?: serverName
         val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "Пинг не проверен"
-        orbitNameLabel.text = "$country  ·  $latency"
-        orbitMetaLabel.text = ""
-        orbitMetaLabel.visibility = View.GONE
-        orbitNameLabel.contentDescription = "Выбранный сервер: $country, задержка $latency"
+        // Match the approved reference: country is the hero title; protocol
+        // and measured latency sit quietly on the line beneath it.
+        orbitNameLabel.text = country
+        orbitMetaLabel.text = "${protocolName(link).uppercase(java.util.Locale.ROOT)}  ·  $latency"
+        orbitMetaLabel.visibility = View.VISIBLE
+        orbitNameLabel.contentDescription = "Выбранный сервер: $country"
         orbitMetaLabel.contentDescription = "Протокол " + protocolName(link) + ", задержка " + latency
         updateConnectButtonServerHealth()
     }
@@ -2741,12 +2743,12 @@ class MainActivity : Activity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             tile.addView(TextView(this@MainActivity).apply {
-                text = "●  $healthLabel"
-                textSize = 8f
-                letterSpacing = .035f
+                text = country
+                textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(healthColor)
+                setTextColor(0xFFE9EDF6.toInt())
                 maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             })
             tile.addView(TextView(this@MainActivity).apply {
                 text = ping
