@@ -540,23 +540,23 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val settingsButton = TextView(this).apply {
-            text = "⚙"
+        val settingsButton = android.widget.ImageView(this).apply {
             contentDescription = "Настройки Astra VPN"
-            textSize = 27f
-            gravity = Gravity.CENTER
-            setTextColor(LIGHT_ACCENT)
+            setImageResource(R.drawable.ic_settings_sliders)
+            scaleType = android.widget.ImageView.ScaleType.CENTER
             background = rounded(CARD, 16)
+            isClickable = true
+            isFocusable = true
             setOnClickListener { showAppSettingsDialog() }
         }
         val brand = TextView(this).apply {
-            text = "ASTRA VPN"
+            text = "ASTRA"
             textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             includeFontPadding = true
             letterSpacing = .045f
-            contentDescription = "ASTRA VPN"
+            contentDescription = "ASTRA"
             setOnClickListener {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - brandTapWindowStartedAt > 2_500L) {
@@ -586,16 +586,6 @@ class MainActivity : Activity() {
         header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         header.addView(brand, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(12) })
         header.addView(addButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
-
-        val subtitle = TextView(this).apply {
-            text = "VPN-защита для повседневного использования"
-            textSize = 11f
-            typeface = Typeface.DEFAULT
-            includeFontPadding = true
-            letterSpacing = .025f
-            setTextColor(MUTED)
-            setPadding(dp(2), dp(1), 0, dp(18))
-        }
 
         val connectCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -960,7 +950,6 @@ class MainActivity : Activity() {
         }
 
         root.addView(header)
-        root.addView(subtitle)
         root.addView(connectCard, matchWidth().apply { bottomMargin = dp(8) })
         monitorCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
