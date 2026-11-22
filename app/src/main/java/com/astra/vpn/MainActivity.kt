@@ -5715,7 +5715,7 @@ class MainActivity : Activity() {
             }, RadioGroup.LayoutParams(0, dp(46), 1f))
         }
         panel.addView(sortGroup)
-        addSectionLabel("Инструменты")
+        addSectionLabel("О приложении")
         val onboardingEntry = TextView(this).apply {
             text = "Повторить знакомство с Astra"
             textSize = 14f
@@ -5740,6 +5740,7 @@ class MainActivity : Activity() {
             setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showWhatsNewDialog() } }
         }
         addActionRow(whatsNewEntry)
+        addSectionLabel("Диагностика")
         val monitorEntry = TextView(this).apply {
             text = "Мониторинг сети"
             textSize = 14f
@@ -5773,6 +5774,7 @@ class MainActivity : Activity() {
         }
         addActionRow(diagnosticsEntry)
 
+        addSectionLabel("Карта и статистика")
         val orbitMapEntry = TextView(this).apply {
             text = "Интерактивная карта орбит"
             textSize = 14f
@@ -5804,6 +5806,7 @@ class MainActivity : Activity() {
         }
         addActionRow(insightsEntry)
 
+        addSectionLabel("Общий доступ")
         val familyQrEntry = TextView(this).apply {
             text = "Семейный доступ по QR"
             textSize = 14f
@@ -5824,6 +5827,7 @@ class MainActivity : Activity() {
             setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showProtectionStreakDialog() } }
         }
         addActionRow(streakEntry)
+        addSectionLabel("Автоматизация")
         val speedFailoverEntry = android.widget.Switch(this).apply {
             text = "Автопереключение при падении скорости"
             textSize = 13f
