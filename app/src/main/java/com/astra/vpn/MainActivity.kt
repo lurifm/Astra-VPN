@@ -787,8 +787,16 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(24), 0, dp(12))
         }
-        quickSwitchHeader.getChildAt(1).setOnClickListener {
-            profileScroll.post { profileScroll.smoothScrollTo(0, listHeader.top) }
+        quickSwitchHeader.getChildAt(1).apply {
+            contentDescription = "Показать список всех серверов"
+            setOnClickListener {
+                // listHeader is outside profileScroll. Its parent-relative top
+                // coordinate is not a valid ScrollView offset.
+                profileScroll.post {
+                    profileScroll.smoothScrollTo(0, 0)
+                    profileScroll.requestFocus()
+                }
+            }
         }
         val listTitle = TextView(this).apply {
             text = "ОРБИТЫ"
@@ -955,10 +963,11 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             minHeight = dp(40)
             background = rounded(0xFF141E31.toInt(), 12).apply { setStroke(dp(1), 0xFF26344D.toInt()) }
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showAppSettingsDialog() }
-            contentDescription = "Количество серверов и настройки сортировки"
+            // This is an informational count, not a hidden settings shortcut.
+            // Settings have their own explicit, consistently placed header button.
+            isClickable = false
+            isFocusable = false
+            contentDescription = "Количество серверов и текущий режим сортировки"
         }
         profileList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         profileScroll = ScrollView(this).apply {
@@ -2245,9 +2254,9 @@ class MainActivity : Activity() {
             "${filteredProfiles.size} орбит  ·  $sortLabel"
         }
         serverCountLabel.contentDescription = if (latencyTestInFlight) {
-            "Проверка задержки: получены результаты для $measuredPingCount из ${profiles.size} серверов. Нажмите для настроек."
+            "Проверка задержки: получены результаты для $measuredPingCount из ${profiles.size} серверов."
         } else {
-            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: $measuredPingCount из ${profiles.size}. Нажмите для настроек."
+            "Показано ${filteredProfiles.size} из ${profiles.size} серверов. Сортировка: $sortLabel. Измерено серверов: $measuredPingCount из ${profiles.size}."
         }
         if (selectedProfile == null || selectedProfile !in profiles) {
             // The live tunnel may still be using a profile removed/rotated by refresh.
