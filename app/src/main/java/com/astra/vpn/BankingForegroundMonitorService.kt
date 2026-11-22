@@ -70,7 +70,7 @@ internal class BankingForegroundMonitorService : Service() {
                                 .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
                                 .putExtra(EXTRA_OBSERVED_AT, observedAt)
                         )
-                        runCatching { executeBankingTransition(stablePackage, observedAt) }
+                        runCatching { executeBankingTransition(stablePackage, observedAt, pollGeneration) }
                             .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
                     }
                     // Match the app's existing battery-aware monitor cadence:
@@ -204,7 +204,12 @@ internal class BankingForegroundMonitorService : Service() {
         }
     }
 
-    private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
+    private fun executeBankingTransition(
+        foregroundPackage: String,
+        observedAt: Long,
+        sessionGeneration: Long
+    ) {
+        if (!isCurrentSession(sessionGeneration)) return
         val ledger = BankingAutomationCommandLedger(this)
         ledger.clearTerminal()
         val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
@@ -276,13 +281,16 @@ internal class BankingForegroundMonitorService : Service() {
                     return
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_PAUSE -> {
+                    if (!isCurrentSession(sessionGeneration)) return
                     startService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
                         .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
                     return
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_RESUME -> {
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!settings.edit().putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now).commit()) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startForegroundService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_RESUME)
                         .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, snapshot!!.profileLink)
@@ -291,6 +299,8 @@ internal class BankingForegroundMonitorService : Service() {
                 }
             }
         }
+
+        if (!isCurrentSession(sessionGeneration)) return
 
         val plan = BankingAutomationTransitionEngine.evaluate(
             state,
@@ -306,11 +316,13 @@ internal class BankingForegroundMonitorService : Service() {
             )
         )
 
+        if (!isCurrentSession(sessionGeneration)) return
         when (plan.command) {
             BankingAutomationTransitionEngine.Command.SAVE_PROFILE_AND_PAUSE -> {
                 val link = activeLink ?: return
                 // Commit encrypted exact profile first, then durable transition state,
                 // then issue the service command. Any failure leaves the tunnel untouched.
+                if (!isCurrentSession(sessionGeneration)) return
                 profileStore.setBankPauseSnapshot(link, now)
                 stateStore.write(plan.nextState)
                 val gate = BankingVpnCommandPolicy.decide(
@@ -336,7 +348,9 @@ internal class BankingForegroundMonitorService : Service() {
                     // earlier failed resume attempt.
                     settings.edit().remove(PREF_AUTO_RESUME_LAST_ATTEMPT).commit()
                     val command = BankingAutomationCommandRecord(plan.nextState.transitionId, BankingAutomationCommandRecord.Command.PAUSE, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!ledger.writePending(command)) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_PAUSE)
@@ -370,12 +384,14 @@ internal class BankingForegroundMonitorService : Service() {
                     if (!BankingResumeRetryPolicy.shouldAttempt(lastAttempt, now)) return
                     // Commit before dispatch: if Android rejects the service start,
                     // the next stable observation retries after a bounded cooldown.
+                    if (!isCurrentSession(sessionGeneration)) return
                     if (!settings.edit()
                             .putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now)
                             .commit()
                     ) return
                     val command = BankingAutomationCommandRecord(state.transitionId, BankingAutomationCommandRecord.Command.RESUME, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
                     if (!ledger.writePending(command)) return
+                    if (!isCurrentSession(sessionGeneration)) return
                     startForegroundService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)
@@ -391,6 +407,10 @@ internal class BankingForegroundMonitorService : Service() {
             BankingAutomationTransitionEngine.Command.NONE -> Unit
         }
     }
+
+    /** Prevent a poll from issuing a VPN command after its monitoring session was stopped/replaced. */
+    private fun isCurrentSession(generation: Long): Boolean =
+        running && generation == monitorGeneration.get()
 
     private fun startAsForeground() {
         val notification = Notification.Builder(this, CHANNEL_ID)
