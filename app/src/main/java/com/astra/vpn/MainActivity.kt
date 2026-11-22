@@ -6962,21 +6962,11 @@ class MainActivity : Activity() {
      * so measured latency remains the primary signal.
      */
     private fun serverReliabilityPenalties(profiles: List<String>): Map<String, Long> {
-        val entries = connectionHistory.getEntries()
+        // Aggregate the bounded history once instead of rescanning it for every profile.
+        val penaltiesByIdentity = ReliabilityScore.selectionPenaltiesByIdentity(connectionHistory.getEntries())
         return profiles.mapNotNull { profile ->
-            val name = profileName(profile).trim().lowercase(java.util.Locale.ROOT)
-            val protocol = protocolName(profile).trim().lowercase(java.util.Locale.ROOT)
-                .let { if (it == "hy2") "hysteria2" else it }
-            val outcomes = entries.filter {
-                it.serverName.trim().lowercase(java.util.Locale.ROOT) == name &&
-                    it.protocol.trim().lowercase(java.util.Locale.ROOT)
-                        .let { value -> if (value == "hy2") "hysteria2" else value } == protocol
-            }
-            val score = ReliabilityScore.calculate(
-                ReliabilityScore.outcomesAfterLatestSuccess(outcomes)
-            ) ?: return@mapNotNull null
-            val penalty = ReliabilityScore.selectionPenaltyMs(score)
-            if (penalty > 0L) profile to penalty else null
+            val identity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
+            penaltiesByIdentity[identity]?.let { profile to it }
         }.toMap()
     }
 
