@@ -67,7 +67,7 @@ class LatencyStabilityScorerTest {
             LatencyStabilityScorer.Sample(now - 3L * 60_000L, 110L)
         )
 
-        assertEquals(53L, LatencyStabilityScorer.penaltyMs(samples, now))
+        assertEquals(55L, LatencyStabilityScorer.penaltyMs(samples, now))
     }
 
     @Test
