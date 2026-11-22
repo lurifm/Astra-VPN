@@ -3254,7 +3254,7 @@ class MainActivity : Activity() {
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(candidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
-            throughputSamples = throughputHistory.getFresh(candidates)
+            throughputSamples = throughputHistory.getFresh(candidates),
             lastKnownGoodProfile = activeProfile
         )
         if (fastest != null) {
@@ -4536,7 +4536,7 @@ class MainActivity : Activity() {
             latencyMs = adjusted,
             recentFailures = recentServerFailureCounts(measuredCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates),
-            throughputSamples = throughputHistory.getFresh(measuredCandidates)
+            throughputSamples = throughputHistory.getFresh(measuredCandidates),
             lastKnownGoodProfile = activeProfile
         )
         if (alternate == null) {
@@ -4914,7 +4914,7 @@ class MainActivity : Activity() {
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(failoverCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
-            throughputSamples = throughputHistory.getFresh(failoverCandidates)
+            throughputSamples = throughputHistory.getFresh(failoverCandidates),
             lastKnownGoodProfile = activeProfile
         ) ?: run {
             renderProfiles()
