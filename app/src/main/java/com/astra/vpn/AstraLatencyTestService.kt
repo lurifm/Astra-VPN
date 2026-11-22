@@ -45,6 +45,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var client: CommandClient? = null
     // Updated from the foreground Activity after Wi-Fi/cellular handovers.
     @Volatile private var probePlatform: AstraPlatform? = null
+    // Covers a handover delivered before the native platform adapter is ready.
+    @Volatile private var pendingPreferredNetwork: Network? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
@@ -72,6 +74,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 val incomingSession = intent.getStringExtra(EXTRA_SESSION)
                 val network = intent.getParcelableExtra<Network>(EXTRA_NETWORK)
                 if (!stopped.get() && incomingSession == sessionId && network != null) {
+                    pendingPreferredNetwork = network
                     probePlatform?.updatePreferredPhysicalNetwork(network)
                 }
                 return START_NOT_STICKY
@@ -116,6 +119,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     false
                 }, protectSockets = false, initialPreferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
                 probePlatform = platform
+                pendingPreferredNetwork?.let(platform::updatePreferredPhysicalNetwork)
                 if (stopped.get()) return@execute
                 val commandServer = CommandServer(this, platform)
                 createdServer = commandServer
@@ -452,6 +456,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         val currentServer = server
         server = null
         probePlatform = null
+        pendingPreferredNetwork = null
         closeLibboxResourcesAsync(currentClient, currentServer)
         getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_ACTIVE_SESSION_ID).apply()

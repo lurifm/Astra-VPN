@@ -132,7 +132,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     this,
                     { _ -> false },
                     protectSockets = false,
-                    preferredPhysicalNetwork = network,
+                    initialPreferredPhysicalNetwork = network,
                     manageVpnUnderlyingNetworks = false
                 )
                 val server = CommandServer(this, platform)
