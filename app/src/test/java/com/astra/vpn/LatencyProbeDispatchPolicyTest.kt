@@ -59,6 +59,13 @@ class LatencyProbeDispatchPolicyTest {
         ))
     }
 
+    @Test fun rejectsOutboundHistoryOlderThanCurrentDispatch() {
+        assertFalse(LatencyProbeDispatchPolicy.isResultFresh(200L, 199L))
+        assertTrue(LatencyProbeDispatchPolicy.isResultFresh(200L, 200L))
+        assertTrue(LatencyProbeDispatchPolicy.isResultFresh(200L, 201L))
+        assertFalse(LatencyProbeDispatchPolicy.isResultFresh(null, 201L))
+    }
+
     @Test fun waitsForTimedOutNativeSlotsBeforeFinishingBatch() {
         assertFalse(LatencyProbeDispatchPolicy.shouldFinish(true, true))
         assertTrue(LatencyProbeDispatchPolicy.shouldFinish(true, false))
@@ -86,6 +93,7 @@ class NativeUrlTestTimingPolicyTest {
 
     @Test fun nativeCooldownMatchesPinnedSingBoxTimeoutBudget() {
         assertEquals(10_000L, NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS)
-        assertEquals(21_000L, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
+        assertEquals(22_000L, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
+        assertEquals(32_000L, NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS + NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
     }
 }

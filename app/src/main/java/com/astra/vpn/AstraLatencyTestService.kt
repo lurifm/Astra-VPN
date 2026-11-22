@@ -77,6 +77,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     // deadline. Retain its scheduler slot through the conservative native
     // DNS + TCP connect + HTTP timeout window (10s + 5s + 15s, plus margin).
     private val nativeSlotReleaseTimeouts = linkedMapOf<String, Runnable>()
+    // sing-box includes URLTestTime (Unix seconds) in every outbound snapshot.
+    // Keep the dispatch wall-clock time to reject a late result from an older attempt.
+    private val probeDispatchEpochSeconds = linkedMapOf<String, Long>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -251,12 +254,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun writeGroups(message: OutboundGroupIterator) = Unit
 
         override fun writeOutbounds(message: OutboundGroupItemIterator) {
-            val snapshot = linkedMapOf<String, Long?>()
+            val snapshot = linkedMapOf<String, Pair<Long, Long>>()
             while (message.hasNext()) {
                 val item = message.next()
                 if (item.tag !in expectedTags) continue
                 val delay = item.urlTestDelay.toLong()
-                if (delay > 0L) snapshot[item.tag] = delay
+                val resultTime = item.urlTestTime.toLong()
+                if (delay > 0L && resultTime > 0L) snapshot[item.tag] = delay to resultTime
             }
             if (snapshot.isNotEmpty()) {
                 // Plain proxy outbounds publish URLTest history on this stream.
@@ -267,7 +271,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     // per-probe event. Ignore cached/unsolicited values for servers
                     // that have not actually been dispatched in this batch.
                     val accepted = snapshot.filterKeys { tag ->
-                        LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+                        val fresh = LatencyProbeDispatchPolicy.isResultFresh(
+                            dispatchedAtEpochSeconds = probeDispatchEpochSeconds[tag],
+                            resultAtEpochSeconds = snapshot.getValue(tag).second
+                        )
+                        fresh && LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
                             // Once a handover starts, in-flight probes belong
                             // to the previous route even during the debounce window.
                             isInFlight = tag in inFlightTags,
@@ -276,7 +284,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                             discardedByNetworkChange = tag in discardedByNetworkChangeTags,
                             handoverPending = handoverInvalidationPending
                         )
-                    }.filterKeys(::completeMeasuredTag)
+                    }.filterKeys(::completeMeasuredTag).mapValues { it.value.first }
                     if (accepted.isEmpty()) return@post
                     latestResults.merge(accepted)
                     publishResults(accepted, finished = false)
@@ -305,6 +313,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             ) continue
 
             val startedAt = SystemClock.uptimeMillis()
+            probeDispatchEpochSeconds[tag] = System.currentTimeMillis() / 1_000L
             val deadline = Runnable { completeUnmeasuredTag(tag, timedOut = true) }
             perServerTimeouts[tag] = deadline
             handler.postAtTime(deadline, startedAt + SERVER_URLTEST_TIMEOUT_MS)
@@ -333,6 +342,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handoverRetryCounts.remove(tag)
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+        probeDispatchEpochSeconds.remove(tag)
         return true
     }
 
@@ -350,6 +360,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 // Once the native safety window expires, later stream updates
                 // must not be attributed to this timed-out request.
                 timedOutTags.remove(tag)
+                probeDispatchEpochSeconds.remove(tag)
                 dispatchNextUrlTests(client)
                 finishIfAllTagsCompleted()
             }
@@ -358,6 +369,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         } else {
             errorTags.add(tag)
             inFlightTags.remove(tag)
+            probeDispatchEpochSeconds.remove(tag)
         }
         // Publish completion and its reason even without a positive latency.
         publishResults(mapOf(tag to null), finished = false)
@@ -629,6 +641,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 inFlightTags.remove(tag)
                 discardedByNetworkChangeTags.remove(tag)
                 timedOutTags.remove(tag)
+                probeDispatchEpochSeconds.remove(tag)
                 val retries = handoverRetryCounts[tag] ?: 0
                 val hasValidatedUnderlay = pendingPreferredNetwork != null
                 val shouldRequeue = NetworkRecoveryPolicy.shouldRequeueAfterHandover(
@@ -692,6 +705,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         nativeSlotReleaseTimeouts.clear()
         inFlightTags.clear()
         pendingTags.clear()
+        probeDispatchEpochSeconds.clear()
         // Interrupt queued dispatch tasks; native URLTest calls already in progress
         // may be non-interruptible, but they cannot publish after stopped becomes true.
         urlTestDispatcher.shutdownNow()

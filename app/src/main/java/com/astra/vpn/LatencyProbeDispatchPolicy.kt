@@ -22,6 +22,10 @@ internal object LatencyProbeDispatchPolicy {
     ): Boolean = !handoverPending && !discardedByNetworkChange &&
         isInFlight && (!alreadyCompleted || previouslyTimedOut)
 
+    /** Reject an outbound snapshot whose URLTest history predates this dispatch. */
+    fun isResultFresh(dispatchedAtEpochSeconds: Long?, resultAtEpochSeconds: Long): Boolean =
+        dispatchedAtEpochSeconds != null && resultAtEpochSeconds >= dispatchedAtEpochSeconds
+
     /** Do not tear down libbox while timed-out native probes may still publish results. */
     fun shouldFinish(completedAll: Boolean, nativeSlotsPending: Boolean): Boolean =
         completedAll && !nativeSlotsPending
@@ -48,6 +52,11 @@ internal object NativeUrlTestTimingPolicy {
     const val NATIVE_MAX_DURATION_MS =
         DNS_TIMEOUT_MS + TCP_CONNECT_TIMEOUT_MS + HTTP_CLIENT_TIMEOUT_MS + SAFETY_MARGIN_MS
 
+    // One extra second protects the boundary where the native timeout and
+    // scheduler release would otherwise happen at the same instant.
+    const val POST_TIMEOUT_COOLDOWN_MARGIN_MS = 1_000L
+
     fun cooldownAfterUiTimeoutMs(): Long =
-        (NATIVE_MAX_DURATION_MS - SERVER_TIMEOUT_MS).coerceAtLeast(0L)
+        (NATIVE_MAX_DURATION_MS - SERVER_TIMEOUT_MS).coerceAtLeast(0L) +
+            POST_TIMEOUT_COOLDOWN_MARGIN_MS
 }
