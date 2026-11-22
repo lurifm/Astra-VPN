@@ -54,10 +54,12 @@ object SingBoxConfigBuilder {
     }
 
     /**
-     * Keep DNS requests on an explicit IP-literal DoH endpoint, so bootstrap
-     * never depends on Android's system resolver or the VPN tunnel itself.
-     * Optimistic cache serves recently expired answers during short network
-     * handovers while refreshing them in the background (sing-box 1.14+).
+     * Keep DNS bootstrap on IP-literal DoH endpoints routed directly over the
+     * physical underlay. The primary response is evaluated first; its race rule
+     * remains pending while the speculative fallback query runs in parallel.
+     * The first successful NOERROR response wins and sing-box cancels the loser.
+     * Optimistic cache can serve recently expired answers during short Android
+     * Wi-Fi/cellular handovers while refreshing them in the background (1.14+).
      */
     internal fun buildDnsConfig(options: SingBoxAdvancedOptions): JSONObject =
         JSONObject()
