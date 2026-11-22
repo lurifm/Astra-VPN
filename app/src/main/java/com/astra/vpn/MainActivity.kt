@@ -1945,6 +1945,18 @@ class MainActivity : Activity() {
             .onSuccess { persistedSelectionSnapshot = selectedProfile }
     }
 
+    private fun formatServerCount(count: Int): String {
+        val value = kotlin.math.abs(count) % 100
+        val last = value % 10
+        val noun = when {
+            value in 11..14 -> "серверов"
+            last == 1 -> "сервер"
+            last in 2..4 -> "сервера"
+            else -> "серверов"
+        }
+        return "$count $noun"
+    }
+
     private fun formatTraffic(bytes: Long): String {
         if (bytes < 0L) return "—"
         val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
@@ -2036,7 +2048,7 @@ class MainActivity : Activity() {
                     }
                     isClickable = true
                     isFocusable = true
-                    contentDescription = "Подписка ${subscription.title}, ${subscription.serverCount} серверов. Нажмите для управления."
+                    contentDescription = "Подписка ${subscription.title}, ${formatServerCount(subscription.serverCount)}. Нажмите для управления."
                     setOnClickListener { showSubscriptionDetails(subscription) }
                 }
                 val subscriptionHeader = LinearLayout(this).apply {
@@ -2066,7 +2078,7 @@ class MainActivity : Activity() {
                 })
                 card.addView(subscriptionHeader, matchWidth())
                 card.addView(TextView(this).apply {
-                    text = "${subscription.serverCount} серверов  ·  Нажми для управления"
+                    text = "${formatServerCount(subscription.serverCount)}  ·  Нажми для управления"
                     textSize = 12f
                     setTextColor(LIGHT_ACCENT)
                     setPadding(0, dp(6), 0, dp(5))
