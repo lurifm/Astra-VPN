@@ -3255,12 +3255,16 @@ class MainActivity : Activity() {
         val timeAdjustedLatencies = TimeOfDayServerOptimizer.adjustedLatencies(
             candidates, latencyMs, { profile -> latencyHistory.samples(profile) }
         )
+        // Derive every history-based score from one immutable snapshot so a
+        // concurrent history write cannot make selector penalties disagree.
+        val historySnapshot = connectionHistory.getEntries()
+        val historyNow = System.currentTimeMillis()
         val fastest = BestServerSelector.select(
             profiles = candidates,
             latencyMs = timeAdjustedLatencies,
-            recentFailures = recentServerFailureCounts(candidates),
+            recentFailures = recentServerFailureCounts(candidates, historySnapshot, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
-            reliabilityPenaltyMs = serverReliabilityPenalties(candidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(candidates, historySnapshot),
             throughputSamples = throughputHistory.getFresh(candidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
@@ -4546,10 +4550,11 @@ class MainActivity : Activity() {
         // Wall-clock timestamps are used here because connection history is persisted
         // across process restarts; elapsedRealtime is reserved for cooldowns.
         val historySnapshot = connectionHistory.getEntries()
+        val historyNow = System.currentTimeMillis()
         val recoveryCandidates = ServerFailureScorer.excludeRecentlyFailedProfiles(
             profiles = measuredCandidates,
             entries = historySnapshot,
-            now = System.currentTimeMillis(),
+            now = historyNow,
             nameOf = ::profileName,
             protocolOf = ::protocolName
         )
@@ -4560,9 +4565,9 @@ class MainActivity : Activity() {
         val alternate = BestServerSelector.select(
             profiles = recoveryCandidates,
             latencyMs = adjusted,
-            recentFailures = recentServerFailureCounts(recoveryCandidates),
+            recentFailures = recentServerFailureCounts(recoveryCandidates, historySnapshot, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(recoveryCandidates),
-            reliabilityPenaltyMs = serverReliabilityPenalties(recoveryCandidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(recoveryCandidates, historySnapshot),
             throughputSamples = throughputHistory.getFresh(recoveryCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
@@ -4971,10 +4976,11 @@ class MainActivity : Activity() {
             }
         }
         val recentHistory = connectionHistory.getEntries()
+        val historyNow = System.currentTimeMillis()
         val failoverCandidates = ServerFailureScorer.excludeRecentlyFailedProfiles(
             profiles = measuredFailoverCandidates,
             entries = recentHistory,
-            now = System.currentTimeMillis(),
+            now = historyNow,
             nameOf = ::profileName,
             protocolOf = ::protocolName
         )
@@ -4984,9 +4990,9 @@ class MainActivity : Activity() {
         val alternate = BestServerSelector.select(
             profiles = failoverCandidates,
             latencyMs = timeAdjustedLatencies,
-            recentFailures = recentServerFailureCounts(failoverCandidates),
+            recentFailures = recentServerFailureCounts(failoverCandidates, recentHistory, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
-            reliabilityPenaltyMs = serverReliabilityPenalties(failoverCandidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(failoverCandidates, recentHistory),
             throughputSamples = throughputHistory.getFresh(failoverCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         ) ?: run {
@@ -6986,19 +6992,26 @@ class MainActivity : Activity() {
      * Require three valid outcomes before influencing selection; cap the effect
      * so measured latency remains the primary signal.
      */
-    private fun serverReliabilityPenalties(profiles: List<String>): Map<String, Long> {
+    private fun serverReliabilityPenalties(
+        profiles: List<String>,
+        entries: List<ConnectionHistoryStore.Entry>
+    ): Map<String, Long> {
         // Aggregate the bounded history once instead of rescanning it for every profile.
-        val penaltiesByIdentity = ReliabilityScore.selectionPenaltiesByIdentity(connectionHistory.getEntries())
+        val penaltiesByIdentity = ReliabilityScore.selectionPenaltiesByIdentity(entries)
         return profiles.mapNotNull { profile ->
             val identity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
             penaltiesByIdentity[identity]?.let { profile to it }
         }.toMap()
     }
 
-    private fun recentServerFailureCounts(profiles: List<String>): Map<String, Int> {
+    private fun recentServerFailureCounts(
+        profiles: List<String>,
+        entries: List<ConnectionHistoryStore.Entry>,
+        now: Long
+    ): Map<String, Int> {
         val failuresByName = ServerFailureScorer.weightedFailures(
-            entries = connectionHistory.getEntries(),
-            now = System.currentTimeMillis()
+            entries = entries,
+            now = now
         )
         return profiles.associateWith { profile ->
             val identity = "${profileName(profile).trim().lowercase(java.util.Locale.ROOT)}|${protocolName(profile).trim().lowercase(java.util.Locale.ROOT).let { if (it == "hy2") "hysteria2" else it }}"
