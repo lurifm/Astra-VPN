@@ -35,7 +35,8 @@ data class SubscriptionSummary(
     val uploadBytes: Long? = null,
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
-    val expiresAtEpochSeconds: Long? = null
+    val expiresAtEpochSeconds: Long? = null,
+    val updateIntervalHours: Int? = null
 )
 
 class ProfileStore(context: Context) {
@@ -295,7 +296,8 @@ class ProfileStore(context: Context) {
                         usage.uploadBytes,
                         usage.downloadBytes,
                         usage.totalBytes,
-                        usage.expiresAtEpochSeconds
+                        usage.expiresAtEpochSeconds,
+                        usage.updateIntervalHours
                     )
                 }
                 .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
