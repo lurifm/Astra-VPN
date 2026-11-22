@@ -4688,24 +4688,31 @@ class MainActivity : Activity() {
                         // while the request was in flight; it says nothing about the new tunnel.
                         val currentNetwork = connectivity.activeNetwork
                         val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
-                        if (currentNetwork != vpnNetwork ||
-                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                        val currentPhysicalUnderlay = AstraPlatform.currentPhysicalNetwork
+                        val hasCurrentValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+                        // A probe result belongs to one VPN/underlay pair only.
+                        // If either route changed while the request was in flight,
+                        // or the physical Internet disappeared, discard the result.
+                        if (!NetworkRecoveryPolicy.shouldAcceptHealthResult(
+                                probedVpnNetwork = vpnNetwork,
+                                currentVpnNetwork = currentNetwork,
+                                currentVpnRouteIsVpn = currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
+                                probedPhysicalUnderlay = probedPhysicalUnderlay,
+                                currentPhysicalUnderlay = currentPhysicalUnderlay,
+                                hasValidatedPhysicalInternet = hasCurrentValidatedUnderlay
+                            )
                         ) {
                             lastHealthCheckAt = 0L
-                            return@runOnUiThread
-                        }
-                        // Discard a result measured across an underlay transition.
-                        // The HTTPS request may have started on Wi-Fi and timed out
-                        // after Android moved the tunnel to cellular (or vice versa);
-                        // that result must not count as a VPN-server failure.
-                        if (AstraPlatform.currentPhysicalNetwork != probedPhysicalUnderlay) {
-                            lastHealthCheckAt = 0L
                             tunnelInternetOk = null
-                            waitingForUnderlyingNetwork = false
-                            status.text = "Проверяем новое подключение…"
+                            waitingForUnderlyingNetwork = !hasCurrentValidatedUnderlay
+                            if (hasCurrentValidatedUnderlay) {
+                                status.text = "Проверяем новое подключение…"
+                            } else {
+                                status.text = "Ожидаем восстановления интернета…"
+                            }
                             status.setTextColor(AMBER)
                             updateProtectionLabels()
-                            scheduleTunnelHealthCheck()
+                            if (hasCurrentValidatedUnderlay) scheduleTunnelHealthCheck()
                             return@runOnUiThread
                         }
                         // The physical underlay may disappear while the HTTPS probe is
