@@ -3750,17 +3750,29 @@ class MainActivity : Activity() {
             latencyTestInFlight = false
         }
         // Render each successful measurement immediately instead of waiting for
-        // the slowest server in the subscription to finish its URL-test.
+        // the slowest server in the subscription to finish its URL-test. A final
+        // cumulative broadcast can repeat values already shown by partial updates;
+        // avoid rebuilding every server row when its visible state did not change.
+        var latencyPresentationChanged = false
         urlTestProfileMap.forEach { (tag, profile) ->
             if (!values.has(tag)) return@forEach
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
+                val previousMs = latencyMs[profile]
+                val wasFresh = freshLatencyMs(profile) != null
+                val nextInfo = "$ms мс · ${latencyQuality(ms)}"
+                if (previousMs != ms || !wasFresh || pingInfo[profile] != nextInfo) {
+                    latencyPresentationChanged = true
+                }
                 latencyMs[profile] = ms
                 latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
                 if (finished) latencyHistory.record(profile, ms)
-                pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
+                pingInfo[profile] = nextInfo
             } else if (finished) {
                 // A failed URL-test means "no measurement", not proof that the server is dead.
+                if (latencyMs.containsKey(profile) || latencyMeasuredAt.containsKey(profile) ||
+                    pingInfo[profile] != "н/д"
+                ) latencyPresentationChanged = true
                 latencyMs.remove(profile)
                 latencyMeasuredAt.remove(profile)
                 pingInfo[profile] = "н/д"
@@ -3776,7 +3788,7 @@ class MainActivity : Activity() {
         // Coalesce bursts of partial latency results into one list rebuild.
         // This keeps ping badges responsive without repeatedly recreating every
         // server card while several probes finish close together.
-        if (!isFinishing && !isDestroyed) {
+        if (!isFinishing && !isDestroyed && (finished || latencyPresentationChanged)) {
             searchRenderHandler.removeCallbacks(searchRenderTask)
             searchRenderHandler.postDelayed(searchRenderTask, 90L)
         }
