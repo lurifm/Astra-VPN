@@ -3363,7 +3363,7 @@ class MainActivity : Activity() {
         // can be expensive with large subscriptions and must not freeze touch feedback.
         val generation = latencyCheckGeneration.get()
         val preparationTask = java.util.concurrent.FutureTask<Unit> {
-            val prepared = runCatching { SingBoxUrlTestConfig.build(profiles, SingBoxUrlTestConfig.TEST_URL) }
+            val prepared = runCatching { SingBoxUrlTestConfig.build(profiles) }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
                 latencyPreparationTask = null
