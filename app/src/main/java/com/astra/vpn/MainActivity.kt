@@ -2757,11 +2757,10 @@ class MainActivity : Activity() {
         val candidates = profiles.distinct().sortedWith(compareBy<String> { freshLatencyMs(it) ?: Long.MAX_VALUE }.thenBy { it }).take(3)
         val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         candidates.forEachIndexed { index, link ->
-            val uri = Uri.parse(link)
-            val fragment = uri.fragment?.let { Uri.decode(it) }?.trim().orEmpty()
-            val clean = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "")
-            val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
-            val flag = CountryFlagResolver.flagFor(name)
+            // renderProfiles() prepares this metadata snapshot before rendering quick
+            // switch tiles. Reuse it instead of reparsing the same URI a second time.
+            val name = cachedProfileDetails[link]?.first ?: "Сервер"
+            val flag = cachedProfileFlags[link] ?: "🌐"
             val country = CountryFlagResolver.countryNameForFlag(flag).takeUnless { it == "Другая страна" } ?: name
             val countryCode = CountryFlagResolver.countryCodeForFlag(flag)
             val measuredLatency = freshLatencyMs(link)
@@ -2770,7 +2769,7 @@ class MainActivity : Activity() {
             val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
             val healthColor = when {
                 activeAndFailed -> RED
-                measuredLatency != null && measuredLatency < 200L -> GREEN
+                measuredLatency != null && measuredLatency < 200L -> LIGHT_ACCENT
                 measuredLatency != null -> AMBER
                 else -> MUTED
             }
