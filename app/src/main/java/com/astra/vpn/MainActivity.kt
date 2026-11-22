@@ -7014,7 +7014,7 @@ class MainActivity : Activity() {
             now = now
         )
         return profiles.associateWith { profile ->
-            val identity = "${profileName(profile).trim().lowercase(java.util.Locale.ROOT)}|${protocolName(profile).trim().lowercase(java.util.Locale.ROOT).let { if (it == "hy2") "hysteria2" else it }}"
+            val identity = ReliabilityScore.identity(profileName(profile), protocolName(profile))
             failuresByName[identity] ?: 0
         }
     }

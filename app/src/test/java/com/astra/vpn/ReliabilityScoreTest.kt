@@ -59,4 +59,11 @@ class ReliabilityScoreTest {
         assertEquals("средняя", ReliabilityScore.calculate(medium)?.confidence)
         assertEquals("высокая", ReliabilityScore.calculate(high)?.confidence)
     }
+    @Test
+    fun identityNormalizationIsSharedAcrossProtocolAliasesAndWhitespace() {
+        assertEquals("node|hysteria2", ReliabilityScore.identity("  NODE  ", " HY2 "))
+        assertEquals("node|hysteria2", ReliabilityScore.identity("node", "Hysteria2"))
+        assertEquals("node|vless", ReliabilityScore.identity("Node", " VLESS "))
+    }
+
 }
