@@ -37,12 +37,40 @@ class FailoverSelectionPolicyTest {
     }
 
     @Test
-    fun transactionCommitsOnlyWhenTargetProfileIsConnected() {
+    fun transactionCommitsOnlyWhenTargetProfilePassesValidation() {
         val pending = FailoverSelectionTransaction("server-A", "server-B")
 
         assertTrue(FailoverSelectionPolicy.isCommitted(pending, "server-B"))
         assertFalse(FailoverSelectionPolicy.isCommitted(pending, "server-A"))
         assertFalse(FailoverSelectionPolicy.isCommitted(pending, null))
+    }
+
+    @Test
+    fun chainedFailoverKeepsOriginalKnownGoodRollbackProfile() {
+        val first = FailoverSelectionPolicy.nextTransaction(
+            existing = null,
+            currentProfile = "server-A",
+            targetProfile = "server-B"
+        )
+        val second = FailoverSelectionPolicy.nextTransaction(
+            existing = first,
+            currentProfile = "server-B",
+            targetProfile = "server-C"
+        )
+
+        assertEquals("server-A", second.previousProfile)
+        assertEquals("server-C", second.targetProfile)
+    }
+
+    @Test
+    fun firstFailoverUsesCurrentProfileAsRollbackAnchor() {
+        val next = FailoverSelectionPolicy.nextTransaction(
+            existing = null,
+            currentProfile = "server-A",
+            targetProfile = "server-B"
+        )
+
+        assertEquals("server-A", next.previousProfile)
     }
 
     @Test
