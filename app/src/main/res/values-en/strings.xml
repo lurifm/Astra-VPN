@@ -7,8 +7,7 @@
     <string name="shortcut_open_long">Open Astra VPN</string>
     <string name="shortcut_connect">Connect</string>
     <string name="shortcut_connect_long">Connect Astra VPN to the best server</string>
-    <string name="service_checks_entry">🌐  Check YouTube, Telegram and ChatGPT</string>
-    <string name="network_security_entry">🔐  VPN and DNS status</string>
+        <string name="network_security_entry">🔐  VPN and DNS status</string>
     <string name="widget_title">Astra VPN</string>
     <string name="widget_connect">Connect / disconnect</string>
     <string name="widget_status_connected">Connected</string>
