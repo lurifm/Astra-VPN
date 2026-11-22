@@ -5,6 +5,10 @@ package com.astra.vpn
  * tunnel. Never probe/fail over a VPN server while the underlay is offline.
  */
 internal object NetworkRecoveryPolicy {
+    // Coalesce the burst of availability/capability/link-property callbacks
+    // emitted by Android for one physical network handover.
+    const val NETWORK_CHANGE_DEBOUNCE_MS = 250L
+
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 

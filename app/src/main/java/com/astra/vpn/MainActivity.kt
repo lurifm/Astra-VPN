@@ -292,22 +292,13 @@ class MainActivity : Activity() {
         ) = onPhysicalNetworkChanged()
     }
 
-    private fun onPhysicalNetworkChanged() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            monitorHandler.post { onPhysicalNetworkChanged() }
-            return
-        }
-        // Invalidate cached presentation/probe timing immediately. The health
-        // checker re-evaluates all physical networks before deciding to probe.
+    private val physicalNetworkChangeDebounce = Runnable {
+        // Several callbacks commonly arrive for one Wi-Fi/cellular handover
+        // (availability, capabilities and link properties). Collapse them into
+        // one transition so a probe is not repeatedly invalidated mid-handover.
         lastNetworkLabelAt = 0L
         lastHealthCheckAt = 0L
-        // A probe started on the previous underlay must never report a timeout
-        // against the newly selected Wi-Fi/mobile path, even if Android reuses
-        // the same VPN Network object during the handover.
         tunnelHealthCheckGeneration.advance()
-        // Failure streaks belong to one physical route. Never carry failed
-        // probes from a lost Wi-Fi/cellular path into the replacement network:
-        // the first timeout after handover must not trigger premature failover.
         consecutiveHealthFailures = 0
         tunnelInternetOk = null
         if (connected) {
@@ -316,9 +307,19 @@ class MainActivity : Activity() {
         }
         updateProtectionLabels()
         updateNetworkLabel()
-        if (connected) {
-            scheduleTunnelHealthCheck()
+        if (connected) scheduleTunnelHealthCheck()
+    }
+
+    private fun onPhysicalNetworkChanged() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            monitorHandler.post { onPhysicalNetworkChanged() }
+            return
         }
+        monitorHandler.removeCallbacks(physicalNetworkChangeDebounce)
+        monitorHandler.postDelayed(
+            physicalNetworkChangeDebounce,
+            NetworkRecoveryPolicy.NETWORK_CHANGE_DEBOUNCE_MS
+        )
     }
 
     private fun registerPhysicalNetworkCallback() {
@@ -3800,6 +3801,7 @@ class MainActivity : Activity() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
+        monitorHandler.removeCallbacks(physicalNetworkChangeDebounce)
         // Keep the receiver registered while this Activity instance is alive.
         // A latency test can finish while the app is backgrounded; unregistering
         // here would drop its one-shot result and leave rows stuck on "Проверяем…".
