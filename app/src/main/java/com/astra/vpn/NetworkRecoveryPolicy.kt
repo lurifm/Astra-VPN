@@ -32,6 +32,7 @@ internal object NetworkRecoveryPolicy {
         probedVpnNetwork != null &&
             probedVpnNetwork == currentVpnNetwork &&
             currentVpnRouteIsVpn &&
+            probedPhysicalUnderlay != null &&
             probedPhysicalUnderlay == currentPhysicalUnderlay &&
             hasValidatedPhysicalInternet
 
