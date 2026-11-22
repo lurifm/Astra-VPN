@@ -280,6 +280,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private fun completeUnmeasuredTag(tag: String) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+        // Publish the completion even when URLTest produced no latency. The UI
+        // can now stop showing "Проверяем…" for this server and advance progress.
+        publishResults(mapOf(tag to null), finished = false)
         finishIfAllTagsCompleted()
     }
 
@@ -314,6 +317,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 .setPackage(packageName)
                 .putExtra(EXTRA_RESULTS, payload)
                 .putExtra(EXTRA_FINAL, finished)
+                .putExtra(EXTRA_COMPLETED_TAGS, JSONArray(completedTags.toList().sorted()).toString())
                 .putExtra(EXTRA_SESSION, sessionId)
         )
     }
@@ -435,6 +439,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_NETWORK = "com.astra.vpn.extra.LATENCY_NETWORK"
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
         const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
+        const val EXTRA_COMPLETED_TAGS = "com.astra.vpn.extra.LATENCY_COMPLETED_TAGS"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         const val EXTRA_SESSION = "com.astra.vpn.extra.LATENCY_SESSION"
         private const val LATENCY_PREFS = "astra_latency_results"
