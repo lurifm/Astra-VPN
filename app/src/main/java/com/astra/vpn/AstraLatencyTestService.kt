@@ -230,7 +230,25 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
         override fun setDefaultLogLevel(level: Int) = Unit
         override fun clearLogs() = Unit
-        override fun writeLogs(messageList: LogIterator) = Unit
+        override fun writeLogs(messageList: LogIterator) {
+            // Consume the native iterator on its callback thread. Keep only
+            // diagnostics useful for URLTest/DNS troubleshooting and redact
+            // subscription-style URIs before they reach Android Logcat.
+            while (messageList.hasNext()) {
+                val entry = messageList.next() ?: continue
+                val raw = entry.message ?: continue
+                if (raw.isBlank()) continue
+                val lower = raw.lowercase()
+                if (listOf("dns", "urltest", "url-test", "resolve", "timeout",
+                        "failed", "failure", "error", "network", "connect")
+                        .none(lower::contains)) continue
+                val safe = raw
+                    .replace(Regex("(?i)(vless|vmess|trojan|ss|hysteria2?|tuic)://\\S+"), "<profile-uri-redacted>")
+                    .replace(Regex("(?i)(://)[^/@\\s]+@"), "$1<credentials-redacted>@")
+                    .take(1_200)
+                Log.d(TAG, safe)
+            }
+        }
         override fun writeStatus(message: StatusMessage?) = Unit
 
         override fun writeGroups(message: OutboundGroupIterator) {
