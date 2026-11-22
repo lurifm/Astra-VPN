@@ -644,6 +644,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         configurationAccepted = false
         activeTunRequestToken = null
         tunReadyRequestToken = null
+        // The active-profile marker is a durable identity check used when the
+        // Activity is recreated. Clear it on every orderly stop/failure; an OS
+        // process kill does not execute this path, so sticky recovery can still
+        // use the marker until Android restarts the service.
+        runCatching { ProfileStore(this).setActiveTunnelProfile(null) }
+            .onFailure { Log.w(TAG, "Не удалось очистить активный профиль остановленного VPN") }
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
