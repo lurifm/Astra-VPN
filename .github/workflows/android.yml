@@ -13,7 +13,7 @@ permissions:
 # Keep only the newest build for a branch; rapid UI/engine commits should not
 # queue many obsolete Gradle builds.
 concurrency:
-  group: android-ci-${{ github.ref }}
+  group: android-ci-\${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -48,18 +48,6 @@ jobs:
           APK_CONTENTS="$(unzip -Z1 "$APK")"
           printf '%s\n' "$APK_CONTENTS" | grep -Fxq 'lib/arm64-v8a/libbox.so'
           if printf '%s\n' "$APK_CONTENTS" | grep -E '^lib/.*\.so$' | grep -v '^lib/arm64-v8a/'; then
-            echo "Unexpected native ABI found in APK"
-            exit 1
-          fi
-          sha256sum "$APK"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AstraVPN-debug
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
- | grep -v '^lib/arm64-v8a/'; then
             echo "Unexpected native ABI found in APK"
             exit 1
           fi
