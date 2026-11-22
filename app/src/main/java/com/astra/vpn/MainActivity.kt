@@ -398,6 +398,11 @@ class MainActivity : Activity() {
                     if (finished) {
                         activeLatencySessionId = null
                         latencyCompletedTags.clear()
+                    } else if (latencyTestInFlight) {
+                        // Completion can advance even when the server has no latency
+                        // value, so refresh the progress counter for every partial event.
+                        searchRenderHandler.removeCallbacks(searchRenderTask)
+                        searchRenderHandler.postDelayed(searchRenderTask, 90L)
                     }
                     return
                 }
@@ -3284,6 +3289,7 @@ class MainActivity : Activity() {
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
+        latencyCompletedTags.clear()
         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_LATENCY_SESSION_ID).apply()
         latencyTestInFlight = false
