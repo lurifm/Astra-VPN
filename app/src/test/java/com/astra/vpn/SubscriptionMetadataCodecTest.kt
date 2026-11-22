@@ -9,10 +9,11 @@ class SubscriptionMetadataCodecTest {
             uploadBytes = 12L,
             downloadBytes = 34L,
             totalBytes = 100L,
-            expiresAtEpochSeconds = 1900000000L
+            expiresAtEpochSeconds = 1900000000L,
+            updateIntervalHours = 12
         )
         assertEquals(
-            StoredSubscriptionUsage(12L, 34L, 100L, 1900000000L),
+            StoredSubscriptionUsage(12L, 34L, 100L, 1900000000L, 12),
             SubscriptionMetadataCodec.decode(SubscriptionMetadataCodec.encode(metadata))
         )
     }
@@ -36,7 +37,7 @@ class SubscriptionMetadataCodecTest {
             totalBytes = -3L,
             expiresAtEpochSeconds = Long.MAX_VALUE
         )
-        assertEquals(",2,,", SubscriptionMetadataCodec.encode(metadata))
+        assertEquals(",2,,,", SubscriptionMetadataCodec.encode(metadata))
     }
 
     @Test fun truncatedMetadataKeepsAvailableCounters() {
@@ -55,6 +56,15 @@ class SubscriptionMetadataCodecTest {
             StoredSubscriptionUsage(),
             SubscriptionMetadataCodec.decode(",,,0")
         )
+    }
+
+    @Test fun updateIntervalRoundTripsAndRejectsOutOfRangeValues() {
+        assertEquals(
+            StoredSubscriptionUsage(updateIntervalHours = 24),
+            SubscriptionMetadataCodec.decode(",,,,24")
+        )
+        assertEquals(StoredSubscriptionUsage(), SubscriptionMetadataCodec.decode(",,,,0"))
+        assertEquals(StoredSubscriptionUsage(), SubscriptionMetadataCodec.decode(",,,,721"))
     }
 
     @Test fun oldEmptyMetadataRepresentationRemainsReadable() {

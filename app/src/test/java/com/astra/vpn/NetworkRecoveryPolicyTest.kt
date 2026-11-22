@@ -6,11 +6,14 @@ import org.junit.Test
 
 class NetworkRecoveryPolicyTest {
     @Test
-    fun networkRetryBackoffIsBoundedAndStopsAfterThreeAttempts() {
+    fun networkRetryBackoffSurvivesLongHandoverAndRemainsBounded() {
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(0) == 1_000L)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(1) == 2_000L)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(2) == 4_000L)
-        assertTrue(NetworkRecoveryPolicy.retryDelayMs(3) == null)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(3) == 8_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(4) == 16_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(5) == 30_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(6) == null)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(-1) == null)
     }
 
@@ -30,6 +33,19 @@ class NetworkRecoveryPolicyTest {
     @Test
     fun validatedPhysicalInternetAllowsTunnelHealthProbes() {
         assertTrue(NetworkRecoveryPolicy.shouldProbeTunnel(true))
+    }
+
+    @Test
+    fun healthResultIsAcceptedOnlyForSameVpnAndSameValidatedUnderlay() {
+        val vpn = "vpn-network"
+        val wifi = "wifi-network"
+        assertTrue(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, "cellular-network", true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, "replacement-vpn", true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, false, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, wifi, false))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(null, null, true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, null, null, true))
     }
 
     @Test

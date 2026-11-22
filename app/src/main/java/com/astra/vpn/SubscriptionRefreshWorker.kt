@@ -39,13 +39,32 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 .orEmpty().map { SubscriptionSourceFingerprint.fromStoredValue(it) }.toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
                 .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
-            val targets = SubscriptionRefreshTargets.selectSources(
-                sources,
-                pending,
-                known
+            val summaries = store.subscriptionSummaries().associateBy { it.sourceUrl }
+            val defaultIntervalHours = SubscriptionRefreshInterval.normalize(
+                settings.getInt("update_interval_hours", 2)
             )
+            val now = System.currentTimeMillis()
+            val candidates = sources.map { source ->
+                val summary = summaries[source]
+                val history = SubscriptionRefreshHistory.get(settings, source, now)
+                SubscriptionRefreshCandidate(
+                    fingerprint = SubscriptionSourceFingerprint.of(source),
+                    intervalHours = summary?.updateIntervalHours ?: defaultIntervalHours,
+                    lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
+                )
+            }
+            val sourceByFingerprint = sources.associateBy(SubscriptionSourceFingerprint::of)
+            val targets = SubscriptionRefreshDuePolicy.select(
+                candidates = candidates,
+                pendingFingerprints = pending,
+                knownFingerprints = known,
+                defaultIntervalHours = defaultIntervalHours,
+                now = now
+            ).mapNotNull(sourceByFingerprint::get)
             if (targets.isEmpty()) {
-                settings.edit().remove("subscription_retry_sources").apply()
+                // Persist the normalized fingerprint set even when every source
+                // is still inside its own refresh window.
+                SubscriptionRefreshRetryState.persist(settings, emptySet(), sources)
                 return Result.success()
             }
             settings.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
@@ -106,6 +125,42 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             postRefreshNotification(applicationContext, "Не удалось обновить подписки", "Проверь подключение к интернету и настройки подписок.", true)
             Result.retry()
         }
+    }
+}
+
+internal data class SubscriptionRefreshCandidate(
+    val fingerprint: String,
+    val intervalHours: Int,
+    val lastSuccessAt: Long?
+)
+
+/** Select only providers whose own refresh window has elapsed. */
+internal object SubscriptionRefreshDuePolicy {
+    fun select(
+        candidates: List<SubscriptionRefreshCandidate>,
+        pendingFingerprints: Set<String>,
+        knownFingerprints: Set<String>,
+        defaultIntervalHours: Int,
+        now: Long
+    ): List<String> {
+        val fallbackHours = SubscriptionRefreshInterval.normalize(defaultIntervalHours)
+        return candidates.filter { candidate ->
+            when {
+                candidate.fingerprint in pendingFingerprints -> true
+                candidate.fingerprint !in knownFingerprints -> true
+                candidate.lastSuccessAt == null || candidate.lastSuccessAt <= 0L -> true
+                now < candidate.lastSuccessAt -> true
+                else -> {
+                    // Respect both the user's minimum interval and the provider's
+                    // recommendation; never poll a provider more frequently than either.
+                    val intervalHours = maxOf(
+                        fallbackHours,
+                        candidate.intervalHours.coerceIn(1, 720)
+                    )
+                    now - candidate.lastSuccessAt >= intervalHours.toLong() * 60L * 60L * 1000L
+                }
+            }
+        }.map { it.fingerprint }
     }
 }
 
@@ -222,8 +277,9 @@ object SubscriptionRefreshScheduler {
             manager.cancelUniqueWork(UNIQUE_WORK)
             return
         }
-        val hours = SubscriptionRefreshInterval.normalize(settings.getInt("update_interval_hours", 2))
-        val request = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(hours.toLong(), TimeUnit.HOURS)
+        // Run a lightweight due-check hourly. Each subscription is downloaded
+        // only when its effective interval (user setting + provider advice) elapses.
+        val request = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(1, TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
         manager.enqueueUniquePeriodicWork(UNIQUE_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)

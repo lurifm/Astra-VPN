@@ -17,10 +17,37 @@ internal object NetworkRecoveryPolicy {
     fun shouldProbeTunnel(hasValidatedPhysicalInternet: Boolean): Boolean =
         hasValidatedPhysicalInternet
 
+    /**
+     * A health result is meaningful only for the exact VPN and physical
+     * underlay on which its request began, while that underlay remains usable.
+     */
+    fun shouldAcceptHealthResult(
+        probedVpnNetwork: Any?,
+        currentVpnNetwork: Any?,
+        currentVpnRouteIsVpn: Boolean,
+        probedPhysicalUnderlay: Any?,
+        currentPhysicalUnderlay: Any?,
+        hasValidatedPhysicalInternet: Boolean
+    ): Boolean =
+        probedVpnNetwork != null &&
+            probedVpnNetwork == currentVpnNetwork &&
+            currentVpnRouteIsVpn &&
+            probedPhysicalUnderlay != null &&
+            probedPhysicalUnderlay == currentPhysicalUnderlay &&
+            hasValidatedPhysicalInternet
+
+    /**
+     * Keep retrying transient Android underlay/interface update failures long
+     * enough to survive radio and Wi-Fi handovers, while bounding background work.
+     * A fresh network callback or a successful update resets this sequence.
+     */
     fun retryDelayMs(attempt: Int): Long? = when (attempt) {
         0 -> 1_000L
         1 -> 2_000L
         2 -> 4_000L
+        3 -> 8_000L
+        4 -> 16_000L
+        5 -> 30_000L
         else -> null
     }
 

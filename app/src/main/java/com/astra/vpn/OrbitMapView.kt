@@ -32,6 +32,16 @@ internal class OrbitMapView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        // Deep navy canvas and a restrained star field, matching the approved
+        // orbit-map reference rather than a generic Android dialog surface.
+        canvas.drawColor(Color.rgb(8, 11, 27))
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(105, 190, 202, 232)
+        for (i in 0 until 22) {
+            val x = ((i * 73 + 19) % 997) / 997f * width
+            val y = ((i * 137 + 41) % 991) / 991f * height
+            canvas.drawCircle(x, y, dp(if (i % 5 == 0) 1.25f else .7f), paint)
+        }
         val count = nodes.size
         if (count == 0) return
 
@@ -64,11 +74,13 @@ internal class OrbitMapView(
 
         positions.forEachIndexed { index, (x, y) ->
             val isSelected = index == selectedIndex
+            // Gold = low latency, periwinkle = medium, lavender = high.
+            // This follows the three-tone legend in the supplied screenshot.
             val qualityColor = when (nodes[index].quality) {
-                3 -> Color.rgb(92, 205, 145)   // fast
-                2 -> Color.rgb(218, 177, 91)   // acceptable
-                1 -> Color.rgb(232, 166, 83)   // slow
-                else -> Color.rgb(116, 130, 154)
+                3 -> Color.rgb(255, 204, 105)
+                2 -> Color.rgb(151, 174, 255)
+                1 -> Color.rgb(177, 151, 205)
+                else -> Color.rgb(111, 125, 157)
             }
             val color = if (isSelected) Color.rgb(255, 211, 125) else qualityColor
 

@@ -291,6 +291,25 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             token
         }
 
+        // Enforce consent at the service boundary as well as in the Activity.
+        // Tiles/widgets or stale internal intents must never reach TUN creation
+        // after Android has revoked the user's VPN authorization.
+        val explicitStartAuthorization = if (intent?.action == ACTION_START) {
+            VpnStartAuthorizationPolicy.decide(
+                vpnConsentGranted = runCatching { VpnService.prepare(this) == null }
+                    .getOrDefault(false)
+            )
+        } else {
+            VpnStartAuthorization.ALLOWED
+        }
+        if (explicitStartAuthorization == VpnStartAuthorization.REQUIRE_USER_CONSENT) {
+            failStartRequest(
+                requestToken,
+                "Для подключения нужно подтвердить системное разрешение VPN. Нажми «Подключить» и подтверди запрос Android."
+            )
+            return START_NOT_STICKY
+        }
+
         startForeground(
             NOTIFICATION_ID,
             AstraNotification.create(this, STATE_CONNECTING, activeProfileName)
@@ -313,6 +332,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             )
             when (decision) {
                 VpnRecoveryDecision.START -> {
+                    // Restore the exact encrypted profile into service memory before
+                    // libbox starts, so the normal TUN-ready path can persist the
+                    // correct active-tunnel identity after a process restart.
+                    activeProfileLink = savedProfile
                     activeProfileName = "Восстановление VPN"
                     activeProtocol = "—"
                     runCatching { SingBoxConfigBuilder.build(savedProfile!!) }.getOrElse {
@@ -566,7 +589,15 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     override fun connectSSHAgent(): Int = -1
 
     override fun onRevoke() {
+        // Android has revoked the user's VPN consent. Tear down the TUN first,
+        // then persist an actionable error instead of leaving the UI at the
+        // generic DISCONNECTED state. Do not mark this as retryable: retrying
+        // without a fresh VpnService.prepare() consent flow would just fail again.
         stopTunnel()
+        publishState(
+            STATE_ERROR,
+            "Системное разрешение VPN отозвано. Нажми «Подключить» и подтверди запрос Android."
+        )
         super.onRevoke()
     }
 
@@ -640,6 +671,12 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         configurationAccepted = false
         activeTunRequestToken = null
         tunReadyRequestToken = null
+        // The active-profile marker is a durable identity check used when the
+        // Activity is recreated. Clear it on every orderly stop/failure; an OS
+        // process kill does not execute this path, so sticky recovery can still
+        // use the marker until Android restarts the service.
+        runCatching { ProfileStore(this).setActiveTunnelProfile(null) }
+            .onFailure { Log.w(TAG, "Не удалось очистить активный профиль остановленного VPN") }
 
         runCatching { tunDescriptor?.close() }
             .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }

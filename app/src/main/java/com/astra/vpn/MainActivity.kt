@@ -170,6 +170,8 @@ class MainActivity : Activity() {
     private var activeLatencySessionId: String? = null
 // A cancelled config build must not occupy a worker while a retry is queued.
     private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
+    private val latencyPreparationHandler = Handler(Looper.getMainLooper())
+    private var latencyPreparationTimeout: Runnable? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
     private val pingExecutor = Executors.newFixedThreadPool(3)
@@ -181,6 +183,7 @@ class MainActivity : Activity() {
     private var pendingFailoverSelection: FailoverSelectionTransaction? = null
     private var persistedSelectionSnapshot: String? = null
     private var selectionPersistenceReady = false
+    private var selectionPersistenceWarningShown = false
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
     // Profile captured together with the config while Android VPN consent is pending.
@@ -192,6 +195,8 @@ class MainActivity : Activity() {
     private var connectRetryTask: Runnable? = null
     private var connectRetryGeneration = 0L
     private var connectRetryAttempt = 0
+    // Retry tasks may outlive a visible Activity; never start a foreground VPN service from onStop().
+    @Volatile private var activityStarted = false
     private var receiverRegistered = false
     private var outboundTrafficRefresh: (() -> Unit)? = null
     private val connectionHistory by lazy { ConnectionHistoryStore(this) }
@@ -1164,6 +1169,48 @@ class MainActivity : Activity() {
         }, 1_200L)
     }
 
+    private fun showSubscriptionImportSummary(parsed: ParsedSubscription) {
+        val countries = parsed.links.map { profileName(it) }
+            .filter { it.isNotBlank() && it != "Сервер" }
+            .distinct()
+            .sorted()
+        val title = parsed.metadata.title?.takeIf { it.isNotBlank() } ?: "Импорт завершён"
+        val message = buildString {
+            append("Серверов добавлено: ${parsed.links.size}")
+            append("\nСтран обнаружено: ${countries.size}")
+            if (countries.isNotEmpty()) {
+                append("\n\n")
+                append(countries.take(12).joinToString(" · "))
+                if (countries.size > 12) append(" и ещё ${countries.size - 12}")
+            }
+            parsed.metadata.expiresAtEpochSeconds?.let { expiry ->
+                val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM)
+                    .format(java.util.Date(expiry * 1000L))
+                append("\n\nДействует до: $date")
+            }
+            parsed.metadata.totalBytes?.let { total ->
+                append("\nЛимит трафика: ${formatTrafficBytes(total)}")
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Готово", null)
+            .show()
+    }
+
+    private fun formatTrafficBytes(bytes: Long): String {
+        if (bytes < 0L) return "—"
+        val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024.0 && unit < units.lastIndex) {
+            value /= 1024.0
+            unit++
+        }
+        return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+    }
+
     /**
      * Imports a recognized VPN link or HTTPS subscription directly from the clipboard.
      * If the clipboard does not look like supported input, fall back to the import sheet.
@@ -1197,14 +1244,14 @@ class MainActivity : Activity() {
                 } else {
                     profileStore.addAll(links)
                 }
-                links
+                parsed
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                result.onSuccess { links ->
+                result.onSuccess { parsed ->
                     renderProfiles()
                     checkAllLatencies()
-                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                    showSubscriptionImportSummary(parsed)
                 }.onFailure { error ->
                     MaterialAlertDialogBuilder(this)
                         .setTitle("Не удалось импортировать")
@@ -1392,8 +1439,11 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
+                // Dismiss the import sheet before launching another UI surface.
                 dialog.dismiss()
-                startQrScan()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) startQrScan()
+                }
             }
         }
         importMethodsRow.addView(qrButton, LinearLayout.LayoutParams(0, dp(44), 0.78f).apply { rightMargin = dp(5) })
@@ -1407,18 +1457,21 @@ class MainActivity : Activity() {
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
                 dialog.dismiss()
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                        "text/plain", "application/octet-stream", "application/x-yaml"
-                    ))
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                }
-                runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
-                    .onFailure {
-                        Toast.makeText(this@MainActivity, "Не удалось открыть выбор файла", Toast.LENGTH_SHORT).show()
+                window.decorView.post {
+                    if (isFinishing || isDestroyed) return@post
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                            "text/plain", "application/octet-stream", "application/x-yaml"
+                        ))
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }
+                    runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
+                        .onFailure {
+                            Toast.makeText(this@MainActivity, "Не удалось открыть выбор файла", Toast.LENGTH_SHORT).show()
+                        }
+                }
             }
         }
         importMethodsRow.addView(fileButton, LinearLayout.LayoutParams(0, dp(44), 0.9f))
@@ -1484,15 +1537,15 @@ class MainActivity : Activity() {
                     } else {
                         profileStore.addAll(links)
                     }
-                    links
+                    parsed
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     dialog.dismiss()
-                    result.onSuccess { links ->
+                    result.onSuccess { parsed ->
                         renderProfiles()
                         checkAllLatencies()
-                        Toast.makeText(this@MainActivity, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        showSubscriptionImportSummary(parsed)
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
@@ -1516,17 +1569,19 @@ class MainActivity : Activity() {
      * Refresh each previously imported HTTPS subscription independently.
      * The previous server set is kept whenever download, parsing or storage fails.
      */
-    private fun refreshSubscriptions(showResult: Boolean = true) {
+    private fun refreshSubscriptions(showResult: Boolean = true, onlyDue: Boolean = false) {
         // Refreshing subscription data does not alter the currently active tunnel.
         if (refreshingSubscriptions) {
             Toast.makeText(this, "Обновление уже выполняется", Toast.LENGTH_SHORT).show()
             return
         }
-        val sources = safeSubscriptionSources() ?: return
-        if (sources.isEmpty()) {
+        val allSources = safeSubscriptionSources() ?: return
+        if (allSources.isEmpty()) {
             Toast.makeText(this, "Сначала импортируй HTTPS-ссылку подписки", Toast.LENGTH_LONG).show()
             return
         }
+        val sources = if (onlyDue) dueSubscriptionSources(allSources) else allSources
+        if (sources.isEmpty()) return
         val selectionSnapshot = selectedProfile
         refreshingSubscriptions = true
         // Track attempts separately from successful updates so a broken provider
@@ -1534,6 +1589,9 @@ class MainActivity : Activity() {
         settingsPrefs.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
         status.text = "Обновляем подписки…"
         status.setTextColor(AMBER)
+        // Reflect the in-flight state on subscription cards immediately,
+        // rather than waiting until the network requests finish.
+        renderProfiles()
         importExecutor.execute {
             var updated = 0
             var totalProfiles = 0
@@ -1559,7 +1617,7 @@ class MainActivity : Activity() {
             // Keep manual/foreground refresh failures in the same fingerprint-only
             // retry queue used by WorkManager, so a later background run retries
             // only failed providers rather than downloading every successful one.
-            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
+            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, allSources)
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
@@ -1796,6 +1854,11 @@ class MainActivity : Activity() {
         addDetail("СЕРВЕРЫ", item.serverCount.toString())
         addDetail("ТРАФИК", trafficDetails)
         addDetail("СРОК ДЕЙСТВИЯ", expiry)
+        addDetail(
+            "ИНТЕРВАЛ ОТ ПРОВАЙДЕРА",
+            item.updateIntervalHours?.let { "Рекомендуется раз в $it ч" }
+                ?: "Провайдер не указал"
+        )
         MaterialAlertDialogBuilder(this)
             .setTitle(item.title)
             .setView(detailsPanel)
@@ -1848,7 +1911,10 @@ class MainActivity : Activity() {
                             stopTunnel()
                         }
                         if (removesActiveProfile) activeProfile = null
-                        if (selectedProfile?.let { it in removed } == true) selectedProfile = null
+                        if (selectedProfile?.let { it in removed } == true) {
+                            cancelConnectRetry(resetAttempts = true)
+                            selectedProfile = null
+                        }
                         renderProfiles()
                         checkAllLatencies()
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
@@ -1873,6 +1939,9 @@ class MainActivity : Activity() {
         refreshingSubscriptions = true
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
+        // Keep the expanded subscription card and its badge in sync with
+        // the single-subscription refresh action.
+        renderProfiles()
         importExecutor.execute {
             SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
             val result = runCatching {
@@ -1926,6 +1995,7 @@ class MainActivity : Activity() {
         // Subscription refresh can rotate the selected URI while Android's
         // consent dialog is still open. Never let its captured old config start.
         if (pendingConfig != null && pendingProfile != resolvedSelection) cancelPendingConnect()
+        if (selectedProfile != resolvedSelection) cancelConnectRetry(resetAttempts = true)
         selectedProfile = resolvedSelection
     }
 
@@ -1936,7 +2006,34 @@ class MainActivity : Activity() {
     private fun persistSelectedProfileIfChanged() {
         if (!selectionPersistenceReady || persistedSelectionSnapshot == selectedProfile) return
         runCatching { profileStore.setSelectedProfile(selectedProfile) }
-            .onSuccess { persistedSelectionSnapshot = selectedProfile }
+            .onSuccess {
+                persistedSelectionSnapshot = selectedProfile
+                selectionPersistenceWarningShown = false
+            }
+            .onFailure {
+                // Keep the old snapshot so a later render retries the encrypted write.
+                // Avoid a toast on every render while still making a real storage failure visible.
+                if (!selectionPersistenceWarningShown && !isFinishing && !isDestroyed) {
+                    selectionPersistenceWarningShown = true
+                    Toast.makeText(
+                        this,
+                        "Не удалось сохранить выбранный сервер. Проверь защищённое хранилище.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+    }
+
+    private fun formatServerCount(count: Int): String {
+        val value = kotlin.math.abs(count) % 100
+        val last = value % 10
+        val noun = when {
+            value in 11..14 -> "серверов"
+            last == 1 -> "сервер"
+            last in 2..4 -> "сервера"
+            else -> "серверов"
+        }
+        return "$count $noun"
     }
 
     private fun formatTraffic(bytes: Long): String {
@@ -2030,7 +2127,7 @@ class MainActivity : Activity() {
                     }
                     isClickable = true
                     isFocusable = true
-                    contentDescription = "Подписка ${subscription.title}, ${subscription.serverCount} серверов. Нажмите для управления."
+                    contentDescription = "Подписка ${subscription.title}, ${formatServerCount(subscription.serverCount)}. Нажмите для управления."
                     setOnClickListener { showSubscriptionDetails(subscription) }
                 }
                 val subscriptionHeader = LinearLayout(this).apply {
@@ -2060,7 +2157,7 @@ class MainActivity : Activity() {
                 })
                 card.addView(subscriptionHeader, matchWidth())
                 card.addView(TextView(this).apply {
-                    text = "${subscription.serverCount} серверов  ·  Нажми для управления"
+                    text = "${formatServerCount(subscription.serverCount)}  ·  Нажми для управления"
                     textSize = 12f
                     setTextColor(LIGHT_ACCENT)
                     setPadding(0, dp(6), 0, dp(5))
@@ -2172,7 +2269,7 @@ class MainActivity : Activity() {
             "alphabet" -> "по алфавиту"
             else -> "как в подписке"
         }
-        val measuredPingCount = profiles.count { latencyMs.containsKey(it) }
+        val measuredPingCount = profiles.count { freshLatencyMs(it) != null }
         serverCountLabel.text = if (latencyTestInFlight) {
             "${filteredProfiles.size} орбит  ·  пинг $measuredPingCount/${profiles.size}"
         } else {
@@ -2289,13 +2386,15 @@ class MainActivity : Activity() {
         val displayProfiles = ServerLatencySort.sort(
             profiles = filteredProfiles,
             mode = sortMode,
-            latencyMs = latencyMs,
+            latencyMs = filteredProfiles.mapNotNull { profile ->
+                freshLatencyMs(profile)?.let { profile to it }
+            }.toMap(),
             favorites = favorites,
             locale = java.util.Locale.getDefault()
         )
         // In ping-sorted mode, make the best measured node explicit in the list.
         // Unknown/unmeasured nodes never receive this marker.
-        val fastestProfile = displayProfiles.firstOrNull { latencyMs[it] != null }
+        val fastestProfile = displayProfiles.firstOrNull { freshLatencyMs(it) != null }
             ?.takeIf { sortMode == "ping" }
 
         if (displayProfiles.isEmpty()) {
@@ -2413,18 +2512,17 @@ class MainActivity : Activity() {
                     if (connecting) {
                         Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     } else if (connected && link != activeProfile) {
-                        // A new explicit user choice supersedes any delayed retry for the old node.
+                        // Route live server changes through the same guarded connect pipeline
+                        // as the main button: it marks the UI busy immediately, persists the
+                        // selected target on render, and prevents rapid duplicate reloads.
                         cancelConnectRetry(resetAttempts = true)
-                        // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
-                            Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
-                            return@setOnClickListener
-                        }
-                        startTunnel(nextConfig)
+                        renderProfiles()
+                        connectSelectedProfile()
                     } else {
                         if (selectedProfile != link) cancelConnectRetry(resetAttempts = true)
                         selectedProfile = link
+                        persistSelectedProfileIfChanged()
                         renderProfiles()
                     }
                 }
@@ -2447,7 +2545,10 @@ class MainActivity : Activity() {
                                 latencyMs.remove(link)
                                 throughputSamples.remove(link)
                                 runCatching { throughputHistory.remove(link) }
-                                if (selectedProfile == link) selectedProfile = null
+                                if (selectedProfile == link) {
+                                    cancelConnectRetry(resetAttempts = true)
+                                    selectedProfile = null
+                                }
                                 renderProfiles()
                                 Toast.makeText(this@MainActivity, "Сервер удалён", Toast.LENGTH_SHORT).show()
                             }
@@ -2496,7 +2597,7 @@ class MainActivity : Activity() {
             }
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
-                val measuredLatency = latencyMs[link]
+                val measuredLatency = freshLatencyMs(link)
                 text = when {
                     measuredLatency != null && isFastestProfile -> "ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
@@ -2584,13 +2685,8 @@ class MainActivity : Activity() {
                 setOnClickListener { toggleFavoriteServer(link) }
             }
             row.addView(flag, LinearLayout.LayoutParams(dp(42), dp(46)))
-            val measuredOrbitLatency = latencyMs[link]
-            val orbitQuality = when {
-                measuredOrbitLatency == null || measuredOrbitLatency <= 0L -> 0
-                measuredOrbitLatency <= 100L -> 3
-                measuredOrbitLatency <= 250L -> 2
-                else -> 1
-            }
+            val measuredOrbitLatency = freshLatencyMs(link)
+            val orbitQuality = LatencyQualityPolicy.band(measuredOrbitLatency)
             row.addView(OrbitMarkerView(this).apply {
                 quality = orbitQuality
                 this.isSelected = isSelected || isActiveServer
@@ -2663,10 +2759,12 @@ class MainActivity : Activity() {
         val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
             ?: serverName
         val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "Пинг не проверен"
-        orbitNameLabel.text = "$country  ·  $latency"
-        orbitMetaLabel.text = ""
-        orbitMetaLabel.visibility = View.GONE
-        orbitNameLabel.contentDescription = "Выбранный сервер: $country, задержка $latency"
+        // Match the approved reference: country is the hero title; protocol
+        // and measured latency sit quietly on the line beneath it.
+        orbitNameLabel.text = country
+        orbitMetaLabel.text = "${protocolName(link).uppercase(java.util.Locale.ROOT)}  ·  $latency"
+        orbitMetaLabel.visibility = View.VISIBLE
+        orbitNameLabel.contentDescription = "Выбранный сервер: $country"
         orbitMetaLabel.contentDescription = "Протокол " + protocolName(link) + ", задержка " + latency
         updateConnectButtonServerHealth()
     }
@@ -2701,14 +2799,16 @@ class MainActivity : Activity() {
             val activeAndFailed = connected && link == activeProfile && tunnelInternetOk == false
             val healthColor = when {
                 activeAndFailed -> RED
-                measuredLatency != null && measuredLatency < 200L -> GREEN
-                measuredLatency != null -> AMBER
+                LatencyQualityPolicy.band(measuredLatency) == 3 -> GREEN
+                LatencyQualityPolicy.band(measuredLatency) == 2 -> AMBER
+                LatencyQualityPolicy.band(measuredLatency) == 1 -> LIGHT_ACCENT
                 else -> MUTED
             }
             val healthLabel = when {
                 activeAndFailed -> "НЕ ОТВЕЧАЕТ"
-                measuredLatency != null && measuredLatency < 200L -> "СТАБИЛЬНЫЙ"
-                measuredLatency != null -> "ВЫСОКАЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 3 -> "НИЗКАЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 2 -> "СРЕДНЯЯ ЗАДЕРЖКА"
+                LatencyQualityPolicy.band(measuredLatency) == 1 -> "ВЫСОКАЯ ЗАДЕРЖКА"
                 else -> "НЕ ПРОВЕРЕН"
             }
             val tile = LinearLayout(this).apply {
@@ -2725,6 +2825,7 @@ class MainActivity : Activity() {
                         // Cancel it before changing selection so RESULT_OK cannot start
                         // a server that no longer matches the UI selection.
                         if (pendingConfig != null) cancelPendingConnect()
+                        cancelConnectRetry(resetAttempts = true)
                         selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
                         if (connected) connectSelectedProfile()
                     }
@@ -2741,12 +2842,12 @@ class MainActivity : Activity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             tile.addView(TextView(this@MainActivity).apply {
-                text = "●  $healthLabel"
-                textSize = 8f
-                letterSpacing = .035f
+                text = country
+                textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(healthColor)
+                setTextColor(0xFFE9EDF6.toInt())
                 maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             })
             tile.addView(TextView(this@MainActivity).apply {
                 text = ping
@@ -2844,17 +2945,14 @@ class MainActivity : Activity() {
             .firstOrNull()
     }
 
-    private fun latencyQuality(ms: Long): String = when {
-        ms < 50L -> "отлично"
-        ms < 100L -> "хорошо"
-        ms <= 250L -> "средне"
-        else -> "высоко"
-    }
+    private fun latencyQuality(ms: Long): String = LatencyQualityPolicy.label(ms)
 
-    private fun latencyColor(ms: Long): Int = when {
-        ms < 200L -> GREEN
+    private fun latencyColor(ms: Long): Int = when (LatencyQualityPolicy.band(ms)) {
+        3 -> GREEN
+        2 -> AMBER
         // High latency is degraded quality, not proof of server failure.
-        else -> AMBER
+        1 -> LIGHT_ACCENT
+        else -> MUTED
     }
 
 
@@ -2986,6 +3084,7 @@ class MainActivity : Activity() {
             throughputSamples = throughputHistory.getFresh(candidates)
         )
         if (fastest != null) {
+            if (selectedProfile != fastest) cancelConnectRetry(resetAttempts = true)
             selectedProfile = fastest
             // A successful latency selection is not a VPN connection.
             // Keep the connection status neutral until the tunnel is validated.
@@ -3037,6 +3136,8 @@ class MainActivity : Activity() {
         if (!latencyTestInFlight && !selectingFastest) return
         latencyPreparationTask?.cancel(true)
         latencyPreparationTask = null
+        latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+        latencyPreparationTimeout = null
         // Invalidate config preparation callbacks so a cancelled test cannot start later.
         latencyCheckGeneration.incrementAndGet()
         activeLatencySessionId = null
@@ -3099,12 +3200,35 @@ class MainActivity : Activity() {
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         val generation = latencyCheckGeneration.get()
+        // One ten-second budget starts before config preparation and is passed
+        // to the service as the remaining time; the operation cannot consume 20s.
+        val batchDeadlineElapsedMs = LatencyBatchDeadlinePolicy.deadlineAt(
+            android.os.SystemClock.elapsedRealtime(), LATENCY_PREPARATION_TIMEOUT_MS
+        )
         val preparationTask = java.util.concurrent.FutureTask<Unit> {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles, SingBoxUrlTestConfig.TEST_URL) }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != latencyCheckGeneration.get()) return@runOnUiThread
+                latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+                latencyPreparationTimeout = null
                 latencyPreparationTask = null
                 prepared.onSuccess { testConfig ->
+                    val remainingProbeMs = LatencyBatchDeadlinePolicy.remainingMs(
+                        batchDeadlineElapsedMs, android.os.SystemClock.elapsedRealtime()
+                    )
+                    if (remainingProbeMs <= 0L) {
+                        latencyTestInFlight = false
+                        pendingFastestSelection = false
+                        selectingFastest = false
+                        tilePendingStart = false
+                        profiles.forEach { profile ->
+                            latencyMs.remove(profile)
+                            pingInfo[profile] = "н/д"
+                        }
+                        Toast.makeText(this, "Проверка серверов превысила 10 секунд", Toast.LENGTH_LONG).show()
+                        renderProfiles()
+                        return@onSuccess
+                    }
                     urlTestProfileMap = testConfig.profileByOutboundTag
                     // Keep the tag-to-profile map across Activity recreation. The
                     // foreground test service may finish while Android recreates UI.
@@ -3112,6 +3236,7 @@ class MainActivity : Activity() {
                         .putString(KEY_LATENCY_PROFILE_MAP, JSONObject(urlTestProfileMap).toString())
                         .remove(KEY_LATENCY_PENDING_RESULTS)
                         .remove(KEY_LATENCY_LAST_RESULTS)
+                        .remove(KEY_LATENCY_LAST_RESULTS_AT)
                         .apply()
                     runCatching {
                         val physicalNetwork = networkForLatencyProbe()
@@ -3125,7 +3250,8 @@ class MainActivity : Activity() {
                             testConfig.json,
                             testConfig.profileByOutboundTag.keys,
                             physicalNetwork,
-                            sessionId
+                            sessionId,
+                            timeoutMs = remainingProbeMs
                         )
                     }.onFailure {
                         activeLatencySessionId = null
@@ -3157,6 +3283,34 @@ class MainActivity : Activity() {
             }
         }
         latencyPreparationTask = preparationTask
+        val preparationTimeout = Runnable {
+            if (generation != latencyCheckGeneration.get() || !latencyTestInFlight) return@Runnable
+            // Config validation is part of the latency operation: a huge or
+            // pathological subscription must not leave the UI in "checking…".
+            latencyCheckGeneration.incrementAndGet()
+            latencyPreparationTask?.cancel(true)
+            latencyPreparationTask = null
+            latencyPreparationTimeout = null
+            latencyTestInFlight = false
+            pendingFastestSelection = false
+            selectingFastest = false
+            tilePendingStart = false
+            profiles.forEach { profile ->
+                latencyMs.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+            Toast.makeText(this, "Проверка серверов превысила 10 секунд", Toast.LENGTH_LONG).show()
+            renderProfiles()
+        }
+        latencyPreparationTimeout = preparationTimeout
+        val preparationRemainingMs = LatencyBatchDeadlinePolicy.remainingMs(
+            batchDeadlineElapsedMs, android.os.SystemClock.elapsedRealtime()
+        )
+        if (preparationRemainingMs <= 0L) {
+            preparationTimeout.run()
+            return
+        }
+        latencyPreparationHandler.postDelayed(preparationTimeout, preparationRemainingMs)
         pingExecutor.execute(preparationTask)
     }
 
@@ -3180,7 +3334,10 @@ class MainActivity : Activity() {
         checkAllLatencies()
     }
 
-    private fun connectSelectedProfile() {
+    private fun connectSelectedProfile(isRetry: Boolean = false) {
+        // A fresh user action replaces a scheduled retry and starts a new retry budget.
+        // A retry itself must retain its attempt counter across subsequent failures.
+        if (!isRetry) cancelConnectRetry(resetAttempts = true)
         // Consent UI is asynchronous: block duplicate starts before the service
         // has had a chance to publish STATE_CONNECTING.
         if (connecting || pendingConfig != null) return
@@ -3533,6 +3690,9 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
+        // Resume a retained retry only after the Activity is foregrounded again.
+        connectRetryTask?.let { connectRetryHandler.postDelayed(it, 250L) }
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -3560,6 +3720,7 @@ class MainActivity : Activity() {
         }
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
+        restorePersistedConnectRetry()
         AstraHomeWidgetProvider.refreshAll(this)
         if (intent?.action == ACTION_TILE_TOGGLE) {
             intent.action = null
@@ -3635,15 +3796,41 @@ class MainActivity : Activity() {
             if (latencyTestInFlight) renderProfiles()
             return
         }
+        val nowWallClockMs = System.currentTimeMillis()
+        val cacheSavedAt = prefs.getLong(KEY_LATENCY_LAST_RESULTS_AT, 0L)
+        val cacheAgeMs = (nowWallClockMs - cacheSavedAt).coerceAtLeast(0L)
+        val nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, nowWallClockMs) ||
+            cacheAgeMs >= nowElapsedMs
+        ) {
+            prefs.edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS)
+                .remove(KEY_LATENCY_LAST_RESULTS_AT)
+                .apply()
+            safeProfiles().orEmpty().forEach { profile ->
+                latencyMs.remove(profile)
+                latencyMeasuredAt.remove(profile)
+                pingInfo[profile] = "н/д"
+            }
+            if (latencyTestInFlight) renderProfiles()
+            return
+        }
         if (pending != null) {
             prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
         }
         // Completed values remain visible after relaunch; pending is consumed
         // only once, while the reusable cache is retained until the next test.
-        applyLatencyResults(cached, finished = true)
+        // Preserve the original sample age after process recreation. Stamping
+        // a restored result as "now" would incorrectly extend its five-minute life.
+        applyLatencyResults(cached, finished = true, measuredAtElapsedMs = nowElapsedMs - cacheAgeMs)
     }
 
-    private fun applyLatencyResults(payload: String, finished: Boolean) {
+    private fun applyLatencyResults(
+        payload: String,
+        finished: Boolean,
+        measuredAtElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    ) {
         // Validate the snapshot before changing session state. A malformed final
         // payload must not leave auto-selection or the quick tile waiting forever.
         val values = runCatching { JSONObject(payload) }.getOrNull()
@@ -3679,7 +3866,7 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
-                latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
+                latencyMeasuredAt[profile] = measuredAtElapsedMs
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
@@ -3722,9 +3909,18 @@ class MainActivity : Activity() {
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         val androidVpnActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
 
-        // A saved flag alone is insufficient: Android may have revoked the
-        // tunnel while the Activity was in the background.
-        connected = saved == AstraVpnService.STATE_CONNECTED && androidVpnActive
+        // A saved flag and VPN transport alone are insufficient: another VPN
+        // app may own Android's active VPN, or Astra's process may have lost its
+        // tunnel while stale preferences still say CONNECTED.
+        val hasAstraActiveProfile = runCatching {
+            !ProfileStore(this).activeTunnelProfile().isNullOrBlank()
+        }.getOrDefault(false)
+        connected = VpnUiRestorePolicy.isAstraTunnelConnected(
+            savedState = saved,
+            connectedState = AstraVpnService.STATE_CONNECTED,
+            androidVpnTransportActive = androidVpnActive,
+            activeProfileAvailable = hasAstraActiveProfile
+        )
         if (connected && settingsPrefs.getLong(KEY_VPN_CONNECTED_SINCE, 0L) <= 0L) {
             settingsPrefs.edit().putLong(KEY_VPN_CONNECTED_SINCE, System.currentTimeMillis()).apply()
         } else if (!connected) {
@@ -3784,6 +3980,10 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
+        // Retain the pending Runnable and attempt budget, but remove its callback while
+        // backgrounded. onStart() will re-arm it; this avoids a four-second polling loop.
+        connectRetryTask?.let(connectRetryHandler::removeCallbacks)
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
@@ -3875,27 +4075,49 @@ class MainActivity : Activity() {
     /** Schedule only explicitly retryable transient failures; never retry arbitrary config errors. */
     private fun scheduleTransientConnectRetry(
         retryable: Boolean,
-        isAutomaticFailover: Boolean
+        isAutomaticFailover: Boolean,
+        restoredState: PersistedConnectRetry? = null
     ): Boolean {
         val retryProfile = selectedProfile
         val userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false)
-        if (isFinishing || isDestroyed || disconnecting || connected ||
+        if (isFinishing || isDestroyed || disconnecting || connected || connecting ||
             !TransientConnectRetryPolicy.shouldSchedule(
                 retryable = retryable,
                 isAutomaticFailover = isAutomaticFailover,
                 userRequestedDisconnect = userRequestedDisconnect,
                 hasSelectedProfile = !retryProfile.isNullOrBlank(),
-                attempt = connectRetryAttempt
+                attempt = if (restoredState != null) restoredState.attempt - 1 else connectRetryAttempt
             )
         ) return false
-        val delay = TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
-        connectRetryAttempt++
+        val delay = restoredState?.let {
+            TransientConnectRetryStatePolicy.remainingDelayMs(it, System.currentTimeMillis())
+        } ?: TransientConnectRetryPolicy.delayForAttempt(connectRetryAttempt) ?: return false
+        if (restoredState == null) {
+            connectRetryAttempt++
+        } else {
+            connectRetryAttempt = restoredState.attempt
+        }
         cancelConnectRetry(resetAttempts = false)
         val generation = connectRetryGeneration
+        if (restoredState == null) {
+            persistConnectRetryState(retryProfile, connectRetryAttempt, delay)
+        }
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
-        connectRetryTask = Runnable {
-            val canExecute = TransientConnectRetryPolicy.shouldExecute(
+        lateinit var retryTask: Runnable
+        retryTask = Runnable {
+            if (TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+                    activityStarted = activityStarted,
+                    activityFinishing = isFinishing,
+                    activityDestroyed = isDestroyed
+                )
+            ) {
+                // onStop() normally removes this callback and onStart() re-arms it.
+                // This guard handles a lifecycle race without consuming the retry.
+                connectRetryTask = retryTask
+                return@Runnable
+            }
+            val retryStillRelevant = TransientConnectRetryPolicy.shouldRemainPending(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
                 activityActive = !isFinishing && !isDestroyed,
@@ -3904,13 +4126,43 @@ class MainActivity : Activity() {
                 connected = connected,
                 disconnecting = disconnecting
             )
-            if (!canExecute) {
+            if (!retryStillRelevant) {
                 connectRetryTask = null
+                connectRetryAttempt = 0
+                clearPersistedConnectRetryState()
+                return@Runnable
+            }
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            val hasValidatedInternet = hasValidatedPhysicalNetwork(connectivity)
+            if (!TransientConnectRetryPolicy.shouldExecute(
+                    generationCurrent = generation == connectRetryGeneration,
+                    selectedProfileUnchanged = selectedProfile == retryProfile,
+                    activityActive = !isFinishing && !isDestroyed,
+                    userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+                    connecting = connecting,
+                    connected = connected,
+                    disconnecting = disconnecting,
+                    hasValidatedPhysicalInternet = hasValidatedInternet
+                )
+            ) {
+                if (!hasValidatedInternet) {
+                    status.text = "Ожидаем восстановления интернета…"
+                    status.setTextColor(AMBER)
+                    connectRetryTask = retryTask
+                    persistConnectRetryState(retryProfile, connectRetryAttempt, 4_000L)
+                    connectRetryHandler.postDelayed(retryTask, 4_000L)
+                    updateProtectionLabels()
+                } else {
+                    connectRetryTask = null
+                }
                 return@Runnable
             }
             connectRetryTask = null
-            connectSelectedProfile()
-        }.also { connectRetryHandler.postDelayed(it, delay) }
+            clearPersistedConnectRetryState()
+            connectSelectedProfile(isRetry = true)
+        }
+        connectRetryTask = retryTask
+        connectRetryHandler.postDelayed(retryTask, delay)
         updateProtectionLabels()
         return true
     }
@@ -3919,9 +4171,84 @@ class MainActivity : Activity() {
         connectRetryGeneration = if (connectRetryGeneration == Long.MAX_VALUE) 0L else connectRetryGeneration + 1L
         connectRetryTask?.let(connectRetryHandler::removeCallbacks)
         connectRetryTask = null
-        if (resetAttempts) connectRetryAttempt = 0
+        if (resetAttempts) {
+            connectRetryAttempt = 0
+            clearPersistedConnectRetryState()
+        }
     }
+
+    private fun persistConnectRetryState(profile: String?, attempt: Int, delayMs: Long) {
+        val fingerprint = TransientConnectRetryStatePolicy.fingerprint(profile) ?: return
+        val now = System.currentTimeMillis()
+        val previousFingerprint = settingsPrefs.getString(KEY_CONNECT_RETRY_PROFILE, null)
+        val previousCreatedAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_CREATED_AT, 0L)
+        val previousStateAge = now - previousCreatedAt
+        val createdAt = if (
+            previousFingerprint == fingerprint &&
+            previousCreatedAt > 0L &&
+            previousStateAge in 0..TransientConnectRetryStatePolicy.MAX_STATE_AGE_MS
+        ) {
+            previousCreatedAt
+        } else {
+            now
+        }
+        settingsPrefs.edit()
+            .putString(KEY_CONNECT_RETRY_PROFILE, fingerprint)
+            .putInt(KEY_CONNECT_RETRY_ATTEMPT, attempt)
+            .putLong(KEY_CONNECT_RETRY_CREATED_AT, createdAt)
+            .putLong(KEY_CONNECT_RETRY_DUE_AT, now + delayMs.coerceAtLeast(0L))
+            .apply()
+    }
+
+    private fun readPersistedConnectRetryState(): PersistedConnectRetry? {
+        val fingerprint = settingsPrefs.getString(KEY_CONNECT_RETRY_PROFILE, null) ?: return null
+        val attempt = settingsPrefs.getInt(KEY_CONNECT_RETRY_ATTEMPT, 0)
+        val createdAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_CREATED_AT, 0L)
+        val dueAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_DUE_AT, 0L)
+        return PersistedConnectRetry(fingerprint, attempt, createdAt, dueAt)
+    }
+
+    private fun clearPersistedConnectRetryState() {
+        settingsPrefs.edit()
+            .remove(KEY_CONNECT_RETRY_PROFILE)
+            .remove(KEY_CONNECT_RETRY_ATTEMPT)
+            .remove(KEY_CONNECT_RETRY_CREATED_AT)
+            .remove(KEY_CONNECT_RETRY_DUE_AT)
+            .apply()
+    }
+
+    private fun restorePersistedConnectRetry() {
+        if (connectRetryTask != null) return
+        if (connected || connecting || disconnecting) {
+            clearPersistedConnectRetryState()
+            connectRetryAttempt = 0
+            return
+        }
+        val state = readPersistedConnectRetryState() ?: return
+        val profileFingerprint = TransientConnectRetryStatePolicy.fingerprint(selectedProfile)
+        val valid = TransientConnectRetryStatePolicy.isValid(
+            state = state,
+            currentProfileFingerprint = profileFingerprint,
+            nowWallClockMs = System.currentTimeMillis(),
+            userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+            hasSelectedProfile = !selectedProfile.isNullOrBlank()
+        )
+        if (!valid) {
+            clearPersistedConnectRetryState()
+            connectRetryAttempt = 0
+            return
+        }
+        connectRetryAttempt = state.attempt
+        scheduleTransientConnectRetry(
+            retryable = true,
+            isAutomaticFailover = false,
+            restoredState = state
+        )
+    }
+
     private fun startTunnel(config: String) {
+        // Once a new service start is handed to Android, the pending retry is no longer needed.
+        clearPersistedConnectRetryState()
         // An explicit new start supersedes a previously persisted user stop request.
         settingsPrefs.edit().remove("vpn_disconnect_requested").apply()
         cancelConnectRetry(resetAttempts = false)
@@ -4214,8 +4541,14 @@ class MainActivity : Activity() {
     private fun maybeAutoSpeedFailover() {
         // Speed-based switching shares the same global retry budget as tunnel-health
         // failover. This prevents two independent detectors from creating a switch loop.
-        if (!connected || connecting || selectingFastest || pendingFailoverSelection != null ||
-            !settingsPrefs.getBoolean("auto_speed_failover", false)
+        if (!AutoSpeedFailoverEligibilityPolicy.shouldEvaluate(
+                connected = connected,
+                connecting = connecting,
+                tunnelInternetOk = tunnelInternetOk,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                enabled = settingsPrefs.getBoolean("auto_speed_failover", false)
+            )
         ) return
 
         val now = android.os.SystemClock.elapsedRealtime()
@@ -4455,6 +4788,7 @@ class MainActivity : Activity() {
             // No validated physical Internet: this is an access-network outage,
             // not evidence that the selected VPN server is broken.
             waitingForUnderlyingNetwork = true
+            waitingForVpnRoute = false
             tunnelInternetOk = null
             status.text = "Ожидаем восстановления интернета…"
             status.setTextColor(AMBER)
@@ -4481,6 +4815,10 @@ class MainActivity : Activity() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
+        // Capture the exact physical route used by AstraPlatform as well as
+        // Android's VPN Network. A Wi-Fi/cellular handover can keep the VPN
+        // Network object stable while replacing only its physical underlay.
+        val probedPhysicalUnderlay = AstraPlatform.currentPhysicalNetwork
         val probeGeneration = tunnelHealthCheckGeneration.current()
         try {
             healthCheckExecutor.execute {
@@ -4500,10 +4838,31 @@ class MainActivity : Activity() {
                         // while the request was in flight; it says nothing about the new tunnel.
                         val currentNetwork = connectivity.activeNetwork
                         val currentCapabilities = currentNetwork?.let(connectivity::getNetworkCapabilities)
-                        if (currentNetwork != vpnNetwork ||
-                            currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+                        val currentPhysicalUnderlay = AstraPlatform.currentPhysicalNetwork
+                        val hasCurrentValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+                        // A probe result belongs to one VPN/underlay pair only.
+                        // If either route changed while the request was in flight,
+                        // or the physical Internet disappeared, discard the result.
+                        if (!NetworkRecoveryPolicy.shouldAcceptHealthResult(
+                                probedVpnNetwork = vpnNetwork,
+                                currentVpnNetwork = currentNetwork,
+                                currentVpnRouteIsVpn = currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
+                                probedPhysicalUnderlay = probedPhysicalUnderlay,
+                                currentPhysicalUnderlay = currentPhysicalUnderlay,
+                                hasValidatedPhysicalInternet = hasCurrentValidatedUnderlay
+                            )
                         ) {
                             lastHealthCheckAt = 0L
+                            tunnelInternetOk = null
+                            waitingForUnderlyingNetwork = !hasCurrentValidatedUnderlay
+                            if (hasCurrentValidatedUnderlay) {
+                                status.text = "Проверяем новое подключение…"
+                            } else {
+                                status.text = "Ожидаем восстановления интернета…"
+                            }
+                            status.setTextColor(AMBER)
+                            updateProtectionLabels()
+                            if (hasCurrentValidatedUnderlay) scheduleTunnelHealthCheck()
                             return@runOnUiThread
                         }
                         // The physical underlay may disappear while the HTTPS probe is
@@ -4514,6 +4873,7 @@ class MainActivity : Activity() {
                             )
                         ) {
                             waitingForUnderlyingNetwork = true
+                            waitingForVpnRoute = false
                             tunnelInternetOk = null
                             lastHealthCheckAt = 0L
                             status.text = "Ожидаем восстановления интернета…"
@@ -4544,6 +4904,18 @@ class MainActivity : Activity() {
                         }
                         updateProtectionLabels()
                         renderProfiles()
+                    } else if (TunnelHealthProbeResumePolicy.shouldReschedule(
+                            activityActive = !isFinishing && !isDestroyed,
+                            connected = connected,
+                            generationCurrent = tunnelHealthCheckGeneration.isCurrent(probeGeneration)
+                        )
+                    ) {
+                        // The Activity may have stopped (screen lock/background) while
+                        // this HTTPS probe was running. onStop invalidates its generation;
+                        // once the old worker releases the in-flight gate, immediately
+                        // schedule a fresh check instead of waiting for the next monitor tick.
+                        lastHealthCheckAt = 0L
+                        scheduleTunnelHealthCheck()
                     }
                 }
             }
@@ -4558,9 +4930,18 @@ class MainActivity : Activity() {
      * probe or transient network handover must not cause a server change.
      */
     private fun maybeAutoFailover() {
-        if (!connected || connecting || selectingFastest) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
-        if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
+        val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+        if (!AutoFailoverEligibilityPolicy.shouldSwitch(
+                connected = connected,
+                connecting = connecting,
+                disconnecting = disconnecting,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                tunnelInternetOk = tunnelInternetOk,
+                hasValidatedPhysicalInternet = hasValidatedUnderlay
+            )
+        ) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
@@ -5122,33 +5503,38 @@ class MainActivity : Activity() {
             return
         }
         val nodes = profiles.take(36).map { profile ->
-            val latency = latencyMs[profile]
+            val latency = freshLatencyMs(profile)
             val quality = when {
                 latency == null -> 0
-                latency <= 80L -> 3
-                latency <= 180L -> 2
-                latency <= 350L -> 1
-                else -> 0
+                latency <= 100L -> 3
+                latency <= 250L -> 2
+                else -> 1
+            }
+            val displayName = profileName(profile)
+            val flag = CountryFlagResolver.flagFor(displayName)
+            val code = when (flag) {
+                "🇳🇱" -> "NL"; "🇩🇪" -> "DE"; "🇫🇷" -> "FR"; "🇬🇧" -> "GB"
+                "🇺🇸" -> "US"; "🇸🇪" -> "SE"; "🇫🇮" -> "FI"; "🇵🇱" -> "PL"
+                "🇨🇭" -> "CH"; "🇨🇦" -> "CA"; "🇯🇵" -> "JP"; "🇸🇬" -> "SG"
+                "🇪🇸" -> "ES"; "🇮🇹" -> "IT"; "🇳🇴" -> "NO"; "🇩🇰" -> "DK"
+                "🇧🇪" -> "BE"; "🇦🇹" -> "AT"; "🇷🇺" -> "RU"; "🇹🇷" -> "TR"
+                "🇨🇿" -> "CZ"; "🇪🇪" -> "EE"; "🇱🇻" -> "LV"; "🇱🇹" -> "LT"
+                "🇺🇦" -> "UA"; "🇰🇷" -> "KR"; "🇭🇰" -> "HK"; "🇦🇪" -> "AE"
+                else -> null
             }
             OrbitMapView.Node(
-                label = profileName(profile),
+                label = code ?: displayName.take(12),
                 quality = quality,
                 selected = profile == selectedProfile
             )
         }
         var chosen = (selectedProfile?.let { profiles.take(36).indexOf(it) } ?: -1).coerceAtLeast(0)
         val map = OrbitMapView(this, nodes) { index ->
+            // Keep map browsing provisional: closing the dialog must not silently
+            // change the active profile or cancel an Android VPN consent request.
             chosen = index
-            val mappedProfile = profiles.take(36)[index]
-            if (selectedProfile != mappedProfile) {
-                cancelConnectRetry(resetAttempts = true)
-                // The map mutates selection immediately, before the dialog's
-                // positive button is pressed. Invalidate any consent request here.
-                if (pendingConfig != null) cancelPendingConnect()
-            }
-            selectedProfile = mappedProfile
-            selectedInfo.text = profileSummary(profiles.take(36)[index])
-            Toast.makeText(this, "Выбрана орбита: ${profileName(profiles.take(36)[index])}", Toast.LENGTH_SHORT).show()
+            // The map itself highlights the preview; the home-screen summary
+            // remains tied to the committed selection until confirmation.
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5158,7 +5544,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
             ))
             addView(TextView(this@MainActivity).apply {
-                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: зелёный — быстрее, серый — нет данных."
+                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: золотой — быстрый, сине-фиолетовый — средний, лавандовый — высокий; серый — нет данных."
                 textSize = 12f
                 setTextColor(0xFFD8E0F2.toInt())
                 setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -5169,13 +5555,18 @@ class MainActivity : Activity() {
             .setView(content)
             .setPositiveButton("Выбрать") { _, _ ->
                 val profile = profiles.take(36)[chosen]
-                if (selectedProfile != profile) {
+                val changed = selectedProfile != profile
+                if (changed) {
                     cancelConnectRetry(resetAttempts = true)
                     if (pendingConfig != null) cancelPendingConnect()
+                    selectedProfile = profile
+                    persistSelectedProfileIfChanged()
                 }
-                selectedProfile = profile
                 selectedInfo.text = profileSummary(profile)
                 renderProfiles()
+                // A confirmed map selection while connected follows the same
+                // guarded config/consent/retry pipeline as the server list.
+                if (changed && connected) connectSelectedProfile()
             }
             .setNegativeButton("Закрыть", null)
             .show()
@@ -5562,9 +5953,14 @@ class MainActivity : Activity() {
     private fun showAppSettingsDialog() {
         // Prevent repeated taps from stacking identical settings windows.
         // Keep one live instance and bring it forward if a tap arrives during animation.
-        settingsDialog?.takeIf { it.isShowing }?.let { existing ->
-            existing.window?.decorView?.bringToFront()
-            return
+        settingsDialog?.let { existing ->
+            // Dialog.show() can still be in its first layout/animation frame.
+            // Treat a non-null instance as active too, otherwise rapid taps
+            // create a stack of identical settings windows.
+            if (!existing.isShowing || existing.window?.decorView?.isAttachedToWindow == true) {
+                existing.window?.decorView?.bringToFront()
+                return
+            }
         }
         val sheet = android.app.Dialog(this)
         settingsDialog = sheet
@@ -5577,28 +5973,51 @@ class MainActivity : Activity() {
             background = rounded(BG, 22)
         }
         fun addActionRow(row: TextView) {
-            val marker = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFFD6B36A.toInt())
-                setSize(dp(7), dp(7))
+            // Compact, consistent navigation row: one monochrome line icon,
+            // one-line title and a quiet chevron. The row remains the original
+            // clickable TextView, so existing navigation callbacks are preserved.
+            val label = row.text.toString().trim()
+            val icon = when {
+                label.contains("монитор", true) -> "⌁"
+                label.contains("скорост", true) || label.contains("ping", true) -> "⌁"
+                label.contains("диагност", true) || label.contains("защит", true) -> "◇"
+                label.contains("истори", true) -> "◷"
+                label.contains("карт", true) || label.contains("орбит", true) -> "⌖"
+                label.contains("трафик", true) || label.contains("прогноз", true) -> "▥"
+                label.contains("семейн", true) || label.contains("доступ", true) -> "⌂"
+                label.contains("банк", true) -> "▣"
+                label.contains("экспорт", true) || label.contains("резерв", true) -> "↗"
+                label.contains("восстанов", true) -> "↻"
+                label.contains("подпис", true) -> "⇄"
+                label.contains("знаком", true) || label.contains("нов", true) -> "✧"
+                else -> "◌"
             }
-            row.setCompoundDrawablesWithIntrinsicBounds(marker, null, null, null)
-            row.compoundDrawablePadding = dp(12)
-            row.minHeight = dp(48)
+            val text = android.text.SpannableString("$icon   $label   ›")
+            text.setSpan(
+                android.text.style.ForegroundColorSpan(0xFF9DAFEA.toInt()),
+                0, icon.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            text.setSpan(
+                android.text.style.ForegroundColorSpan(0xFF77839E.toInt()),
+                text.length - 1, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            row.text = text
+            row.maxLines = 1
+            row.ellipsize = android.text.TextUtils.TruncateAt.END
+            row.minHeight = dp(46)
             row.gravity = Gravity.CENTER_VERTICAL
-            row.text = row.text.toString().trimEnd() + "     ›"
-            row.setPadding(dp(14), dp(9), dp(12), dp(9))
+            row.setPadding(dp(14), dp(7), dp(12), dp(7))
             row.textSize = 13.5f
             row.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             row.setTextColor(0xFFE9EDF6.toInt())
-            row.background = rounded(0xFF141B2A.toInt(), 13).apply {
-                setStroke(dp(1), 0xFF29364C.toInt())
-            }
+            row.setBackgroundColor(Color.TRANSPARENT)
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            params.bottomMargin = dp(6)
             panel.addView(row, params)
+            panel.addView(View(this).apply {
+                setBackgroundColor(0x222D3B57)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         }
         fun addToggleRow(toggle: android.widget.CompoundButton) {
             toggle.textSize = 13f
@@ -5630,7 +6049,7 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(14), 0, dp(5))
             })
         }
-        addSectionLabel("Выбор сервера")
+        addSectionLabel("Подключение")
         panel.addView(TextView(this).apply {
             text = "Сортировка серверов"
             textSize = 15f
@@ -5668,7 +6087,7 @@ class MainActivity : Activity() {
             }, RadioGroup.LayoutParams(0, dp(46), 1f))
         }
         panel.addView(sortGroup)
-        addSectionLabel("Инструменты")
+        addSectionLabel("О приложении")
         val onboardingEntry = TextView(this).apply {
             text = "Повторить знакомство с Astra"
             textSize = 14f
@@ -5690,9 +6109,10 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showWhatsNewDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showWhatsNewDialog() } }
         }
         addActionRow(whatsNewEntry)
+        addSectionLabel("Диагностика")
         val monitorEntry = TextView(this).apply {
             text = "Мониторинг сети"
             textSize = 14f
@@ -5700,7 +6120,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showNetworkMonitorDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showNetworkMonitorDialog() } }
         }
         addActionRow(monitorEntry)
 
@@ -5711,7 +6131,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { runCombinedSpeedAndIpTest() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) runCombinedSpeedAndIpTest() } }
         }
         addActionRow(speedTestEntry)
 
@@ -5722,10 +6142,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showConnectionDiagnostics() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showConnectionDiagnostics() } }
         }
         addActionRow(diagnosticsEntry)
 
+        addSectionLabel("Карта и статистика")
         val orbitMapEntry = TextView(this).apply {
             text = "Интерактивная карта орбит"
             textSize = 14f
@@ -5735,7 +6156,9 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
-                showOrbitMapDialog()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) showOrbitMapDialog()
+                }
             }
         }
         addActionRow(orbitMapEntry)
@@ -5748,11 +6171,14 @@ class MainActivity : Activity() {
             background = rounded(0xFF172238.toInt(), 10)
             setOnClickListener {
                 sheet.dismiss()
-                showUsageAndReliabilityDialog()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) showUsageAndReliabilityDialog()
+                }
             }
         }
         addActionRow(insightsEntry)
 
+        addSectionLabel("Общий доступ")
         val familyQrEntry = TextView(this).apply {
             text = "Семейный доступ по QR"
             textSize = 14f
@@ -5760,7 +6186,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showFamilyQrDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showFamilyQrDialog() } }
         }
         addActionRow(familyQrEntry)
         val streakEntry = TextView(this).apply {
@@ -5770,11 +6196,12 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showProtectionStreakDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showProtectionStreakDialog() } }
         }
         addActionRow(streakEntry)
-        val speedFailoverEntry = CheckBox(this).apply {
-            text = "Автопереключение при падении скорости (требует достоверной VPN-статистики)"
+        addSectionLabel("Автоматизация")
+        val speedFailoverEntry = android.widget.Switch(this).apply {
+            text = "Автопереключение при падении скорости"
             textSize = 13f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("auto_speed_failover", false)
@@ -5783,6 +6210,12 @@ class MainActivity : Activity() {
             }
         }
         addToggleRow(speedFailoverEntry)
+        panel.addView(TextView(this).apply {
+            text = "Переключает сервер при устойчивом снижении скорости. Для точной работы нужна достоверная статистика VPN."
+            textSize = 11f
+            setTextColor(MUTED)
+            setPadding(dp(12), 0, dp(12), dp(8))
+        })
 
         val networkSecurityEntry = TextView(this).apply {
             text = getString(R.string.network_security_entry)
@@ -5791,7 +6224,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showNetworkSecurityDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showNetworkSecurityDialog() } }
         }
         addActionRow(networkSecurityEntry)
 
@@ -5802,7 +6235,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showConnectionHistoryDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showConnectionHistoryDialog() } }
         }
         addActionRow(historyEntry)
 
@@ -5813,7 +6246,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showAppRoutingDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showAppRoutingDialog() } }
         }
         addActionRow(appRoutingEntry)
 
@@ -5824,11 +6257,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showBankingProtectionDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showBankingProtectionDialog() } }
         }
         addActionRow(bankingEntry)
 
-        addSectionLabel("Резервная копия")
+        addSectionLabel("Инструменты · резервная копия")
         val backupExportEntry = TextView(this).apply {
             text = "Экспортировать серверы и подписки"
             textSize = 14f
@@ -5836,7 +6269,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { startBackupExport() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) startBackupExport() } }
         }
         addActionRow(backupExportEntry)
         val backupImportEntry = TextView(this).apply {
@@ -5846,11 +6279,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { startBackupImport() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) startBackupImport() } }
         }
         addActionRow(backupImportEntry)
 
-        addSectionLabel("Защита соединения")
+        addSectionLabel("Безопасность")
         val vpnRecovery = android.widget.Switch(this).apply {
             text = "Восстанавливать VPN после сбоя приложения"
             textSize = 14f
@@ -5871,11 +6304,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showAndroidLockdownGuide() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showAndroidLockdownGuide() } }
         }
         addActionRow(lockdownEntry)
 
-        addSectionLabel("Экономия энергии")
+        addSectionLabel("Энергия")
         val batterySaver = android.widget.Switch(this).apply {
             text = "Режим экономии батареи"
             textSize = 14f
@@ -5890,7 +6323,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(8))
         })
 
-        addSectionLabel("Автообновление")
+        addSectionLabel("Подписки")
         val autoUpdate = android.widget.Switch(this).apply {
             text = "Автоматически обновлять подписки"
             textSize = 14f
@@ -5918,7 +6351,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(8))
             fun refreshLabel() {
                 val hours = settingsPrefs.getInt("update_interval_hours", 2)
-                text = "Интервал обновления: $hours ч · Изменить"
+                text = "Минимальный интервал: $hours ч · Изменить"
             }
             refreshLabel()
             setOnClickListener {
@@ -5926,7 +6359,7 @@ class MainActivity : Activity() {
                 val hours = intArrayOf(1, 2, 6, 12, 24)
                 val selected = hours.indexOf(settingsPrefs.getInt("update_interval_hours", 2)).coerceAtLeast(0)
                 MaterialAlertDialogBuilder(this@MainActivity)
-                    .setTitle("Интервал автообновления")
+                    .setTitle("Минимальный интервал автообновления")
                     .setSingleChoiceItems(values, selected) { dialog, which ->
                         settingsPrefs.edit().putInt("update_interval_hours", hours[which]).apply()
                         SubscriptionRefreshScheduler.sync(this@MainActivity)
@@ -6554,6 +6987,35 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Resolve due subscriptions for foreground auto-refresh using the same policy as WorkManager. */
+    private fun dueSubscriptionSources(allSources: List<String>): List<String> {
+        val pending = settingsPrefs.getStringSet("subscription_retry_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val known = settingsPrefs.getStringSet("subscription_known_sources", emptySet())
+            .orEmpty().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        val summaries = profileStore.subscriptionSummaries().associateBy { it.sourceUrl }
+        val defaultIntervalHours = SubscriptionRefreshInterval.normalize(
+            settingsPrefs.getInt("update_interval_hours", 2)
+        )
+        val now = System.currentTimeMillis()
+        val candidates = allSources.map { source ->
+            val history = SubscriptionRefreshHistory.get(settingsPrefs, source, now)
+            SubscriptionRefreshCandidate(
+                fingerprint = SubscriptionSourceFingerprint.of(source),
+                intervalHours = summaries[source]?.updateIntervalHours ?: defaultIntervalHours,
+                lastSuccessAt = history?.takeIf { it.state == "success" }?.timestamp
+            )
+        }
+        val sourceByFingerprint = allSources.associateBy(SubscriptionSourceFingerprint::of)
+        return SubscriptionRefreshDuePolicy.select(
+            candidates,
+            pending,
+            known,
+            defaultIntervalHours,
+            now
+        ).mapNotNull(sourceByFingerprint::get)
+    }
+
     private fun maybeAutoUpdateSubscriptions(onOpen: Boolean) {
         if (refreshingSubscriptions) return
         val enabled = settingsPrefs.getBoolean("auto_update", false)
@@ -6567,7 +7029,9 @@ class MainActivity : Activity() {
         if (!shouldUpdate) return
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
-        refreshSubscriptions(showResult = false)
+        // "Update on open" is an explicit user action when periodic auto-update
+        // is disabled; otherwise keep the provider-specific due windows.
+        refreshSubscriptions(showResult = false, onlyDue = enabled)
     }
 
     private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
@@ -6921,6 +7385,9 @@ class MainActivity : Activity() {
         }
         monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
+        latencyCheckGeneration.incrementAndGet()
+        latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+        latencyPreparationTimeout = null
         latencyPreparationTask?.cancel(true)
         latencyPreparationTask = null
         pingExecutor.shutdownNow()
@@ -6931,6 +7398,10 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val KEY_CONNECT_RETRY_PROFILE = "connect_retry_profile_sha256"
+        private const val KEY_CONNECT_RETRY_ATTEMPT = "connect_retry_attempt"
+        private const val KEY_CONNECT_RETRY_CREATED_AT = "connect_retry_created_at"
+        private const val KEY_CONNECT_RETRY_DUE_AT = "connect_retry_due_at"
         const val ACTION_TILE_TOGGLE = "com.astra.vpn.action.TILE_TOGGLE"
         private const val REQUEST_IMPORT_FILE = 7004
         private const val REQUEST_EXPORT_BACKUP = 7005
@@ -6941,8 +7412,10 @@ class MainActivity : Activity() {
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_LATENCY_PROFILE_MAP = "profile_map"
         private const val KEY_LATENCY_SESSION_ID = "active_session_id"
+        private const val LATENCY_PREPARATION_TIMEOUT_MS = 10_000L
         private const val KEY_LATENCY_PENDING_RESULTS = "pending_results"
         private const val KEY_LATENCY_LAST_RESULTS = "last_results"
+        private const val KEY_LATENCY_LAST_RESULTS_AT = "last_results_at"
         private const val KEY_VPN_CONNECTED_SINCE = "vpn_connected_since_wall"
         private const val BG = 0xFF080B14.toInt()
         private const val CARD = 0xFF111827.toInt()
