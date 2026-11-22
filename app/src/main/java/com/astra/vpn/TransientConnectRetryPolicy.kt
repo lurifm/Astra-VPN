@@ -19,6 +19,12 @@ internal object TransientConnectRetryPolicy {
         hasSelectedProfile &&
         delayForAttempt(attempt) != null
 
+    fun shouldDeferUntilActivityStarted(
+        activityStarted: Boolean,
+        activityFinishing: Boolean,
+        activityDestroyed: Boolean
+    ): Boolean = !activityStarted && !activityFinishing && !activityDestroyed
+
     fun shouldRemainPending(
         generationCurrent: Boolean,
         selectedProfileUnchanged: Boolean,
