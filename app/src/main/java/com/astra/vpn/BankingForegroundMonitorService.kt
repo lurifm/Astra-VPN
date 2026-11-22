@@ -181,7 +181,9 @@ internal class BankingForegroundMonitorService : Service() {
         running = false
         if (!stopCleanupPending) {
             handler.post {
-                if (!stopCleanupPending) {
+                // The feature may be re-enabled after this poll queued its stop.
+                // Only tear down the service if no newer monitoring session owns it.
+                if (!running && !stopCleanupPending) {
                     handler.removeCallbacks(poll)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
