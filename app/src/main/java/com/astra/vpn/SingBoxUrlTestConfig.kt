@@ -93,5 +93,21 @@ internal object SingBoxUrlTestConfig {
         return "astra-node-$suffix"
     }
 
+    // Retained for compatibility with existing tag-mapping tests and callers.
+    // The latency scheduler now probes plain outbound tags directly.
+    fun groupTagForOutbound(outboundTag: String): String {
+        val suffix = outboundTag.removePrefix("astra-node-")
+        require(outboundTag.startsWith("astra-node-") && suffix.matches(OUTBOUND_SUFFIX))
+        { "Некорректный тег сервера" }
+        return "astra-test-$suffix"
+    }
+
+    fun outboundTagForGroup(groupTag: String): String? {
+        if (!groupTag.startsWith("astra-test-")) return null
+        val suffix = groupTag.removePrefix("astra-test-")
+        if (!suffix.matches(OUTBOUND_SUFFIX)) return null
+        return "astra-node-$suffix"
+    }
+
     private val OUTBOUND_SUFFIX = Regex("[0-9a-f]{16}")
 }
