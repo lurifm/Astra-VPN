@@ -17,6 +17,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * User-started foreground observer and executor for conservative banking transitions.
@@ -24,39 +26,52 @@ import android.util.Log
  */
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    // UsageEvents replay and encrypted profile/state operations must never run on the main thread.
+    private val pollExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "Astra-BankingMonitor").apply { isDaemon = true }
+    }
     private val activeActivities = linkedSetOf<String>()
     private val observationPolicy = BankingForegroundObservationPolicy()
     private var lastQueryTime = 0L
-    private var running = false
+    @Volatile private var running = false
 
     private val poll = object : Runnable {
         override fun run() {
             if (!running) return
-            val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
-            if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
-                !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
-            ) {
-                cancelAutomationAndStop()
-                return
+            try {
+                pollExecutor.execute {
+                    if (!running) return@execute
+                    val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
+                    if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
+                        !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
+                    ) {
+                        cancelAutomationAndStop()
+                        return@execute
+                    }
+                    val observed = runCatching { readForegroundPackage() }
+                        .onFailure { Log.w(TAG, "Usage events unavailable", it) }
+                        .getOrNull()
+                    // Require two consecutive non-ambiguous observations before publishing
+                    // a foreground change. Null means unknown (transition, split-screen,
+                    // missing Usage Access), never proof that a banking app was closed.
+                    if (running) observationPolicy.observe(observed)?.let { stablePackage ->
+                        val observedAt = System.currentTimeMillis()
+                        sendBroadcast(
+                            Intent(ACTION_OBSERVATION)
+                                .setPackage(packageName)
+                                .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
+                                .putExtra(EXTRA_OBSERVED_AT, observedAt)
+                        )
+                        runCatching { executeBankingTransition(stablePackage, observedAt) }
+                            .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
+                    }
+                    handler.post {
+                        if (running) handler.postDelayed(poll, POLL_INTERVAL_MS)
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                if (running) Log.w(TAG, "Banking monitor poll executor is unavailable")
             }
-            val observed = runCatching { readForegroundPackage() }
-                .onFailure { Log.w(TAG, "Usage events unavailable", it) }
-                .getOrNull()
-            // Require two consecutive non-ambiguous observations before publishing
-            // a foreground change. Null means unknown (transition, split-screen,
-            // missing Usage Access), never proof that a banking app was closed.
-            observationPolicy.observe(observed)?.let { stablePackage ->
-                val observedAt = System.currentTimeMillis()
-                sendBroadcast(
-                    Intent(ACTION_OBSERVATION)
-                        .setPackage(packageName)
-                        .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
-                        .putExtra(EXTRA_OBSERVED_AT, observedAt)
-                )
-                runCatching { executeBankingTransition(stablePackage, observedAt) }
-                    .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
-            }
-            handler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
 
@@ -132,9 +147,11 @@ internal class BankingForegroundMonitorService : Service() {
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
-        handler.removeCallbacksAndMessages(null)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        handler.post {
+            handler.removeCallbacks(poll)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun executeBankingTransition(foregroundPackage: String, observedAt: Long) {
@@ -401,6 +418,7 @@ internal class BankingForegroundMonitorService : Service() {
     override fun onDestroy() {
         running = false
         handler.removeCallbacksAndMessages(null)
+        pollExecutor.shutdownNow()
         super.onDestroy()
     }
 
