@@ -47,6 +47,31 @@ class TransientConnectRetryPolicyTest {
         assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(false, false, true))
     }
 
+    @Test fun cancelledRetryIsDiscardedEvenWhileActivityIsBackgrounded() {
+        assertFalse(
+            TransientConnectRetryPolicy.shouldRemainPending(
+                generationCurrent = false,
+                selectedProfileUnchanged = true,
+                activityActive = true,
+                userRequestedDisconnect = false,
+                connecting = false,
+                connected = false,
+                disconnecting = false
+            )
+        )
+        assertFalse(
+            TransientConnectRetryPolicy.shouldRemainPending(
+                generationCurrent = true,
+                selectedProfileUnchanged = true,
+                activityActive = false,
+                userRequestedDisconnect = true,
+                connecting = false,
+                connected = false,
+                disconnecting = false
+            )
+        )
+    }
+
     @Test fun staleOrUserCancelledRetriesCannotExecute() {
         assertTrue(TransientConnectRetryPolicy.shouldExecute(true, true, true, false, false, false, false, true))
         assertFalse(TransientConnectRetryPolicy.shouldExecute(false, true, true, false, false, false, false, true))
