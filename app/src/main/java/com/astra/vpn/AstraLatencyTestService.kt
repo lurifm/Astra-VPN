@@ -455,6 +455,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     .onFailure { Log.w(TAG, "latency client shutdown failed (${it.javaClass.simpleName})") }
             }
             if (activeServer != null) {
+                // Important: sing-box 1.14.3 starts plain-outbound URLTest in a
+                // goroutine bound to the box instance context, not the gRPC
+                // request context. Disconnecting the client alone is insufficient;
+                // CloseService closes the instance and cancels that native context.
                 runCatching { activeServer.closeService() }
                     .onFailure { Log.w(TAG, "latency service shutdown failed (${it.javaClass.simpleName})") }
                 runCatching { activeServer.close() }

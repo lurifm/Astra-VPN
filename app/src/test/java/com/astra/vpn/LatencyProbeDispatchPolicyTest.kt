@@ -1,5 +1,6 @@
 package com.astra.vpn
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,9 +54,16 @@ class NativeUrlTestTimingPolicyTest {
         )
     }
 
+    @Test fun nativeBudgetMatchesPinnedSingBoxTimeoutPhases() {
+        assertEquals(10_000L, NativeUrlTestTimingPolicy.DNS_TIMEOUT_MS)
+        assertEquals(5_000L, NativeUrlTestTimingPolicy.TCP_CONNECT_TIMEOUT_MS)
+        assertEquals(15_000L, NativeUrlTestTimingPolicy.HTTP_CLIENT_TIMEOUT_MS)
+        assertEquals(1_000L, NativeUrlTestTimingPolicy.SAFETY_MARGIN_MS)
+        assertEquals(31_000L, NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS)
+    }
+
     @Test fun nativeCooldownMatchesPinnedSingBoxTimeoutBudget() {
-        assertTrue(NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS == 10_000L)
-        assertTrue(NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS == 31_000L)
-        assertTrue(NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() == 21_000L)
+        assertEquals(10_000L, NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS)
+        assertEquals(21_000L, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
     }
 }
