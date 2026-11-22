@@ -1165,6 +1165,48 @@ class MainActivity : Activity() {
         }, 1_200L)
     }
 
+    private fun showSubscriptionImportSummary(parsed: ParsedSubscription) {
+        val countries = parsed.links.map { profileName(it) }
+            .filter { it.isNotBlank() && it != "Сервер" }
+            .distinct()
+            .sorted()
+        val title = parsed.metadata.title?.takeIf { it.isNotBlank() } ?: "Импорт завершён"
+        val message = buildString {
+            append("Серверов добавлено: ${parsed.links.size}")
+            append("\\nСтран обнаружено: ${countries.size}")
+            if (countries.isNotEmpty()) {
+                append("\\n\\n")
+                append(countries.take(12).joinToString(" · "))
+                if (countries.size > 12) append(" и ещё ${countries.size - 12}")
+            }
+            parsed.metadata.expiresAtEpochSeconds?.let { expiry ->
+                val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM)
+                    .format(java.util.Date(expiry * 1000L))
+                append("\\n\\nДействует до: $date")
+            }
+            parsed.metadata.totalBytes?.let { total ->
+                append("\\nЛимит трафика: ${formatTrafficBytes(total)}")
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Готово", null)
+            .show()
+    }
+
+    private fun formatTrafficBytes(bytes: Long): String {
+        if (bytes < 0L) return "—"
+        val units = arrayOf("Б", "КБ", "МБ", "ГБ", "ТБ")
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024.0 && unit < units.lastIndex) {
+            value /= 1024.0
+            unit++
+        }
+        return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
+    }
+
     /**
      * Imports a recognized VPN link or HTTPS subscription directly from the clipboard.
      * If the clipboard does not look like supported input, fall back to the import sheet.
@@ -1198,14 +1240,14 @@ class MainActivity : Activity() {
                 } else {
                     profileStore.addAll(links)
                 }
-                links
+                parsed
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                result.onSuccess { links ->
+                result.onSuccess { parsed ->
                     renderProfiles()
                     checkAllLatencies()
-                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                    showSubscriptionImportSummary(parsed)
                 }.onFailure { error ->
                     MaterialAlertDialogBuilder(this)
                         .setTitle("Не удалось импортировать")
@@ -1491,15 +1533,15 @@ class MainActivity : Activity() {
                     } else {
                         profileStore.addAll(links)
                     }
-                    links
+                    parsed
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     dialog.dismiss()
-                    result.onSuccess { links ->
+                    result.onSuccess { parsed ->
                         renderProfiles()
                         checkAllLatencies()
-                        Toast.makeText(this@MainActivity, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        showSubscriptionImportSummary(parsed)
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
