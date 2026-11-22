@@ -4665,6 +4665,10 @@ class MainActivity : Activity() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHealthCheckAt < 12_000L || !healthCheckInFlight.compareAndSet(false, true)) return
         lastHealthCheckAt = now
+        // Capture the exact physical route used by AstraPlatform as well as
+        // Android's VPN Network. A Wi-Fi/cellular handover can keep the VPN
+        // Network object stable while replacing only its physical underlay.
+        val probedPhysicalUnderlay = AstraPlatform.currentPhysicalNetwork
         val probeGeneration = tunnelHealthCheckGeneration.current()
         try {
             healthCheckExecutor.execute {
@@ -4688,6 +4692,20 @@ class MainActivity : Activity() {
                             currentCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
                         ) {
                             lastHealthCheckAt = 0L
+                            return@runOnUiThread
+                        }
+                        // Discard a result measured across an underlay transition.
+                        // The HTTPS request may have started on Wi-Fi and timed out
+                        // after Android moved the tunnel to cellular (or vice versa);
+                        // that result must not count as a VPN-server failure.
+                        if (AstraPlatform.currentPhysicalNetwork != probedPhysicalUnderlay) {
+                            lastHealthCheckAt = 0L
+                            tunnelInternetOk = null
+                            waitingForUnderlyingNetwork = false
+                            status.text = "Проверяем новое подключение…"
+                            status.setTextColor(AMBER)
+                            updateProtectionLabels()
+                            scheduleTunnelHealthCheck()
                             return@runOnUiThread
                         }
                         // The physical underlay may disappear while the HTTPS probe is
