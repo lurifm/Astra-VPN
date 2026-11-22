@@ -67,4 +67,33 @@ class AdvancedInsightsTest {
         assertEquals(0L, ReliabilityScore.selectionPenaltyMs(perfect))
     }
 
+
+    @Test
+    fun validatedRecoveryClearsOlderErrorsFromReliabilityHistory() {
+        val events = listOf(
+            ConnectionHistoryStore.Entry(300L, "connected", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(200L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(100L, "error", "A", "VLESS")
+        )
+        val filtered = ReliabilityScore.outcomesAfterLatestSuccess(events)
+        assertEquals(1, filtered.size)
+        assertEquals("connected", filtered.single().state)
+        assertEquals(100, ReliabilityScore.calculate(filtered + listOf(
+            ConnectionHistoryStore.Entry(250L, "connected", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(275L, "connected", "A", "VLESS")
+        ))!!.score)
+    }
+
+    @Test
+    fun failureAfterRecoveryRemainsInReliabilityHistory() {
+        val events = listOf(
+            ConnectionHistoryStore.Entry(400L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(300L, "connected", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(200L, "error", "A", "VLESS"),
+            ConnectionHistoryStore.Entry(100L, "connected", "A", "VLESS")
+        )
+        val filtered = ReliabilityScore.outcomesAfterLatestSuccess(events)
+        assertEquals(listOf("error", "connected"), filtered.map { it.state })
+    }
+
 }
