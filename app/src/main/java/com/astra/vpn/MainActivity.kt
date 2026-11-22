@@ -4318,8 +4318,14 @@ class MainActivity : Activity() {
     private fun maybeAutoSpeedFailover() {
         // Speed-based switching shares the same global retry budget as tunnel-health
         // failover. This prevents two independent detectors from creating a switch loop.
-        if (!connected || connecting || selectingFastest || pendingFailoverSelection != null ||
-            !settingsPrefs.getBoolean("auto_speed_failover", false)
+        if (!AutoSpeedFailoverEligibilityPolicy.shouldEvaluate(
+                connected = connected,
+                connecting = connecting,
+                tunnelInternetOk = tunnelInternetOk,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                enabled = settingsPrefs.getBoolean("auto_speed_failover", false)
+            )
         ) return
 
         val now = android.os.SystemClock.elapsedRealtime()
@@ -4662,9 +4668,18 @@ class MainActivity : Activity() {
      * probe or transient network handover must not cause a server change.
      */
     private fun maybeAutoFailover() {
-        if (!connected || connecting || selectingFastest) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
-        if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
+        val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
+        if (!AutoFailoverEligibilityPolicy.shouldSwitch(
+                connected = connected,
+                connecting = connecting,
+                disconnecting = disconnecting,
+                selectingFastest = selectingFastest,
+                hasPendingFailover = pendingFailoverSelection != null,
+                tunnelInternetOk = tunnelInternetOk,
+                hasValidatedPhysicalInternet = hasValidatedUnderlay
+            )
+        ) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
         if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
