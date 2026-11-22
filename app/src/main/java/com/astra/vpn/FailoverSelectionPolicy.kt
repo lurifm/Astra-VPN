@@ -10,8 +10,19 @@ internal data class FailoverSelectionTransaction(
 )
 
 internal object FailoverSelectionPolicy {
-    fun isCommitted(transaction: FailoverSelectionTransaction, connectedProfile: String?): Boolean =
-        connectedProfile == transaction.targetProfile
+    /** A new hop in the same recovery chain must keep its original rollback anchor. */
+    fun nextTransaction(
+        existing: FailoverSelectionTransaction?,
+        currentProfile: String?,
+        targetProfile: String
+    ): FailoverSelectionTransaction = FailoverSelectionTransaction(
+        previousProfile = existing?.previousProfile ?: currentProfile,
+        targetProfile = targetProfile
+    )
+
+    /** Commit only after the target has passed an end-to-end tunnel health check. */
+    fun isCommitted(transaction: FailoverSelectionTransaction, validatedProfile: String?): Boolean =
+        validatedProfile == transaction.targetProfile
 
     fun rollback(
         pending: FailoverSelectionTransaction,
