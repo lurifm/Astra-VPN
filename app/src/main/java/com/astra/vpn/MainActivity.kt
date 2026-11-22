@@ -2697,16 +2697,7 @@ class MainActivity : Activity() {
             val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val flag = CountryFlagResolver.flagFor(name)
             val country = CountryFlagResolver.countryNameForFlag(flag).takeUnless { it == "Другая страна" } ?: name
-            val countryCode = when (flag) {
-                "🇳🇱" -> "NL"; "🇩🇪" -> "DE"; "🇫🇷" -> "FR"; "🇬🇧" -> "GB"
-                "🇺🇸" -> "US"; "🇸🇪" -> "SE"; "🇫🇮" -> "FI"; "🇵🇱" -> "PL"
-                "🇨🇭" -> "CH"; "🇨🇦" -> "CA"; "🇯🇵" -> "JP"; "🇸🇬" -> "SG"
-                "🇪🇸" -> "ES"; "🇮🇹" -> "IT"; "🇳🇴" -> "NO"; "🇩🇰" -> "DK"
-                "🇧🇪" -> "BE"; "🇦🇹" -> "AT"; "🇷🇺" -> "RU"; "🇹🇷" -> "TR"
-                "🇨🇿" -> "CZ"; "🇪🇪" -> "EE"; "🇱🇻" -> "LV"; "🇱🇹" -> "LT"
-                "🇺🇦" -> "UA"; "🇰🇷" -> "KR"; "🇭🇰" -> "HK"; "🇦🇪" -> "AE"
-                else -> null
-            }
+            val countryCode = CountryFlagResolver.countryCodeForFlag(flag)
             val measuredLatency = freshLatencyMs(link)
             val ping = measuredLatency?.let { "$it мс" } ?: "— мс"
             val selected = link == selectedProfile
