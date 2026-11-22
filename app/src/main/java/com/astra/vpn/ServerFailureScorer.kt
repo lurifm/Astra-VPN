@@ -20,10 +20,10 @@ internal object ServerFailureScorer {
         now: Long,
         windowMs: Long = DEFAULT_WINDOW_MS
     ): Map<String, Int> {
-        if (now < 0L || windowMs <= 0L) return emptyMap()
+        if (now <= 0L || windowMs <= 0L) return emptyMap()
         val totals = linkedMapOf<String, Int>()
         entries.forEach { entry ->
-            if (entry.state != "error" || entry.timestamp < 0L || entry.timestamp > now) return@forEach
+            if (entry.state != "error" || entry.timestamp <= 0L || entry.timestamp > now) return@forEach
             val age = now - entry.timestamp
             if (age > windowMs) return@forEach
             val name = normalizeIdentity(entry.serverName)
@@ -57,14 +57,14 @@ internal object ServerFailureScorer {
         escalationWindowMs: Long = 60L * 60L * 1_000L,
         maxQuarantineMs: Long = 30L * 60L * 1_000L
     ): List<String> {
-        if (profiles.isEmpty() || now < 0L || quarantineMs <= 0L ||
+        if (profiles.isEmpty() || now <= 0L || quarantineMs <= 0L ||
             escalationWindowMs <= 0L || maxQuarantineMs <= 0L
         ) return profiles
 
         // Repeated failures extend only that server's quarantine. A single
         // transient failure keeps the original five-minute recovery window.
         val recentErrors = entries.asSequence()
-            .filter { it.state == "error" && it.timestamp >= 0L && it.timestamp <= now }
+            .filter { it.state == "error" && it.timestamp > 0L && it.timestamp <= now }
             .filter { now - it.timestamp <= escalationWindowMs }
             .mapNotNull { entry ->
                 val name = normalizeIdentity(entry.serverName)
