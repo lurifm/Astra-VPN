@@ -297,7 +297,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 dispatchNextUrlTests(client)
             }
             nativeSlotReleaseTimeouts[tag] = release
-            handler.postDelayed(release, NATIVE_URLTEST_MAX_DURATION_MS - SERVER_URLTEST_TIMEOUT_MS)
+            handler.postDelayed(release, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
         } else {
             errorTags.add(tag)
             inFlightTags.remove(tag)
@@ -491,10 +491,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         private const val ENGINE_STARTUP_TIMEOUT_MS = 8_000L
-        private const val SERVER_URLTEST_TIMEOUT_MS = 10_000L
-        // sing-box 1.14.3: DNS 10s + TCP connect 5s + HTTP URLTest 15s.
-        // A 1s margin avoids freeing a slot at the exact native deadline.
-        private const val NATIVE_URLTEST_MAX_DURATION_MS = 31_000L
+        private const val SERVER_URLTEST_TIMEOUT_MS = NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
