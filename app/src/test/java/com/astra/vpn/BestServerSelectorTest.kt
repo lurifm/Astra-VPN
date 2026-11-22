@@ -223,4 +223,29 @@ class BestServerSelectorTest {
         assertEquals(faster, selected)
     }
 
+
+    @Test
+    fun lastKnownGoodServerWinsOnlyWhenCandidatesAreClose() {
+        val knownGood = "vless://known-good"
+        val slightlyFaster = "hysteria2://slightly-faster"
+        val selected = BestServerSelector.select(
+            profiles = listOf(slightlyFaster, knownGood),
+            latencyMs = mapOf(slightlyFaster to 50L, knownGood to 55L),
+            lastKnownGoodProfile = knownGood
+        )
+        assertEquals(knownGood, selected)
+    }
+
+    @Test
+    fun lastKnownGoodPreferenceCannotOverrideMateriallyFasterServer() {
+        val knownGood = "vless://known-good"
+        val muchFaster = "hysteria2://much-faster"
+        val selected = BestServerSelector.select(
+            profiles = listOf(knownGood, muchFaster),
+            latencyMs = mapOf(knownGood to 120L, muchFaster to 40L),
+            lastKnownGoodProfile = knownGood
+        )
+        assertEquals(muchFaster, selected)
+    }
+
 }
