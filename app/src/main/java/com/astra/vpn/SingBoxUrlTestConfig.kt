@@ -59,11 +59,31 @@ internal object SingBoxUrlTestConfig {
 
         // This is deliberately not a VPN/TUN config. It is a short-lived
         // measurement engine and must never establish a second device-wide VPN.
+        // Resolve proxy endpoint hostnames and the URL-test host through an
+        // explicit DoH resolver. Android's process-default DNS route can still
+        // point at the active VPN even when libbox sockets use the physical
+        // underlay; that mismatch makes otherwise-working profiles time out.
+        val probeDns = JSONObject()
+            .put("type", "https")
+            .put("tag", "probe-dns")
+            .put("server", "1.1.1.1")
+            .put("server_port", 443)
+            .put("path", "/dns-query")
+            .put("tls", JSONObject()
+                .put("enabled", true)
+                .put("server_name", "cloudflare-dns.com"))
+            .put("detour", "direct")
+
         val config = JSONObject()
             .put("log", JSONObject().put("level", "error"))
+            .put("dns", JSONObject()
+                .put("servers", JSONArray().put(probeDns))
+                .put("final", "probe-dns")
+                .put("strategy", "prefer_ipv4"))
             .put("outbounds", outbounds)
             .put("route", JSONObject()
                 .put("auto_detect_interface", true)
+                .put("default_domain_resolver", "probe-dns")
                 .put("final", "direct"))
             .toString()
 
