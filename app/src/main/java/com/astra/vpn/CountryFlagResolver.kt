@@ -96,6 +96,24 @@ object CountryFlagResolver {
         "🇿🇦" to "ЮАР"
     )
 
+    private val codesByFlag = mapOf(
+        "🇸🇪" to "SE", "🇳🇱" to "NL", "🇬🇧" to "GB", "🇩🇪" to "DE",
+        "🇫🇷" to "FR", "🇷🇺" to "RU", "🇫🇮" to "FI", "🇵🇱" to "PL",
+        "🇹🇷" to "TR", "🇺🇸" to "US", "🇨🇦" to "CA", "🇨🇭" to "CH",
+        "🇦🇹" to "AT", "🇮🇹" to "IT", "🇪🇸" to "ES", "🇳🇴" to "NO",
+        "🇩🇰" to "DK", "🇧🇪" to "BE", "🇨🇿" to "CZ", "🇸🇰" to "SK",
+        "🇭🇺" to "HU", "🇷🇴" to "RO", "🇧🇬" to "BG", "🇪🇪" to "EE",
+        "🇱🇻" to "LV", "🇱🇹" to "LT", "🇺🇦" to "UA", "🇰🇿" to "KZ",
+        "🇯🇵" to "JP", "🇸🇬" to "SG", "🇰🇷" to "KR", "🇭🇰" to "HK",
+        "🇦🇪" to "AE", "🇮🇳" to "IN", "🇧🇷" to "BR", "🇵🇹" to "PT",
+        "🇬🇷" to "GR", "🇨🇾" to "CY", "🇦🇺" to "AU", "🇳🇿" to "NZ",
+        "🇨🇳" to "CN", "🇹🇼" to "TW", "🇮🇩" to "ID", "🇹🇭" to "TH",
+        "🇻🇳" to "VN", "🇲🇾" to "MY", "🇮🇱" to "IL", "🇲🇽" to "MX",
+        "🇦🇷" to "AR", "🇨🇱" to "CL", "🇿🇦" to "ZA"
+    )
+
+    fun countryCodeForFlag(flag: String): String? = codesByFlag[flag]
+
     fun countryNameForFlag(flag: String): String = namesByFlag[flag] ?: "Другая страна"
 
     fun flagFor(label: String): String {
