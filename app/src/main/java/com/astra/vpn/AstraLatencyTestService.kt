@@ -264,8 +264,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     val accepted = snapshot.filterKeys { it !in completedTags }
                     if (accepted.isEmpty()) return@post
                     accepted.keys.forEach(::completeMeasuredTag)
-                    val partial = latestResults.merge(accepted)
-                    publishResults(partial, finished = false)
+                    // Merge into the cumulative accumulator for the terminal snapshot,
+                    // but broadcast only newly accepted measurements. Sending the full
+                    // growing snapshot after every node made UI parsing and IPC work
+                    // quadratic for large subscriptions.
+                    latestResults.merge(accepted)
+                    publishResults(accepted, finished = false)
                     finishIfAllTagsCompleted()
                 }
             }
