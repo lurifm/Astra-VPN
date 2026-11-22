@@ -32,6 +32,14 @@ class TransientConnectRetryPolicyTest {
         assertFalse(TransientConnectRetryPolicy.shouldSchedule(true, false, false, true, 4))
     }
 
+    @Test fun retryWaitsForForegroundAndValidatedInternet() {
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, false, false, true))
+        assertTrue(TransientConnectRetryPolicy.shouldDeferUntilConditions(true, false, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(true, false, false, true))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, true, false, false))
+        assertFalse(TransientConnectRetryPolicy.shouldDeferUntilConditions(false, false, true, false))
+    }
+
     @Test fun backgroundRetryWaitsForActivityToReturnWithoutBeingDiscarded() {
         assertTrue(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(false, false, false))
         assertFalse(TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(true, false, false))
