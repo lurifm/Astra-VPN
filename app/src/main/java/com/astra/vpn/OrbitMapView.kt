@@ -27,7 +27,55 @@ internal class OrbitMapView(
 
     init {
         isClickable = true
-        contentDescription = "Карта VPN-серверов. Нажмите на звезду, чтобы выбрать сервер."
+        isFocusable = true
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        updateAccessibilityDescription()
+    }
+
+    private fun updateAccessibilityDescription() {
+        val node = nodes.getOrNull(selectedIndex)
+        contentDescription = if (node == null) {
+            "Карта VPN-серверов. Серверов нет."
+        } else {
+            "Карта VPN-серверов. Выбран ${selectedIndex + 1} из ${nodes.size}: ${node.label}. " +
+                "Используй действия «Следующий сервер» и «Предыдущий сервер» для навигации."
+        }
+    }
+
+    private fun moveSelection(delta: Int): Boolean {
+        if (nodes.isEmpty()) return false
+        selectedIndex = (selectedIndex + delta).mod(nodes.size)
+        updateAccessibilityDescription()
+        invalidate()
+        onSelected(selectedIndex)
+        sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED)
+        return true
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(
+        info: android.view.accessibility.AccessibilityNodeInfo
+    ) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+    }
+
+    override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+        return when (action) {
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> moveSelection(1)
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> moveSelection(-1)
+            else -> super.performAccessibilityAction(action, arguments)
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        return when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> moveSelection(1)
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> moveSelection(-1)
+            else -> super.onKeyDown(keyCode, event)
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -124,9 +172,11 @@ internal class OrbitMapView(
                 val dy = positions[nearest].second - event.y
                 if (dx * dx + dy * dy <= hitRadius * hitRadius) {
                     selectedIndex = nearest
+                    updateAccessibilityDescription()
                     invalidate()
                     performClick()
                     onSelected(nearest)
+                    sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED)
                 }
                 return true
             }
