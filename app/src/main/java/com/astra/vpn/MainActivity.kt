@@ -3260,6 +3260,7 @@ class MainActivity : Activity() {
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(candidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(candidates),
             throughputSamples = throughputHistory.getFresh(candidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
@@ -4545,6 +4546,7 @@ class MainActivity : Activity() {
             latencyMs = adjusted,
             recentFailures = recentServerFailureCounts(measuredCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(measuredCandidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(measuredCandidates),
             throughputSamples = throughputHistory.getFresh(measuredCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
@@ -4846,12 +4848,14 @@ class MainActivity : Activity() {
                             // every periodic health-check success. This keeps reliability
                             // statistics tied to real connection outcomes.
                             if (!wasEndToEndValidated) {
-                                runCatching {
-                                    connectionHistory.record(
-                                        "connected",
-                                        profileName(activeProfile),
-                                        protocolName(activeProfile)
-                                    )
+                                activeProfile?.takeIf { it.isNotBlank() }?.let { validatedProfile ->
+                                    runCatching {
+                                        connectionHistory.record(
+                                            "connected",
+                                            profileName(validatedProfile),
+                                            protocolName(validatedProfile)
+                                        )
+                                    }
                                 }
                             }
                             status.text = "Подключено"
@@ -4953,6 +4957,7 @@ class MainActivity : Activity() {
             latencyMs = timeAdjustedLatencies,
             recentFailures = recentServerFailureCounts(failoverCandidates),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
+            reliabilityPenaltyMs = serverReliabilityPenalties(failoverCandidates),
             throughputSamples = throughputHistory.getFresh(failoverCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         ) ?: run {
@@ -6943,6 +6948,28 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         return profiles.mapNotNull { profile ->
             val penalty = LatencyStabilityScorer.penaltyMs(latencyHistory.samples(profile, now), now)
+            if (penalty > 0L) profile to penalty else null
+        }.toMap()
+    }
+
+    /**
+     * Long-term success ratio complements the short-term failure streak penalty.
+     * Require three valid outcomes before influencing selection; cap the effect
+     * so measured latency remains the primary signal.
+     */
+    private fun serverReliabilityPenalties(profiles: List<String>): Map<String, Long> {
+        val entries = connectionHistory.getEntries()
+        return profiles.mapNotNull { profile ->
+            val name = profileName(profile).trim().lowercase(java.util.Locale.ROOT)
+            val protocol = protocolName(profile).trim().lowercase(java.util.Locale.ROOT)
+                .let { if (it == "hy2") "hysteria2" else it }
+            val outcomes = entries.filter {
+                it.serverName.trim().lowercase(java.util.Locale.ROOT) == name &&
+                    it.protocol.trim().lowercase(java.util.Locale.ROOT)
+                        .let { value -> if (value == "hy2") "hysteria2" else value } == protocol
+            }
+            val score = ReliabilityScore.calculate(outcomes) ?: return@mapNotNull null
+            val penalty = ((100 - score.score).coerceIn(0, 100) * 60L) / 100L
             if (penalty > 0L) profile to penalty else null
         }.toMap()
     }
