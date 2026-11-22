@@ -281,6 +281,7 @@ class ServerFailureScorerTest {
     fun tunnelReadyDoesNotClearFailurePenaltyOrReleaseQuarantine() {
         val now = 1_000_000L
         val profile = "vless://id@bad.example:443#Bad"
+        val healthyProfile = "vless://id@good.example:443#Good"
         val entries = listOf(
             ConnectionHistoryStore.Entry(now - 1L, "tunnel_ready", "Bad", "VLESS"),
             ConnectionHistoryStore.Entry(now - 2L, "error", "Bad", "VLESS")
@@ -288,9 +289,9 @@ class ServerFailureScorerTest {
 
         assertEquals(3, ServerFailureScorer.weightedFailures(entries, now)["bad|vless"])
         assertEquals(
-            emptyList<String>(),
+            listOf(healthyProfile),
             ServerFailureScorer.excludeRecentlyFailedProfiles(
-                listOf(profile), entries, now,
+                listOf(profile, healthyProfile), entries, now,
                 nameOf = { it.substringAfterLast('#') },
                 protocolOf = { it.substringBefore("://").uppercase() }
             )

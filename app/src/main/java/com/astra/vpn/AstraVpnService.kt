@@ -744,10 +744,21 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             else -> null
         }
         if (historyState != null && historyState != lastHistoryState) {
-            runCatching {
-                ConnectionHistoryStore(this).record(historyState, activeProfileName, activeProtocol, activeProfileLink.orEmpty())
-            }.onFailure { Log.w(TAG, "Не удалось сохранить историю подключений (" + it.javaClass.simpleName + ")") }
-            lastHistoryState = historyState
+            val recorded = runCatching {
+                ConnectionHistoryStore(this).record(
+                    historyState,
+                    activeProfileName,
+                    activeProtocol,
+                    activeProfileLink.orEmpty()
+                )
+                true
+            }.getOrElse {
+                Log.w(TAG, "Не удалось сохранить историю подключений (" + it.javaClass.simpleName + ")")
+                false
+            }
+            // Keep the previous marker on failure so a later identical state
+            // transition can retry instead of being silently deduplicated.
+            if (recorded) lastHistoryState = historyState
         }
         val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
