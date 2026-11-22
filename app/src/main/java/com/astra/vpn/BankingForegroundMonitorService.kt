@@ -50,7 +50,7 @@ internal class BankingForegroundMonitorService : Service() {
                     if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
                         !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
                     ) {
-                        cancelAutomationAndStop()
+                        cancelAutomationAndStop(pollGeneration)
                         return@execute
                     }
                     val observed = runCatching { readForegroundPackage() }
@@ -62,14 +62,16 @@ internal class BankingForegroundMonitorService : Service() {
                     // Require two consecutive non-ambiguous observations before publishing
                     // a foreground change. Null means unknown (transition, split-screen,
                     // missing Usage Access), never proof that a banking app was closed.
-                    if (running) observationPolicy.observe(observed)?.let { stablePackage ->
+                    if (isCurrentSession(pollGeneration)) observationPolicy.observe(observed)?.let { stablePackage ->
                         val observedAt = System.currentTimeMillis()
+                        if (!isCurrentSession(pollGeneration)) return@let
                         sendBroadcast(
                             Intent(ACTION_OBSERVATION)
                                 .setPackage(packageName)
                                 .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
                                 .putExtra(EXTRA_OBSERVED_AT, observedAt)
                         )
+                        if (!isCurrentSession(pollGeneration)) return@let
                         runCatching { executeBankingTransition(stablePackage, observedAt, pollGeneration) }
                             .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
                     }
@@ -180,15 +182,19 @@ internal class BankingForegroundMonitorService : Service() {
      * If the user disables automation or revokes Usage Access, fail closed:
      * cancel any pending resume, erase the saved bank snapshot and leave VPN off.
      */
-    private fun cancelAutomationAndStop() {
+    private fun cancelAutomationAndStop(sessionGeneration: Long) {
+        if (!isCurrentSession(sessionGeneration)) return
         runCatching {
             val stateStore = BankingAutomationStateStore(this)
             val state = stateStore.read()
+            if (!isCurrentSession(sessionGeneration)) return
             if (state.autoPausedByBanking) {
                 stateStore.write(state.cancelAutomaticResume())
             }
+            if (!isCurrentSession(sessionGeneration)) return
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
+        if (!isCurrentSession(sessionGeneration)) return
         running = false
         monitorGeneration.incrementAndGet()
         if (!stopCleanupPending) {
