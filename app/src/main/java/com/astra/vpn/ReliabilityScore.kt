@@ -61,6 +61,33 @@ internal object ReliabilityScore {
         return (maxPenaltyMs.coerceAtMost(60L) * failureRate * confidenceScale) / 10_000L
     }
 
+    /**
+     * Build all per-server penalties in one pass over history. The key format
+     * matches short-term failure scoring and canonicalizes the Hy2 alias.
+     */
+    fun selectionPenaltiesByIdentity(
+        entries: List<ConnectionHistoryStore.Entry>
+    ): Map<String, Long> {
+        val grouped = HashMap<String, MutableList<ConnectionHistoryStore.Entry>>()
+        entries.forEach { entry ->
+            if (entry.timestamp <= 0L || (entry.state != "connected" && entry.state != "error")) return@forEach
+            val identity = identity(entry.serverName, entry.protocol)
+            grouped.getOrPut(identity) { ArrayList() }.add(entry)
+        }
+        return grouped.mapNotNull { (identity, outcomes) ->
+            val result = calculate(outcomesAfterLatestSuccess(outcomes)) ?: return@mapNotNull null
+            val penalty = selectionPenaltyMs(result)
+            if (penalty > 0L) identity to penalty else null
+        }.toMap()
+    }
+
+    fun identity(serverName: String, protocol: String): String {
+        val normalizedName = serverName.trim().lowercase(java.util.Locale.ROOT)
+        val normalizedProtocol = protocol.trim().lowercase(java.util.Locale.ROOT)
+            .let { if (it == "hy2") "hysteria2" else it }
+        return "$normalizedName|$normalizedProtocol"
+    }
+
     private const val MAX_EVENTS = 100
     private const val MIN_EVENTS = 3
     private const val MEDIUM_CONFIDENCE_EVENTS = 8
