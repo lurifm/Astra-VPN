@@ -77,4 +77,15 @@ class NetworkRecoveryPolicyTest {
     fun networkWithoutInternetCapabilityIsRejected() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, false, true, true))
     }
+
+    @Test
+    fun callbackRejectsCaptivePortalAndSuspendedNetworks() {
+        assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, false, true))
+        assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, true, false))
+    }
+
+    @Test
+    fun callbackRejectsVpnEvenWhenItReportsValidatedInternet() {
+        assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(true, true, true, true))
+    }
 }

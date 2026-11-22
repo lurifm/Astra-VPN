@@ -51,6 +51,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     // Covers a handover delivered before the native platform adapter is ready.
     @Volatile private var pendingPreferredNetwork: Network? = null
     @Volatile private var probeNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private val callbackNetworks = java.util.concurrent.ConcurrentHashMap<Network, ProbeNetworkState>()
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
@@ -438,24 +439,53 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                preferProbeNetwork(network)
-            }
-
             override fun onCapabilitiesChanged(
                 network: Network,
                 networkCapabilities: NetworkCapabilities
             ) {
-                if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    !networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                ) preferProbeNetwork(network)
+                val notSuspended = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                } else {
+                    true
+                }
+                val usable = NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
+                    isVpn = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                    hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                    isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                    isNotSuspended = notSuspended
+                )
+                if (!usable) {
+                    callbackNetworks.remove(network)
+                    return
+                }
+                val priority = when {
+                    networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 3
+                    networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
+                    networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
+                    else -> 0
+                }
+                callbackNetworks[network] = ProbeNetworkState(priority)
+                // Keep the currently preferred path while it remains usable.
+                // If it disappeared, onLost selects the best validated candidate.
+                if (pendingPreferredNetwork == null || pendingPreferredNetwork == network) {
+                    preferProbeNetwork(network)
+                }
             }
 
             override fun onLost(network: Network) {
-                if (pendingPreferredNetwork == network) pendingPreferredNetwork = null
-                probePlatform?.let { platform ->
-                    platform.clearPreferredPhysicalNetwork(network)
-                    platform.refreshPreferredPhysicalNetwork()
+                callbackNetworks.remove(network)
+                if (pendingPreferredNetwork == network) {
+                    val fallback = callbackNetworks.entries
+                        .maxByOrNull { it.value.transportPriority }
+                        ?.key
+                    if (fallback == null) {
+                        pendingPreferredNetwork = null
+                        probePlatform?.clearPreferredPhysicalNetwork(network)
+                    } else {
+                        preferProbeNetwork(fallback)
+                    }
+                } else {
+                    probePlatform?.clearPreferredPhysicalNetwork(network)
                 }
             }
         }
@@ -467,6 +497,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
     }
 
+    private data class ProbeNetworkState(val transportPriority: Int)
+
     private fun preferProbeNetwork(network: Network) {
         if (stopped.get()) return
         pendingPreferredNetwork = network
@@ -476,6 +508,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private fun unregisterProbeNetworkCallback() {
         val callback = probeNetworkCallback ?: return
         probeNetworkCallback = null
+        callbackNetworks.clear()
         runCatching {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
         }.onFailure {
