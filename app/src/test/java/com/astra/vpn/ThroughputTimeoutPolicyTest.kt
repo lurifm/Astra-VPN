@@ -16,15 +16,9 @@ class ThroughputTimeoutPolicyTest {
     }
 
     @Test
-    fun negativeMonotonicOriginsDoNotOverflowDeadlineArithmetic() {
-        assertEquals(
-            Int.MAX_VALUE,
-            ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, Long.MIN_VALUE)
-        )
-        assertEquals(
-            2,
-            ThroughputTimeoutPolicy.remainingMillis(-999_999L, -2_000_000L)
-        )
+    fun negativeMonotonicOriginsUseRelativeDeadlineArithmetic() {
+        assertEquals(2, ThroughputTimeoutPolicy.remainingMillis(-999_999L, -2_000_000L))
+        assertEquals(0, ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, Long.MIN_VALUE))
     }
 
     @Test
@@ -39,12 +33,14 @@ class ThroughputTimeoutPolicyTest {
     }
 
     @Test
-    fun wrappedDeadlineThatHasExpiredReturnsZero() {
+    fun expiredDeadlineAcrossNanoTimeWraparoundReturnsZero() {
+        // The deadline is numerically greater than now, but is one millisecond
+        // in the past after the monotonic counter wrapped.
         assertEquals(
             0,
             ThroughputTimeoutPolicy.remainingMillis(
-                Long.MIN_VALUE + 500_000L,
-                Long.MIN_VALUE + 600_000L
+                Long.MAX_VALUE - 499_999L,
+                Long.MIN_VALUE + 500_000L
             )
         )
     }
