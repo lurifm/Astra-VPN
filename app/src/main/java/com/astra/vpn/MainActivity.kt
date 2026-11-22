@@ -5617,10 +5617,12 @@ class MainActivity : Activity() {
     }
 
     private fun showAppSettingsDialog() {
-        // Prevent repeated taps from stacking identical settings windows.
-        // Keep one live instance and bring it forward if a tap arrives during animation.
-        settingsDialog?.takeIf { it.isShowing }?.let { existing ->
-            existing.window?.decorView?.bringToFront()
+        if (isFinishing || isDestroyed) return
+        // Keep the reference as the single-instance lock until onDismiss fires.
+        // isShowing becomes false while a dialog is being dismissed; checking only
+        // isShowing here allowed a rapid second tap to create a second window.
+        settingsDialog?.let { existing ->
+            if (existing.isShowing) existing.window?.decorView?.bringToFront()
             return
         }
         val sheet = android.app.Dialog(this)
