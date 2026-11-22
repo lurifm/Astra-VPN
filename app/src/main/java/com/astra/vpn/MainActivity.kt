@@ -6738,7 +6738,9 @@ class MainActivity : Activity() {
         if (!shouldUpdate) return
         val sources = safeSubscriptionSources() ?: return
         if (sources.isEmpty()) return
-        refreshSubscriptions(showResult = false, onlyDue = true)
+        // "Update on open" is an explicit user action when periodic auto-update
+        // is disabled; otherwise keep the provider-specific due windows.
+        refreshSubscriptions(showResult = false, onlyDue = enabled)
     }
 
     private fun latencyStabilityPenalties(profiles: List<String>): Map<String, Long> {
