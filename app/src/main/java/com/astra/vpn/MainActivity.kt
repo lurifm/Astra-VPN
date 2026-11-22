@@ -4078,7 +4078,12 @@ class MainActivity : Activity() {
         status.setTextColor(AMBER)
         lateinit var retryTask: Runnable
         retryTask = Runnable {
-            if (!activityStarted && !isFinishing && !isDestroyed) {
+            if (TransientConnectRetryPolicy.shouldDeferUntilActivityStarted(
+                    activityStarted = activityStarted,
+                    activityFinishing = isFinishing,
+                    activityDestroyed = isDestroyed
+                )
+            ) {
                 // Keep the bounded retry pending while Android backgrounds this Activity.
                 // onStart() resumes normal validation; no service start is attempted in background.
                 connectRetryTask = retryTask
