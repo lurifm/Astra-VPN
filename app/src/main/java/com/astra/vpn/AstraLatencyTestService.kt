@@ -230,8 +230,12 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 // Consume the native iterator here; serialize state changes on main.
                 handler.post {
                     if (stopped.get()) return@post
+                    // SubscribeOutbounds publishes a full state snapshot, not a
+                    // per-probe event. Ignore cached/unsolicited values for servers
+                    // that have not actually been dispatched in this batch.
                     val accepted = snapshot.filterKeys { tag ->
-                        LatencyProbeDispatchPolicy.shouldAcceptMeasurement(
+                        LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+                            isInFlight = tag in inFlightTags,
                             alreadyCompleted = tag in completedTags,
                             previouslyTimedOut = tag in timedOutTags
                         )
@@ -300,6 +304,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             val release = Runnable {
                 nativeSlotReleaseTimeouts.remove(tag)
                 inFlightTags.remove(tag)
+                // Once the native safety window expires, later stream updates
+                // must not be attributed to this timed-out request.
+                timedOutTags.remove(tag)
                 dispatchNextUrlTests(client)
                 finishIfAllTagsCompleted()
             }

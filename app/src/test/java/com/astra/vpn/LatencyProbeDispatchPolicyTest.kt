@@ -18,10 +18,22 @@ class LatencyProbeDispatchPolicyTest {
         assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true))
     }
 
-    @Test fun acceptsLateNativeMeasurementOnlyForTimedOutProbe() {
-        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(false, false))
-        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(true, true))
-        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptMeasurement(true, false))
+    @Test fun acceptsUpdatesOnlyForCurrentlyDispatchedProbes() {
+        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true, alreadyCompleted = false, previouslyTimedOut = false
+        ))
+        assertTrue(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true, alreadyCompleted = true, previouslyTimedOut = true
+        ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = false, alreadyCompleted = false, previouslyTimedOut = false
+        ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = false, alreadyCompleted = true, previouslyTimedOut = true
+        ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true, alreadyCompleted = true, previouslyTimedOut = false
+        ))
     }
 
     @Test fun waitsForTimedOutNativeSlotsBeforeFinishingBatch() {

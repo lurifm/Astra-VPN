@@ -5,9 +5,16 @@ internal object LatencyProbeDispatchPolicy {
     fun shouldDispatch(stopped: Boolean, alreadyCompleted: Boolean): Boolean =
         !stopped && !alreadyCompleted
 
-    /** A late native measurement may replace a UI timeout while its native slot is retained. */
-    fun shouldAcceptMeasurement(alreadyCompleted: Boolean, previouslyTimedOut: Boolean): Boolean =
-        !alreadyCompleted || previouslyTimedOut
+    /**
+     * Outbounds subscription events are complete snapshots. Accept a value only
+     * for a probe currently occupying a scheduler slot; this rejects cached
+     * values for queued servers and callbacks arriving after native cooldown.
+     */
+    fun shouldAcceptOutboundUpdate(
+        isInFlight: Boolean,
+        alreadyCompleted: Boolean,
+        previouslyTimedOut: Boolean
+    ): Boolean = isInFlight && (!alreadyCompleted || previouslyTimedOut)
 
     /** Do not tear down libbox while timed-out native probes may still publish results. */
     fun shouldFinish(completedAll: Boolean, nativeSlotsPending: Boolean): Boolean =
