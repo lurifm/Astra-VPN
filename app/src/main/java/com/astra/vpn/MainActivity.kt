@@ -3189,6 +3189,11 @@ class MainActivity : Activity() {
         // Build/validate the sing-box config off the main thread. Libbox.checkConfig
         // can be expensive with large subscriptions and must not freeze touch feedback.
         val generation = latencyCheckGeneration.get()
+        // One ten-second budget starts before config preparation and is passed
+        // to the service as the remaining time; the operation cannot consume 20s.
+        val batchDeadlineElapsedMs = LatencyBatchDeadlinePolicy.deadlineAt(
+            android.os.SystemClock.elapsedRealtime(), LATENCY_PREPARATION_TIMEOUT_MS
+        )
         val preparationTask = java.util.concurrent.FutureTask<Unit> {
             val prepared = runCatching { SingBoxUrlTestConfig.build(profiles, SingBoxUrlTestConfig.TEST_URL) }
             runOnUiThread {
@@ -3197,6 +3202,22 @@ class MainActivity : Activity() {
                 latencyPreparationTimeout = null
                 latencyPreparationTask = null
                 prepared.onSuccess { testConfig ->
+                    val remainingProbeMs = LatencyBatchDeadlinePolicy.remainingMs(
+                        batchDeadlineElapsedMs, android.os.SystemClock.elapsedRealtime()
+                    )
+                    if (remainingProbeMs <= 0L) {
+                        latencyTestInFlight = false
+                        pendingFastestSelection = false
+                        selectingFastest = false
+                        tilePendingStart = false
+                        profiles.forEach { profile ->
+                            latencyMs.remove(profile)
+                            pingInfo[profile] = "н/д"
+                        }
+                        Toast.makeText(this, "Проверка серверов превысила 10 секунд", Toast.LENGTH_LONG).show()
+                        renderProfiles()
+                        return@onSuccess
+                    }
                     urlTestProfileMap = testConfig.profileByOutboundTag
                     // Keep the tag-to-profile map across Activity recreation. The
                     // foreground test service may finish while Android recreates UI.
@@ -3218,7 +3239,8 @@ class MainActivity : Activity() {
                             testConfig.json,
                             testConfig.profileByOutboundTag.keys,
                             physicalNetwork,
-                            sessionId
+                            sessionId,
+                            timeoutMs = remainingProbeMs
                         )
                     }.onFailure {
                         activeLatencySessionId = null
@@ -3266,11 +3288,18 @@ class MainActivity : Activity() {
                 latencyMs.remove(profile)
                 pingInfo[profile] = "н/д"
             }
-            Toast.makeText(this, "Подготовка проверки превысила 10 секунд", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Проверка серверов превысила 10 секунд", Toast.LENGTH_LONG).show()
             renderProfiles()
         }
         latencyPreparationTimeout = preparationTimeout
-        latencyPreparationHandler.postDelayed(preparationTimeout, LATENCY_PREPARATION_TIMEOUT_MS)
+        val preparationRemainingMs = LatencyBatchDeadlinePolicy.remainingMs(
+            batchDeadlineElapsedMs, android.os.SystemClock.elapsedRealtime()
+        )
+        if (preparationRemainingMs <= 0L) {
+            preparationTimeout.run()
+            return
+        }
+        latencyPreparationHandler.postDelayed(preparationTimeout, preparationRemainingMs)
         pingExecutor.execute(preparationTask)
     }
 
