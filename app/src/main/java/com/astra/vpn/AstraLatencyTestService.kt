@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Network
 import android.net.VpnService
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.util.Log
 import io.nekohasekai.libbox.CommandClient
@@ -183,13 +184,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                                     alreadyCompleted = outboundTag in completedTags
                                 )) return@execute
 
-                            // Start this server's hard timeout at dispatch, not when
-                            // the batch was created and not while it waits in the queue.
+                            // Start this server's hard timeout at the exact dispatch
+                            // moment. postAtTime preserves the deadline even if the UI
+                            // thread is briefly busy processing other updates.
+                            val dispatchStartedAt = SystemClock.uptimeMillis()
                             handler.post {
                                 if (!stopped.get() && outboundTag !in completedTags) {
                                     val deadline = Runnable { completeUnmeasuredTag(outboundTag) }
                                     perServerTimeouts[outboundTag] = deadline
-                                    handler.postDelayed(deadline, BATCH_TIMEOUT_MS)
+                                    handler.postAtTime(deadline, dispatchStartedAt + BATCH_TIMEOUT_MS)
                                 }
                             }
                             runCatching {
@@ -276,7 +279,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun completeUnmeasuredTag(tag: String) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
-        perServerTimeouts.remove(tag)
+        perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         finishIfAllTagsCompleted()
     }
 
