@@ -2617,27 +2617,30 @@ class MainActivity : Activity() {
             val meta = TextView(this).apply {
                 val latency = pingInfo[link] ?: "Не проверен"
                 val measuredLatency = freshLatencyMs(link)
+                val sampleAt = latencyMeasuredAt[link]
+                val staleLatency = measuredLatency == null && sampleAt != null &&
+                    android.os.SystemClock.elapsedRealtime() - sampleAt > 300_000L
                 text = when {
                     measuredLatency != null && isFastestProfile -> "ЛУЧШИЙ ПИНГ  ·  ${measuredLatency} мс"
                     measuredLatency != null -> "●  PING  ${measuredLatency} мс"
                     latency == "н/д" -> "○  PING  нет данных"
                     latency == "Проверяем…" -> "◌  PING  проверяем…"
+                    staleLatency -> "◷  PING  устарел · проверь снова"
                     else -> "○  PING  не проверен"
                 }
                 textSize = 11f
                 typeface = Typeface.DEFAULT_BOLD
                 val tone = if (isFastestProfile && measuredLatency != null) GREEN
                     else measuredLatency?.let { latencyColor(it) }
-                    ?: when (latency) {
-                        "н/д" -> AMBER
-                        "Проверяем…" -> AMBER
+                    ?: when {
+                        staleLatency -> AMBER
+                        latency == "н/д" || latency == "Проверяем…" -> AMBER
                         else -> MUTED
                     }
                 setTextColor(tone)
                 val pillColor = when {
                     measuredLatency != null -> 0x1A55D69A
-                    latency == "н/д" -> 0x1AFFC66D
-                    latency == "Проверяем…" -> 0x1AFFC66D
+                    latency == "н/д" || latency == "Проверяем…" || staleLatency -> 0x1AFFC66D
                     else -> 0x1A9AA6BF
                 }
                 background = rounded(pillColor, 8)
@@ -2646,6 +2649,7 @@ class MainActivity : Activity() {
                     measuredLatency != null -> "Пинг сервера: $measuredLatency миллисекунд, ${latencyQuality(measuredLatency)}"
                     latency == "н/д" -> "Нет достоверных данных о задержке сервера; это не означает, что сервер недоступен"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
+                    staleLatency -> "Последнее измерение пинга устарело; требуется повторная проверка"
                     else -> "Пинг ещё не проверялся"
                 }
                 setPadding(dp(9), dp(5), dp(9), dp(5))
