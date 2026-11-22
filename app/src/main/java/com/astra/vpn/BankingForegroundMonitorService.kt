@@ -190,7 +190,7 @@ internal class BankingForegroundMonitorService : Service() {
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
-        monitorGeneration++
+        monitorGeneration.incrementAndGet()
         if (!stopCleanupPending) {
             handler.post {
                 // The feature may be re-enabled after this poll queued its stop.
@@ -487,7 +487,7 @@ internal class BankingForegroundMonitorService : Service() {
 
     override fun onDestroy() {
         running = false
-        monitorGeneration++
+        monitorGeneration.incrementAndGet()
         handler.removeCallbacksAndMessages(null)
         pollExecutor.shutdownNow()
         super.onDestroy()
