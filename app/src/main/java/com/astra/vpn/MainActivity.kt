@@ -5601,9 +5601,13 @@ class MainActivity : Activity() {
             // A settings row navigates to another screen/dialog. Dismiss this
             // sheet before its click callback runs so repeated taps cannot
             // stack identical windows on top of one another.
-            row.setOnTouchListener { _, event ->
+            row.setOnTouchListener { view, event ->
                 if (event.action == android.view.MotionEvent.ACTION_UP && sheet.isShowing) {
-                    sheet.dismiss()
+                    // Let Android dispatch performClick() first. Dismissing the
+                    // window directly from ACTION_UP can cancel the click itself.
+                    view.post {
+                        if (sheet.isShowing) sheet.dismiss()
+                    }
                 }
                 false
             }
