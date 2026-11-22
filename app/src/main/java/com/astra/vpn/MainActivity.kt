@@ -6969,7 +6969,7 @@ class MainActivity : Activity() {
                         .let { value -> if (value == "hy2") "hysteria2" else value } == protocol
             }
             val score = ReliabilityScore.calculate(outcomes) ?: return@mapNotNull null
-            val penalty = ((100 - score.score).coerceIn(0, 100) * 60L) / 100L
+            val penalty = ReliabilityScore.selectionPenaltyMs(score)
             if (penalty > 0L) profile to penalty else null
         }.toMap()
     }
