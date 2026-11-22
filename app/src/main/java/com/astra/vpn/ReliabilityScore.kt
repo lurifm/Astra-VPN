@@ -74,7 +74,7 @@ internal object ReliabilityScore {
         val grouped = HashMap<String, MutableList<ConnectionHistoryStore.Entry>>()
         entries.forEach { entry ->
             if (entry.timestamp <= 0L || (entry.state != "connected" && entry.state != "error")) return@forEach
-            val identity = identity(entry.serverName, entry.protocol)
+            val identity = identity(entry)
             grouped.getOrPut(identity) { ArrayList() }.add(entry)
         }
         return grouped.mapNotNull { (identity, outcomes) ->
@@ -82,6 +82,14 @@ internal object ReliabilityScore {
             val penalty = selectionPenaltyMs(result)
             if (penalty > 0L) identity to penalty else null
         }.toMap()
+    }
+
+    fun identity(entry: ConnectionHistoryStore.Entry): String =
+        entry.serverId.takeIf { it.isNotBlank() }?.let { "profile:$it" }
+            ?: identity(entry.serverName, entry.protocol)
+
+    fun profileIdentity(profile: String): String = ProfileIdentity.of(profile).let {
+        if (it.isBlank()) "" else "profile:$it"
     }
 
     fun identity(serverName: String, protocol: String): String {

@@ -25,7 +25,7 @@ internal object ServerFailureScorer {
             if (entry.state != "error" || entry.timestamp <= 0L || entry.timestamp > now) return@forEach
             val age = now - entry.timestamp
             if (age > windowMs) return@forEach
-            val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+            val key = ReliabilityScore.identity(entry)
             if (key == "|") return@forEach
             // A later end-to-end validated session proves recovery. Only errors
             // newer than that success should influence the next server decision.
@@ -55,7 +55,8 @@ internal object ServerFailureScorer {
         nameOf: (String) -> String,
         protocolOf: (String) -> String,
         escalationWindowMs: Long = 60L * 60L * 1_000L,
-        maxQuarantineMs: Long = 30L * 60L * 1_000L
+        maxQuarantineMs: Long = 30L * 60L * 1_000L,
+        identityOf: ((String) -> String)? = null
     ): List<String> {
         if (profiles.isEmpty() || now <= 0L || quarantineMs <= 0L ||
             escalationWindowMs <= 0L || maxQuarantineMs <= 0L
@@ -68,7 +69,7 @@ internal object ServerFailureScorer {
             .filter { it.state == "error" && it.timestamp > 0L && it.timestamp <= now }
             .filter { now - it.timestamp <= escalationWindowMs }
             .mapNotNull { entry ->
-                val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+                val key = ReliabilityScore.identity(entry)
                 if (key == "|") null
                 else {
                     if (entry.timestamp <= (latestSuccessByIdentity[key] ?: 0L)) null
@@ -89,8 +90,10 @@ internal object ServerFailureScorer {
         }.toSet()
         if (quarantined.isEmpty()) return profiles
         val preferred = profiles.filter { profile ->
-            val key = ReliabilityScore.identity(nameOf(profile), protocolOf(profile))
-            key !in quarantined
+            val profileKey = identityOf?.invoke(profile)?.takeIf { it.isNotBlank() }
+                ?.let { "profile:$it" }
+            val legacyKey = ReliabilityScore.identity(nameOf(profile), protocolOf(profile))
+            (profileKey == null || profileKey !in quarantined) && legacyKey !in quarantined
         }
         return preferred.ifEmpty { profiles }
     }
@@ -101,7 +104,7 @@ internal object ServerFailureScorer {
     ): Map<String, Long> = entries.asSequence()
         .filter { it.state == "connected" && it.timestamp > 0L && it.timestamp <= now }
         .mapNotNull { entry ->
-            val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+            val key = ReliabilityScore.identity(entry)
             if (key == "|") null else key to entry.timestamp
         }
         .groupBy({ it.first }, { it.second })
