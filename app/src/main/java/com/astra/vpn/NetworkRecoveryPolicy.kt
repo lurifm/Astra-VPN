@@ -24,6 +24,10 @@ internal object NetworkRecoveryPolicy {
         else -> null
     }
 
+    /** Retain a native slot after underlay loss because URLTest cannot be cancelled per tag. */
+    fun probeHandoverNativeCooldownMs(): Long =
+        NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS + NativeUrlTestTimingPolicy.SAFETY_MARGIN_MS
+
     fun shouldPublishUnderlay(
         managesAndroidUnderlay: Boolean,
         updateRequired: Boolean,

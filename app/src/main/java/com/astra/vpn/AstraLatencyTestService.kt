@@ -63,6 +63,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val pendingTags = java.util.ArrayDeque<String>()
     private val timedOutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val errorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // Native URLTest has no per-request cancellation API. Results belonging to
+    // probes started on a previous underlay are ignored until their native slot expires.
+    private val discardedByNetworkChangeTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
     // libbox 1.14.3 can keep a native URLTest running after the UI's 10s
     // deadline. Retain its scheduler slot through the conservative native
@@ -261,7 +264,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
                             isInFlight = tag in inFlightTags,
                             alreadyCompleted = tag in completedTags,
-                            previouslyTimedOut = tag in timedOutTags
+                            previouslyTimedOut = tag in timedOutTags,
+                            discardedByNetworkChange = tag in discardedByNetworkChangeTags
                         )
                     }.filterKeys(::completeMeasuredTag)
                     if (accepted.isEmpty()) return@post
@@ -463,6 +467,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         if (fallback == null) {
                             pendingPreferredNetwork = null
                             probePlatform?.clearPreferredPhysicalNetwork(network)
+                            handler.post { invalidateInFlightProbesForNetworkHandover() }
                         } else {
                             preferProbeNetwork(fallback)
                         }
@@ -494,6 +499,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     if (fallback == null) {
                         pendingPreferredNetwork = null
                         probePlatform?.clearPreferredPhysicalNetwork(network)
+                        handler.post { invalidateInFlightProbesForNetworkHandover() }
                     } else {
                         preferProbeNetwork(fallback)
                     }
@@ -514,8 +520,46 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     private fun preferProbeNetwork(network: Network) {
         if (stopped.get()) return
+        val previous = pendingPreferredNetwork
         pendingPreferredNetwork = network
         probePlatform?.updatePreferredPhysicalNetwork(network)
+        if (previous != null && previous != network) {
+            handler.post { invalidateInFlightProbesForNetworkHandover() }
+        }
+    }
+
+    /**
+     * A socket already opened by libbox remains attached to its old Android
+     * Network. Do not publish its eventual result as a measurement of the new
+     * underlay. Keep its concurrency slot reserved for the native timeout
+     * budget because URLTest has no per-outbound cancellation operation.
+     */
+    private fun invalidateInFlightProbesForNetworkHandover() {
+        if (stopped.get()) return
+        val affectedTags = inFlightTags.toList()
+        if (affectedTags.isEmpty()) return
+        affectedTags.forEach { tag ->
+            perServerTimeouts.remove(tag)?.let(handler::removeCallbacks)
+            completedTags.add(tag)
+            timedOutTags.remove(tag)
+            discardedByNetworkChangeTags.add(tag)
+            nativeSlotReleaseTimeouts.remove(tag)?.let(handler::removeCallbacks)
+            val release = Runnable {
+                nativeSlotReleaseTimeouts.remove(tag)
+                inFlightTags.remove(tag)
+                discardedByNetworkChangeTags.remove(tag)
+                timedOutTags.remove(tag)
+                dispatchNextUrlTests(client)
+                finishIfAllTagsCompleted()
+            }
+            nativeSlotReleaseTimeouts[tag] = release
+            handler.postDelayed(
+                release,
+                NetworkRecoveryPolicy.probeHandoverNativeCooldownMs()
+            )
+        }
+        // Explicitly publish unknown for probes interrupted by a handover.
+        publishResults(affectedTags.associateWith { null }, finished = false)
     }
 
     private fun unregisterProbeNetworkCallback() {

@@ -79,6 +79,15 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun handoverKeepsNativeProbeSlotForFullCancellationSafetyWindow() {
+        assertEquals(
+            NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS +
+                NativeUrlTestTimingPolicy.SAFETY_MARGIN_MS,
+            NetworkRecoveryPolicy.probeHandoverNativeCooldownMs()
+        )
+    }
+
+    @Test
     fun callbackRejectsCaptivePortalAndSuspendedNetworks() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, false, true))
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, true, false))
