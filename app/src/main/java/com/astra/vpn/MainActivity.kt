@@ -4074,7 +4074,7 @@ class MainActivity : Activity() {
                 isAutomaticFailover = isAutomaticFailover,
                 userRequestedDisconnect = userRequestedDisconnect,
                 hasSelectedProfile = !retryProfile.isNullOrBlank(),
-                attempt = connectRetryAttempt
+                attempt = if (restoredState != null) restoredState.attempt - 1 else connectRetryAttempt
             )
         ) return false
         val delay = restoredState?.let {
@@ -4166,10 +4166,17 @@ class MainActivity : Activity() {
     private fun persistConnectRetryState(profile: String?, attempt: Int, delayMs: Long) {
         val fingerprint = TransientConnectRetryStatePolicy.fingerprint(profile) ?: return
         val now = System.currentTimeMillis()
+        val previousFingerprint = settingsPrefs.getString(KEY_CONNECT_RETRY_PROFILE, null)
+        val previousCreatedAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_CREATED_AT, 0L)
+        val createdAt = if (previousFingerprint == fingerprint && previousCreatedAt > 0L) {
+            previousCreatedAt
+        } else {
+            now
+        }
         settingsPrefs.edit()
             .putString(KEY_CONNECT_RETRY_PROFILE, fingerprint)
             .putInt(KEY_CONNECT_RETRY_ATTEMPT, attempt)
-            .putLong(KEY_CONNECT_RETRY_CREATED_AT, now)
+            .putLong(KEY_CONNECT_RETRY_CREATED_AT, createdAt)
             .putLong(KEY_CONNECT_RETRY_DUE_AT, now + delayMs.coerceAtLeast(0L))
             .apply()
     }
