@@ -6,11 +6,14 @@ import org.junit.Test
 
 class NetworkRecoveryPolicyTest {
     @Test
-    fun networkRetryBackoffIsBoundedAndStopsAfterThreeAttempts() {
+    fun networkRetryBackoffSurvivesLongHandoverAndRemainsBounded() {
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(0) == 1_000L)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(1) == 2_000L)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(2) == 4_000L)
-        assertTrue(NetworkRecoveryPolicy.retryDelayMs(3) == null)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(3) == 8_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(4) == 16_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(5) == 30_000L)
+        assertTrue(NetworkRecoveryPolicy.retryDelayMs(6) == null)
         assertTrue(NetworkRecoveryPolicy.retryDelayMs(-1) == null)
     }
 
