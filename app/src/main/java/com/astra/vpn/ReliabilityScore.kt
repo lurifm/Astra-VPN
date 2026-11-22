@@ -41,7 +41,8 @@ internal object ReliabilityScore {
             .maxOfOrNull { it.timestamp } ?: 0L
         if (latestSuccess == 0L) return eventsNewestFirst
         return eventsNewestFirst.filter {
-            it.state == "connected" || (it.state == "error" && it.timestamp > latestSuccess)
+            (it.state == "connected" && it.timestamp == latestSuccess) ||
+                (it.state == "error" && it.timestamp > latestSuccess)
         }
     }
 
