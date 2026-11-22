@@ -3749,8 +3749,13 @@ class MainActivity : Activity() {
             if (latencyTestInFlight) renderProfiles()
             return
         }
+        val nowWallClockMs = System.currentTimeMillis()
         val cacheSavedAt = prefs.getLong(KEY_LATENCY_LAST_RESULTS_AT, 0L)
-        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, System.currentTimeMillis())) {
+        val cacheAgeMs = (nowWallClockMs - cacheSavedAt).coerceAtLeast(0L)
+        val nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (!LatencyCacheFreshnessPolicy.isFresh(cacheSavedAt, nowWallClockMs) ||
+            cacheAgeMs >= nowElapsedMs
+        ) {
             prefs.edit()
                 .remove(KEY_LATENCY_PENDING_RESULTS)
                 .remove(KEY_LATENCY_LAST_RESULTS)
@@ -3769,10 +3774,16 @@ class MainActivity : Activity() {
         }
         // Completed values remain visible after relaunch; pending is consumed
         // only once, while the reusable cache is retained until the next test.
-        applyLatencyResults(cached, finished = true)
+        // Preserve the original sample age after process recreation. Stamping
+        // a restored result as "now" would incorrectly extend its five-minute life.
+        applyLatencyResults(cached, finished = true, measuredAtElapsedMs = nowElapsedMs - cacheAgeMs)
     }
 
-    private fun applyLatencyResults(payload: String, finished: Boolean) {
+    private fun applyLatencyResults(
+        payload: String,
+        finished: Boolean,
+        measuredAtElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    ) {
         // Validate the snapshot before changing session state. A malformed final
         // payload must not leave auto-selection or the quick tile waiting forever.
         val values = runCatching { JSONObject(payload) }.getOrNull()
@@ -3808,7 +3819,7 @@ class MainActivity : Activity() {
             val ms = if (!values.isNull(tag)) values.optLong(tag, -1L) else -1L
             if (ms > 0L) {
                 latencyMs[profile] = ms
-                latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
+                latencyMeasuredAt[profile] = measuredAtElapsedMs
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = "$ms мс · ${latencyQuality(ms)}"
             } else if (finished) {
