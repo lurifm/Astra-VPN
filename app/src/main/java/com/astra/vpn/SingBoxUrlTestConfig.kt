@@ -66,16 +66,20 @@ internal object SingBoxUrlTestConfig {
         val probeDns = JSONObject()
             .put("type", "https")
             .put("tag", "probe-dns")
+            // IP literal avoids needing DNS to resolve the DNS provider itself.
+            // TLS SNI remains the provider hostname for certificate validation.
             .put("server", "1.1.1.1")
             .put("server_port", 443)
             .put("path", "/dns-query")
             .put("tls", JSONObject()
                 .put("enabled", true)
                 .put("server_name", "cloudflare-dns.com"))
+            // This DNS connection must leave through the physical interface,
+            // never through a tested proxy outbound or the active VPN tunnel.
             .put("detour", "direct")
 
         val config = JSONObject()
-            .put("log", JSONObject().put("level", "error"))
+            .put("log", JSONObject().put("level", "debug"))
             .put("dns", JSONObject()
                 .put("servers", JSONArray().put(probeDns))
                 .put("final", "probe-dns")
