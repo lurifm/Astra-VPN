@@ -227,7 +227,7 @@ class BestServerSelectorTest {
     @Test
     fun lastKnownGoodServerWinsOnlyWhenCandidatesAreClose() {
         val knownGood = "vless://known-good"
-        val slightlyFaster = "hysteria2://slightly-faster"
+        val slightlyFaster = "vless://slightly-faster"
         val selected = BestServerSelector.select(
             profiles = listOf(slightlyFaster, knownGood),
             latencyMs = mapOf(slightlyFaster to 50L, knownGood to 55L),
