@@ -40,8 +40,11 @@ internal object ReliabilityScore {
             .filter { it.timestamp > 0L && it.state == "connected" }
             .maxOfOrNull { it.timestamp } ?: 0L
         if (latestSuccess == 0L) return eventsNewestFirst
+        // Retain only the recovery event itself, not every historical
+        // success. Otherwise a long history of old successes can dilute
+        // failures that occurred after the most recent recovery.
         return eventsNewestFirst.filter {
-            it.state == "connected" ||
+            (it.state == "connected" && it.timestamp == latestSuccess) ||
                 (it.state == "error" && it.timestamp > latestSuccess)
         }
     }
