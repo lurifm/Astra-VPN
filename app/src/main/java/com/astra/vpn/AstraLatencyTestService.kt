@@ -6,7 +6,6 @@ import android.net.Network
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
@@ -47,7 +46,6 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var client: CommandClient? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
-    @Volatile private var batchDeadlineElapsedMs = 0L
     private var latestResults = LatencyResultAccumulator(emptySet())
     private val batchTimeout = Runnable { finishAndPublish() }
     private val completedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -84,11 +82,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             NOTIFICATION_ID,
             AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Проверка серверов")
         )
-        // One absolute deadline covers native startup and every server probe.
-        // A slow engine startup must not silently extend the user's 10-second wait.
-        batchDeadlineElapsedMs = LatencyBatchDeadlinePolicy.deadlineAt(
-            SystemClock.elapsedRealtime(), BATCH_TIMEOUT_MS
-        )
+        // Bound native engine startup. Once connected, each individual server
+        // receives its own independent ten-second URLTest timeout at dispatch.
         handler.postDelayed(batchTimeout, BATCH_TIMEOUT_MS)
         worker.execute {
             var createdServer: CommandServer? = null
