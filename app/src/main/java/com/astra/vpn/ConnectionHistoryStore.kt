@@ -40,7 +40,7 @@ class ConnectionHistoryStore(context: Context) {
 
     fun getEntries(): List<Entry> = synchronized(STORE_LOCK) {
         val array = readArray()
-        return buildList {
+        buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
                 add(
