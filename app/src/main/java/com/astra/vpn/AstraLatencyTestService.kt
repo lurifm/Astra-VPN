@@ -493,11 +493,35 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     else -> 0
                 }
                 callbackNetworks[network] = ProbeNetworkState(priority)
-                // Keep the currently preferred path while it remains usable.
-                // If it disappeared, onLost selects the best validated candidate.
-                val currentPreferredIsUsable =
-                    pendingPreferredNetwork?.let(callbackNetworks::containsKey) == true
-                if (!currentPreferredIsUsable || pendingPreferredNetwork == network) {
+                // The callback may report another connected transport before it
+                // reports the Network supplied by the caller at service startup.
+                // Preserve that initial route if Android still considers it usable;
+                // callback delivery order must not silently switch Wi-Fi/cellular.
+                val preferred = pendingPreferredNetwork
+                val currentPreferredIsUsable = preferred?.let { preferredNetwork ->
+                    callbackNetworks.containsKey(preferredNetwork) ||
+                        runCatching {
+                            val caps = connectivity.getNetworkCapabilities(preferredNetwork)
+                                ?: return@runCatching false
+                            val preferredNotSuspended =
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                                } else {
+                                    true
+                                }
+                            NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
+                                isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                                hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                                isValidated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                                isNotSuspended = preferredNotSuspended
+                            )
+                        }.getOrDefault(false)
+                } ?: false
+                if (NetworkRecoveryPolicy.shouldAdoptProbeNetwork(
+                        currentPreferredIsUsable = currentPreferredIsUsable,
+                        callbackIsPreferred = preferred == network
+                    )
+                ) {
                     preferProbeNetwork(network)
                 }
             }

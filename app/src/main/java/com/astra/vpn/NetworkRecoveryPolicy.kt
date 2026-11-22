@@ -41,6 +41,12 @@ internal object NetworkRecoveryPolicy {
         updateSucceeded: Boolean
     ): Boolean = !managesAndroidUnderlay || !updateRequired || updateSucceeded
 
+    /** Keep the caller-selected underlay while it remains usable, regardless of callback order. */
+    fun shouldAdoptProbeNetwork(
+        currentPreferredIsUsable: Boolean,
+        callbackIsPreferred: Boolean
+    ): Boolean = !currentPreferredIsUsable || callbackIsPreferred
+
     fun isValidatedPhysicalUnderlay(
         isVpn: Boolean,
         hasInternet: Boolean,
