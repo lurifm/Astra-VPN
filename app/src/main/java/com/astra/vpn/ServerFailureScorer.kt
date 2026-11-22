@@ -53,18 +53,37 @@ internal object ServerFailureScorer {
         now: Long,
         quarantineMs: Long = 5L * 60L * 1_000L,
         nameOf: (String) -> String,
-        protocolOf: (String) -> String
+        protocolOf: (String) -> String,
+        escalationWindowMs: Long = 60L * 60L * 1_000L,
+        maxQuarantineMs: Long = 30L * 60L * 1_000L
     ): List<String> {
-        if (profiles.isEmpty() || now < 0L || quarantineMs <= 0L) return profiles
-        val quarantined = entries.asSequence()
+        if (profiles.isEmpty() || now < 0L || quarantineMs <= 0L ||
+            escalationWindowMs <= 0L || maxQuarantineMs <= 0L
+        ) return profiles
+
+        // Repeated failures extend only that server's quarantine. A single
+        // transient failure keeps the original five-minute recovery window.
+        val recentErrors = entries.asSequence()
             .filter { it.state == "error" && it.timestamp >= 0L && it.timestamp <= now }
-            .filter { now - it.timestamp <= quarantineMs }
+            .filter { now - it.timestamp <= escalationWindowMs }
             .mapNotNull { entry ->
                 val name = normalizeIdentity(entry.serverName)
                 val protocol = normalizeProtocol(entry.protocol)
-                if (name.isBlank() || protocol.isBlank()) null else "$name|$protocol"
+                if (name.isBlank() || protocol.isBlank()) null
+                else "$name|$protocol" to entry.timestamp
             }
-            .toSet()
+            .groupBy({ it.first }, { it.second })
+
+        val effectiveMax = maxQuarantineMs.coerceAtLeast(quarantineMs)
+        val quarantined = recentErrors.mapNotNull { (identity, timestamps) ->
+            val latestFailure = timestamps.maxOrNull() ?: return@mapNotNull null
+            var duration = quarantineMs
+            repeat((timestamps.size - 1).coerceAtMost(30)) {
+                duration = if (duration >= effectiveMax / 2L) effectiveMax
+                else (duration * 2L).coerceAtMost(effectiveMax)
+            }
+            if (now - latestFailure <= duration) identity else null
+        }.toSet()
         if (quarantined.isEmpty()) return profiles
         val preferred = profiles.filter { profile ->
             val key = "${normalizeIdentity(nameOf(profile))}|${normalizeProtocol(protocolOf(profile))}"
