@@ -82,8 +82,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 val incomingSession = intent.getStringExtra(EXTRA_SESSION)
                 val network = intent.getParcelableExtra<Network>(EXTRA_NETWORK)
                 if (!stopped.get() && incomingSession == sessionId && network != null) {
-                    pendingPreferredNetwork = network
-                    probePlatform?.updatePreferredPhysicalNetwork(network)
+                    preferProbeNetwork(network)
                 }
                 return START_NOT_STICKY
             }
@@ -94,6 +93,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         val config = intent?.getStringExtra(EXTRA_CONFIG)
         val tagsJson = intent?.getStringExtra(EXTRA_TAGS)
         val probeNetwork = intent?.getParcelableExtra<Network>(EXTRA_NETWORK)
+        pendingPreferredNetwork = probeNetwork
         if (config.isNullOrBlank() || tagsJson.isNullOrBlank() || probeNetwork == null) {
             publishFailure("Не передана конфигурация или физическая сеть для проверки")
             finish()
