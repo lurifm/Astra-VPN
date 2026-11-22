@@ -16,7 +16,6 @@ import java.security.MessageDigest
  * in a separate lifecycle component so a probe can never disturb the active VPN.
  */
 internal object SingBoxUrlTestConfig {
-    private const val GROUP_TAG_PREFIX = "astra-test-"
     const val TEST_URL = ServiceProbeUrlPolicy.DEFAULT_URL
 
     data class Result(
@@ -34,25 +33,16 @@ internal object SingBoxUrlTestConfig {
         val profileMap = linkedMapOf<String, String>()
 
         profiles.forEach { link ->
-            // Reuse the same protocol parser and validation as normal connection setup.
+            // Keep these as plain proxy outbounds. sing-box starts an automatic
+            // background check for every URLTest group at engine startup; that
+            // would bypass Astra's four-at-a-time scheduler. CommandClient.URLTest
+            // can trigger an individual plain outbound on demand instead.
             val proxy = SingBoxConfigBuilder.buildProxyOutbound(link)
             val tag = outboundTag(link)
             require(!profileMap.containsKey(tag)) { "Коллизия идентификаторов серверов" }
             proxy.put("tag", tag)
             outbounds.put(proxy)
             profileMap[tag] = link
-            // A separate group gives every proxy its own URLTest lifecycle.
-            outbounds.put(
-                JSONObject()
-                    .put("type", "urltest")
-                    .put("tag", groupTagForOutbound(tag))
-                    .put("outbounds", JSONArray().put(tag))
-                    .put("url", validatedTestUrl)
-                    .put("interval", "30m")
-                    .put("tolerance", 0)
-                    .put("idle_timeout", "30m")
-                    .put("interrupt_exist_connections", false)
-            )
         }
 
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
@@ -94,20 +84,6 @@ internal object SingBoxUrlTestConfig {
         // Validate with the exact libbox version bundled in this application.
         Libbox.checkConfig(config)
         return Result(config, profileMap)
-    }
-
-    fun groupTagForOutbound(outboundTag: String): String {
-        val suffix = outboundTag.removePrefix("astra-node-")
-        require(outboundTag.startsWith("astra-node-") && suffix.matches(OUTBOUND_SUFFIX))
-        { "Некорректный тег сервера" }
-        return GROUP_TAG_PREFIX + suffix
-    }
-
-    fun outboundTagForGroup(groupTag: String): String? {
-        if (!groupTag.startsWith(GROUP_TAG_PREFIX)) return null
-        val suffix = groupTag.removePrefix(GROUP_TAG_PREFIX)
-        if (!suffix.matches(OUTBOUND_SUFFIX)) return null
-        return "astra-node-$suffix"
     }
 
     private fun outboundTag(link: String): String {
