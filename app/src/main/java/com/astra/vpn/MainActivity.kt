@@ -4839,8 +4839,21 @@ class MainActivity : Activity() {
                             return@runOnUiThread
                         }
                         waitingForUnderlyingNetwork = false
+                        val wasEndToEndValidated = tunnelInternetOk == true
                         tunnelInternetOk = ok
                         if (ok) {
+                            // Record only the transition into a validated tunnel, not
+                            // every periodic health-check success. This keeps reliability
+                            // statistics tied to real connection outcomes.
+                            if (!wasEndToEndValidated) {
+                                runCatching {
+                                    connectionHistory.record(
+                                        "connected",
+                                        profileName(activeProfile),
+                                        protocolName(activeProfile)
+                                    )
+                                }
+                            }
                             status.text = "Подключено"
                             status.setTextColor(GREEN)
                             // A replacement is not committed merely because Android
