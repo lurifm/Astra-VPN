@@ -9,8 +9,9 @@ class TunnelHealthCheckerTest {
     @Test fun acceptsSuccessfulAndRedirectResponses() {
         assertTrue(TunnelHealthChecker.isReachableStatusCode(200))
         assertTrue(TunnelHealthChecker.isReachableStatusCode(204))
-        assertTrue(TunnelHealthChecker.isReachableStatusCode(301))
-        assertTrue(TunnelHealthChecker.isReachableStatusCode(399))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(301))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(302))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(399))
     }
 
     @Test fun rejectsClientAndServerErrors() {

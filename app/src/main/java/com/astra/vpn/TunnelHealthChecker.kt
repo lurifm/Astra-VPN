@@ -18,7 +18,8 @@ object TunnelHealthChecker {
         "https://www.google.com/generate_204"
     )
 
-    internal fun isReachableStatusCode(code: Int): Boolean = code in 200..399
+    // Redirects may be captive-portal/login pages, not proof of unrestricted Internet access.
+    internal fun isReachableStatusCode(code: Int): Boolean = code in 200..299
 
     fun check(vpnNetwork: Network): Boolean {
         // One total budget covers both fallback endpoints. Independent connect/read
