@@ -691,8 +691,8 @@ class MainActivity : Activity() {
         // The single status label below replaces this redundant caption row.
         connectCard.addView(status, matchWidth())
         orbitNameLabel = TextView(this).apply {
-            text = "Выбери орбиту"
-            textSize = 27f
+            text = "Выбери сервер"
+            textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(0xFFFFD98A.toInt())
@@ -708,13 +708,15 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(0xFF9CA7C1.toInt())
             setPadding(0, dp(2), 0, dp(7))
+            visibility = View.GONE
         }
         connectCard.addView(orbitNameLabel, matchWidth())
         connectCard.addView(orbitMetaLabel, matchWidth())
-        connectCard.addView(constellationView, LinearLayout.LayoutParams(matchWidth().width, dp(44)).apply {
-            topMargin = dp(3)
-            bottomMargin = dp(5)
+        connectCard.addView(constellationView, LinearLayout.LayoutParams(matchWidth().width, dp(30)).apply {
+            topMargin = dp(1)
+            bottomMargin = dp(2)
         })
+        selectedInfo.visibility = View.GONE
         connectCard.addView(selectedInfo, matchWidth())
         starBurstView = StarBurstView(this).apply {
             contentDescription = "Анимация запуска: расширяющееся световое кольцо"
@@ -727,9 +729,9 @@ class MainActivity : Activity() {
             addView(connectButton, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
             addView(starBurstView, android.widget.FrameLayout.LayoutParams(dp(108), dp(108), Gravity.CENTER))
         }
-        connectCard.addView(starButtonFrame, LinearLayout.LayoutParams(matchWidth().width, dp(224)).apply {
-            topMargin = dp(4)
-            bottomMargin = dp(2)
+        connectCard.addView(starButtonFrame, LinearLayout.LayoutParams(matchWidth().width, dp(184)).apply {
+            topMargin = dp(0)
+            bottomMargin = dp(0)
         })
         orbitMetricsLabel = TextView(this).apply {
             text = "00:00:00"
@@ -2645,8 +2647,9 @@ class MainActivity : Activity() {
         if (!::orbitNameLabel.isInitialized || !::orbitMetaLabel.isInitialized) return
         val link = selectedProfile
         if (link.isNullOrBlank()) {
-            orbitNameLabel.text = "Выбери орбиту"
-            orbitMetaLabel.text = "ASTRA  ·  ОЖИДАНИЕ СЕРВЕРА"
+            orbitNameLabel.text = "Выбери сервер"
+            orbitMetaLabel.text = ""
+            orbitMetaLabel.visibility = View.GONE
             return
         }
         val uri = Uri.parse(link)
@@ -2659,16 +2662,12 @@ class MainActivity : Activity() {
         val flag = CountryFlagResolver.flagFor(serverName)
         val country = CountryFlagResolver.countryNameForFlag(flag).takeIf { it.isNotBlank() }
             ?: serverName
-        val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "PING НЕ ПРОВЕРЕН"
-        orbitNameLabel.text = country
-        orbitMetaLabel.text = buildString {
-            append(protocolName(link).uppercase(java.util.Locale.ROOT))
-            append("  ·  ")
-            append(latency)
-            if (connected && activeProfile == link) append("  ·  ЗАЩИТА АКТИВНА")
-        }
-        orbitNameLabel.contentDescription = "Выбранный сервер: $country"
-        orbitMetaLabel.contentDescription = "Протокол ${protocolName(link)}, задержка $latency"
+        val latency = freshLatencyMs(link)?.let { "$it мс" } ?: "Пинг не проверен"
+        orbitNameLabel.text = "$country  ·  $latency"
+        orbitMetaLabel.text = ""
+        orbitMetaLabel.visibility = View.GONE
+        orbitNameLabel.contentDescription = "Выбранный сервер: $country, задержка $latency"
+        orbitMetaLabel.contentDescription = "Протокол " + protocolName(link) + ", задержка " + latency
         updateConnectButtonServerHealth()
     }
 
