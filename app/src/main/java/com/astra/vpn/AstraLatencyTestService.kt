@@ -55,6 +55,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val timedOutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val errorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
+    // libbox 1.14.3 can keep a native URLTest running after the UI's 10s
+    // deadline. Retain its scheduler slot through the conservative native
+    // DNS + TCP connect + HTTP timeout window (10s + 5s + 15s, plus margin).
+    private val nativeSlotReleaseTimeouts = linkedMapOf<String, Runnable>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -275,14 +279,29 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         if (completedTags.add(tag)) {
             inFlightTags.remove(tag)
             perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
+            nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         }
     }
 
     private fun completeUnmeasuredTag(tag: String, timedOut: Boolean) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
-        inFlightTags.remove(tag)
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
-        if (timedOut) timedOutTags.add(tag) else errorTags.add(tag)
+        if (timedOut) {
+            timedOutTags.add(tag)
+            // URLTest() returns after scheduling native work, not after the
+            // network request. Keep this slot occupied after the UI timeout so
+            // repeated slow probes cannot accumulate beyond the concurrency cap.
+            val release = Runnable {
+                nativeSlotReleaseTimeouts.remove(tag)
+                inFlightTags.remove(tag)
+                dispatchNextUrlTests(client)
+            }
+            nativeSlotReleaseTimeouts[tag] = release
+            handler.postDelayed(release, NATIVE_URLTEST_MAX_DURATION_MS - SERVER_URLTEST_TIMEOUT_MS)
+        } else {
+            errorTags.add(tag)
+            inFlightTags.remove(tag)
+        }
         // Publish completion and its reason even without a positive latency.
         publishResults(mapOf(tag to null), finished = false)
         dispatchNextUrlTests(client)
@@ -386,6 +405,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handler.removeCallbacks(batchTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()
+        nativeSlotReleaseTimeouts.values.forEach { handler.removeCallbacks(it) }
+        nativeSlotReleaseTimeouts.clear()
         inFlightTags.clear()
         pendingTags.clear()
         // Interrupt queued dispatch tasks; native URLTest calls already in progress
@@ -471,6 +492,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val NOTIFICATION_ID = 2
         private const val ENGINE_STARTUP_TIMEOUT_MS = 8_000L
         private const val SERVER_URLTEST_TIMEOUT_MS = 10_000L
+        // sing-box 1.14.3: DNS 10s + TCP connect 5s + HTTP URLTest 15s.
+        // A 1s margin avoids freeing a slot at the exact native deadline.
+        private const val NATIVE_URLTEST_MAX_DURATION_MS = 31_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
