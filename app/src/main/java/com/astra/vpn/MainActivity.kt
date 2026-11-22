@@ -5874,51 +5874,53 @@ class MainActivity : Activity() {
         sheetContent.addView(settingsScroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
-        val saveButton = MaterialButton(this).apply {
-            text = "Сохранить"
-            isAllCaps = false
-            cornerRadius = dp(14)
-            setOnClickListener {
-                val selectedId = sortGroup.checkedRadioButtonId
-                val mode = sortGroup.findViewById<RadioButton>(selectedId)?.tag as? String ?: "original"
-                sortMode = mode
-                settingsPrefs.edit()
-                    .putString("sort_mode", mode)
-                    .putBoolean("auto_update", autoUpdate.isChecked)
-                    .putBoolean("update_on_open", updateOnOpen.isChecked)
-                    .putBoolean("subscription_notifications", subscriptionNotifications.isChecked)
-                    .putBoolean("battery_saver_mode", batterySaver.isChecked)
-                    .putBoolean("vpn_recovery_enabled", vpnRecovery.isChecked)
-                    .apply()
+        // Settings are applied immediately; there is no separate Save action.
+        fun persistBoolean(key: String, value: Boolean) {
+            settingsPrefs.edit().putBoolean(key, value).apply()
+        }
+        sortGroup.setOnCheckedChangeListener { group, checkedId ->
+            val mode = group.findViewById<RadioButton>(checkedId)?.tag as? String ?: return@setOnCheckedChangeListener
+            sortMode = mode
+            settingsPrefs.edit().putString("sort_mode", mode).apply()
+            renderProfiles()
+        }
+        autoUpdate.setOnCheckedChangeListener { _, checked ->
+            persistBoolean("auto_update", checked)
+            SubscriptionRefreshScheduler.sync(this@MainActivity)
+            if (checked) maybeAutoUpdateSubscriptions(true)
+        }
+        updateOnOpen.setOnCheckedChangeListener { _, checked ->
+            persistBoolean("update_on_open", checked)
+        }
+        subscriptionNotifications.setOnCheckedChangeListener { _, checked ->
+            persistBoolean("subscription_notifications", checked)
+            if (checked) requestNotificationPermissionIfNeeded()
+        }
+        batterySaver.setOnCheckedChangeListener { _, checked ->
+            persistBoolean("battery_saver_mode", checked)
+        }
+        vpnRecovery.setOnCheckedChangeListener { _, checked ->
+            persistBoolean("vpn_recovery_enabled", checked)
+            runCatching {
+                ProfileStore(this@MainActivity).setRecoveryProfile(
+                    if (checked && (connected || connecting)) activeProfile else null
+                )
+            }.onFailure {
+                persistBoolean("vpn_recovery_enabled", false)
+                vpnRecovery.isChecked = false
+                Toast.makeText(this@MainActivity, "Не удалось сохранить профиль восстановления", Toast.LENGTH_LONG).show()
+            }
+            if (connected || connecting) {
                 runCatching {
-                    ProfileStore(this@MainActivity).setRecoveryProfile(
-                        if (vpnRecovery.isChecked && (connected || connecting)) activeProfile else null
-                    )
+                    val recoveryIntent = Intent(this@MainActivity, AstraVpnService::class.java)
+                        .setAction(AstraVpnService.ACTION_UPDATE_RECOVERY)
+                        .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, activeProfile)
+                    startService(recoveryIntent)
                 }.onFailure {
-                    Toast.makeText(this@MainActivity, "Не удалось сохранить защищённый профиль восстановления", Toast.LENGTH_LONG).show()
-                    settingsPrefs.edit().putBoolean("vpn_recovery_enabled", false).apply()
-                    vpnRecovery.isChecked = false
+                    Toast.makeText(this@MainActivity, "Не удалось применить настройку восстановления", Toast.LENGTH_LONG).show()
                 }
-                if (connected || connecting) {
-                    runCatching {
-                        val recoveryIntent = Intent(this@MainActivity, AstraVpnService::class.java)
-                            .setAction(AstraVpnService.ACTION_UPDATE_RECOVERY)
-                            .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, activeProfile)
-                        startService(recoveryIntent)
-                    }.onFailure {
-                        Toast.makeText(this@MainActivity, "Не удалось применить настройку восстановления к VPN", Toast.LENGTH_LONG).show()
-                    }
-                }
-                if (subscriptionNotifications.isChecked) requestNotificationPermissionIfNeeded()
-                SubscriptionRefreshScheduler.sync(this@MainActivity)
-                renderProfiles()
-                maybeAutoUpdateSubscriptions(true)
-                sheet.dismiss()
             }
         }
-        sheetContent.addView(saveButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)
-        ).apply { topMargin = dp(10) })
         sheet.setContentView(sheetContent)
         sheet.window?.setBackgroundDrawableResource(android.R.color.transparent)
         sheet.window?.setDimAmount(0.62f)
