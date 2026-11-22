@@ -168,6 +168,7 @@ class MainActivity : Activity() {
     private val latencyMeasuredAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latencyCheckGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var urlTestProfileMap: Map<String, String> = emptyMap()
+    private val latencyCompletedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var latencyTestInFlight = false
     // Reject late broadcasts from a cancelled or superseded latency-test session.
     private var activeLatencySessionId: String? = null
@@ -382,8 +383,22 @@ class MainActivity : Activity() {
                     if (intent.getStringExtra(AstraLatencyTestService.EXTRA_SESSION) != activeLatencySessionId) return
                     val payload = intent.getStringExtra(AstraLatencyTestService.EXTRA_RESULTS) ?: return
                     val finished = intent.getBooleanExtra(AstraLatencyTestService.EXTRA_FINAL, false)
+                    val completedJson = intent.getStringExtra(AstraLatencyTestService.EXTRA_COMPLETED_TAGS)
+                    if (completedJson != null) {
+                        runCatching {
+                            val completedArray = org.json.JSONArray(completedJson)
+                            for (index in 0 until completedArray.length()) {
+                                latencyCompletedTags.add(completedArray.getString(index))
+                            }
+                        }.onFailure {
+                            android.util.Log.w("AstraVPN", "Не удалось разобрать прогресс проверки Ping", it)
+                        }
+                    }
                     applyLatencyResults(payload, finished)
-                    if (finished) activeLatencySessionId = null
+                    if (finished) {
+                        activeLatencySessionId = null
+                        latencyCompletedTags.clear()
+                    }
                     return
                 }
                 AstraLatencyTestService.ACTION_ERROR -> {
@@ -2146,12 +2161,20 @@ class MainActivity : Activity() {
             }
         }
         if (::pingCheckButton.isInitialized) {
-            pingCheckButton.text = if (latencyTestInFlight) "× Отмена" else "◷ Пинг"
-            pingCheckButton.contentDescription = if (latencyTestInFlight) "Отменить проверку задержки серверов" else "Вручную проверить задержку всех серверов"
+            val completed = latencyCompletedTags.size
+            val total = urlTestProfileMap.size.takeIf { it > 0 } ?: safeProfiles()?.size ?: 0
+            pingCheckButton.text = if (latencyTestInFlight) "× $completed/$total" else "◷ Пинг"
+            pingCheckButton.contentDescription = if (latencyTestInFlight) {
+                "Отменить проверку задержки серверов. Завершено $completed из $total"
+            } else "Вручную проверить задержку всех серверов"
         }
         serverBrowserPingAction?.apply {
-            text = if (latencyTestInFlight) "×  Остановить проверку Ping" else "◷  Проверить Ping всех серверов"
-            contentDescription = if (latencyTestInFlight) "Остановить проверку задержки всех серверов" else "Запустить проверку задержки всех серверов"
+            val completed = latencyCompletedTags.size
+            val total = urlTestProfileMap.size.takeIf { it > 0 } ?: safeProfiles()?.size ?: 0
+            text = if (latencyTestInFlight) "×  Ping $completed/$total · остановить" else "◷  Проверить Ping всех серверов"
+            contentDescription = if (latencyTestInFlight) {
+                "Остановить проверку задержки серверов. Завершено $completed из $total"
+            } else "Запустить проверку задержки всех серверов"
         }
         val profiles = safeProfiles() ?: return
         val summaries = safeSubscriptionSummaries() ?: return
@@ -3307,6 +3330,7 @@ class MainActivity : Activity() {
             return
         }
 
+        latencyCompletedTags.clear()
         profiles.forEach { profile ->
             latencyMs.remove(profile)
             pingInfo[profile] = "Проверяем…"
@@ -3912,8 +3936,9 @@ class MainActivity : Activity() {
                 latencyMeasuredAt[profile] = android.os.SystemClock.elapsedRealtime()
                 if (finished) latencyHistory.record(profile, ms)
                 pingInfo[profile] = nextInfo
-            } else if (finished) {
-                // A failed URL-test means "no measurement", not proof that the server is dead.
+            } else if (finished || tag in latencyCompletedTags) {
+                // A completed URLTest without a positive delay is explicitly shown
+                // as "н/д" immediately; it is not evidence that the proxy is offline.
                 if (latencyMs.containsKey(profile) || latencyMeasuredAt.containsKey(profile) ||
                     pingInfo[profile] != "н/д"
                 ) latencyPresentationChanged = true
