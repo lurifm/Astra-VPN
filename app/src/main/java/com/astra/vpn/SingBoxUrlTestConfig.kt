@@ -4,6 +4,7 @@ import io.nekohasekai.libbox.Libbox
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.util.UUID
 
 /**
  * Builds a temporary, non-TUN sing-box instance configuration for measuring
@@ -28,6 +29,11 @@ internal object SingBoxUrlTestConfig {
 
         val outbounds = JSONArray()
         val profileMap = linkedMapOf<String, String>()
+        // URLTest history is stored by outbound tag inside libbox. A stable
+        // profile-only tag lets a new measurement session inherit an old delay
+        // in the initial SubscribeOutbounds snapshot. Scope tags to this engine
+        // instance so only measurements produced in this session can be observed.
+        val sessionNonce = UUID.randomUUID().toString()
 
         profiles.forEach { link ->
             // Keep these as plain proxy outbounds. sing-box starts an automatic
@@ -35,7 +41,7 @@ internal object SingBoxUrlTestConfig {
             // would bypass Astra's four-at-a-time scheduler. CommandClient.URLTest
             // can trigger an individual plain outbound on demand instead.
             val proxy = SingBoxConfigBuilder.buildProxyOutbound(link)
-            val tag = outboundTag(link)
+            val tag = outboundTag(link, sessionNonce)
             require(!profileMap.containsKey(tag)) { "Коллизия идентификаторов серверов" }
             proxy.put("tag", tag)
             outbounds.put(proxy)
@@ -83,9 +89,9 @@ internal object SingBoxUrlTestConfig {
         return Result(config, profileMap)
     }
 
-    private fun outboundTag(link: String): String {
+    private fun outboundTag(link: String, sessionNonce: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest(link.toByteArray(Charsets.UTF_8))
+            .digest("$sessionNonce\u0000$link".toByteArray(Charsets.UTF_8))
         val suffix = digest.take(8).joinToString("") { "%02x".format(it) }
         return "astra-node-$suffix"
     }
