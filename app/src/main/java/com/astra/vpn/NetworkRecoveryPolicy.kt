@@ -13,6 +13,9 @@ internal object NetworkRecoveryPolicy {
     fun shouldRetryAfterHandover(previousRetries: Int): Boolean =
         previousRetries in 0 until MAX_HANDOVER_RETRIES
 
+    fun isLatestNetworkChange(expectedGeneration: Long, currentGeneration: Long): Boolean =
+        expectedGeneration == currentGeneration
+
     fun monitorIntervalMs(
         appBatterySaverEnabled: Boolean,
         systemBatterySaverEnabled: Boolean

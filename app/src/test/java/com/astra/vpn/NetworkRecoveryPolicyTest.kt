@@ -80,6 +80,12 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun staleNetworkCallbackCannotInvalidateProbesOnNewerUnderlay() {
+        assertTrue(NetworkRecoveryPolicy.isLatestNetworkChange(7L, 7L))
+        assertFalse(NetworkRecoveryPolicy.isLatestNetworkChange(6L, 7L))
+    }
+
+    @Test
     fun handoverRetryIsBoundedToTwoAttempts() {
         assertTrue(NetworkRecoveryPolicy.shouldRetryAfterHandover(0))
         assertTrue(NetworkRecoveryPolicy.shouldRetryAfterHandover(1))

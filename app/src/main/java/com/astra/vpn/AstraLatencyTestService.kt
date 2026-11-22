@@ -52,6 +52,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     @Volatile private var pendingPreferredNetwork: Network? = null
     @Volatile private var probeNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val callbackNetworks = java.util.concurrent.ConcurrentHashMap<Network, ProbeNetworkState>()
+    // Coalesce rapid Wi-Fi/cellular callback bursts. While a handover is pending,
+    // never dispatch a probe that could immediately be invalidated by a newer route.
+    @Volatile private var handoverInvalidationPending = false
+    private val handoverGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
@@ -284,7 +288,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun dispatchNextUrlTests(activeClient: CommandClient?) {
-        if (stopped.get() || activeClient == null || pendingPreferredNetwork == null) return
+        if (stopped.get() || activeClient == null ||
+            pendingPreferredNetwork == null || handoverInvalidationPending
+        ) return
         while (inFlightTags.size < URL_TEST_DISPATCH_CONCURRENCY && pendingTags.isNotEmpty()) {
             val tag = pendingTags.removeFirst()
             if (!LatencyProbeDispatchPolicy.shouldDispatch(
@@ -468,7 +474,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         if (fallback == null) {
                             pendingPreferredNetwork = null
                             probePlatform?.clearPreferredPhysicalNetwork(network)
-                            handler.post { invalidateInFlightProbesForNetworkHandover() }
+                            scheduleProbeNetworkHandoverInvalidation()
                         } else {
                             preferProbeNetwork(fallback)
                         }
@@ -500,7 +506,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     if (fallback == null) {
                         pendingPreferredNetwork = null
                         probePlatform?.clearPreferredPhysicalNetwork(network)
-                        handler.post { invalidateInFlightProbesForNetworkHandover() }
+                        scheduleProbeNetworkHandoverInvalidation()
                     } else {
                         preferProbeNetwork(fallback)
                     }
@@ -524,15 +530,34 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         val previous = pendingPreferredNetwork
         pendingPreferredNetwork = network
         probePlatform?.updatePreferredPhysicalNetwork(network)
-        if (previous != null && previous != network) {
-            handler.post {
-                invalidateInFlightProbesForNetworkHandover()
-                dispatchNextUrlTests(client)
-            }
+        if ((previous != null && previous != network) || handoverInvalidationPending) {
+            scheduleProbeNetworkHandoverInvalidation()
         } else {
             // Also resumes tags queued while the device had no validated underlay.
             handler.post { dispatchNextUrlTests(client) }
         }
+    }
+
+    /**
+     * Network callbacks can arrive in bursts (for example, Wi-Fi loss followed
+     * by cellular validation). Only the newest route transition may invalidate
+     * probes; otherwise an older queued callback can invalidate probes already
+     * dispatched on the newest underlay.
+     */
+    private fun scheduleProbeNetworkHandoverInvalidation() {
+        if (stopped.get()) return
+        handoverInvalidationPending = true
+        val generation = handoverGeneration.incrementAndGet()
+        handler.postDelayed({
+            if (stopped.get() || !NetworkRecoveryPolicy.isLatestNetworkChange(
+                    generation,
+                    handoverGeneration.get()
+                )
+            ) return@postDelayed
+            handoverInvalidationPending = false
+            invalidateInFlightProbesForNetworkHandover()
+            dispatchNextUrlTests(client)
+        }, NetworkRecoveryPolicy.NETWORK_CHANGE_DEBOUNCE_MS)
     }
 
     /**
@@ -629,6 +654,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         server = null
         probePlatform = null
         pendingPreferredNetwork = null
+        handoverInvalidationPending = false
+        handoverGeneration.incrementAndGet()
         unregisterProbeNetworkCallback()
         closeLibboxResourcesAsync(currentClient, currentServer)
         getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
