@@ -67,6 +67,20 @@ class SubscriptionMetadataTest {
         assertNull(metadata.title)
     }
 
+    @Test fun parsesAndBoundsProviderRefreshInterval() {
+        assertEquals(
+            6,
+            SubscriptionParser.parseMetadata(mapOf("profile-update-interval" to "6")).updateIntervalHours
+        )
+        assertEquals(
+            720,
+            SubscriptionParser.parseMetadata(mapOf("Profile-Update-Interval" to "720")).updateIntervalHours
+        )
+        assertNull(SubscriptionParser.parseMetadata(mapOf("profile-update-interval" to "0")).updateIntervalHours)
+        assertNull(SubscriptionParser.parseMetadata(mapOf("profile-update-interval" to "721")).updateIntervalHours)
+        assertNull(SubscriptionParser.parseMetadata(mapOf("profile-update-interval" to "hourly")).updateIntervalHours)
+    }
+
     @Test fun emptyHeadersProduceEmptyMetadata() {
         val metadata = SubscriptionParser.parseMetadata(emptyMap())
         assertNull(metadata.title)
