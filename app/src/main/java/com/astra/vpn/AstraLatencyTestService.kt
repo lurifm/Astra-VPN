@@ -452,9 +452,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             }
 
             override fun onLost(network: Network) {
-                val platform = probePlatform ?: return
-                platform.clearPreferredPhysicalNetwork(network)
-                platform.refreshPreferredPhysicalNetwork()
+                if (pendingPreferredNetwork == network) pendingPreferredNetwork = null
+                probePlatform?.let { platform ->
+                    platform.clearPreferredPhysicalNetwork(network)
+                    platform.refreshPreferredPhysicalNetwork()
+                }
             }
         }
         try {
