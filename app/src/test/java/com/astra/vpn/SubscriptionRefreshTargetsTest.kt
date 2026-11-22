@@ -116,6 +116,74 @@ class SubscriptionRefreshTargetsTest {
 
 }
 
+class SubscriptionRefreshDuePolicyTest {
+    private val now = 10L * 24L * 60L * 60L * 1000L
+    private val source = "source-a"
+
+    @Test fun skipsKnownSourceUntilItsEffectiveIntervalHasElapsed() {
+        val candidate = SubscriptionRefreshCandidate(source, 12, now - 11L * 60L * 60L * 1000L)
+        assertEquals(
+            emptyList<String>(),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), emptySet(), setOf(source), 2, now)
+        )
+    }
+
+    @Test fun refreshesAtTheExactProviderIntervalBoundary() {
+        val candidate = SubscriptionRefreshCandidate(source, 12, now - 12L * 60L * 60L * 1000L)
+        assertEquals(
+            listOf(source),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), emptySet(), setOf(source), 2, now)
+        )
+    }
+
+    @Test fun usesTheLongerOfUserAndProviderIntervals() {
+        val candidate = SubscriptionRefreshCandidate(source, 1, now - 3L * 60L * 60L * 1000L)
+        assertEquals(
+            emptyList<String>(),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), emptySet(), setOf(source), 6, now)
+        )
+    }
+
+    @Test fun retriesFailedSourcesRegardlessOfTheirRefreshWindow() {
+        val candidate = SubscriptionRefreshCandidate(source, 24, now - 5L * 60L * 1000L)
+        assertEquals(
+            listOf(source),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), setOf(source), setOf(source), 2, now)
+        )
+    }
+
+    @Test fun refreshesNewSourcesAndSourcesWithoutSuccessfulHistory() {
+        val newSource = SubscriptionRefreshCandidate("new", 24, null)
+        val oldSource = SubscriptionRefreshCandidate("old", 24, now - 1L)
+        assertEquals(
+            listOf("new", "old"),
+            SubscriptionRefreshDuePolicy.select(
+                listOf(newSource, oldSource),
+                emptySet(),
+                emptySet(),
+                2,
+                now
+            )
+        )
+    }
+
+    @Test fun clockMovingBackwardsDoesNotSuppressRefreshForever() {
+        val candidate = SubscriptionRefreshCandidate(source, 24, now + 1L)
+        assertEquals(
+            listOf(source),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), emptySet(), setOf(source), 2, now)
+        )
+    }
+
+    @Test fun providerIntervalIsBoundedAndCannotOverrideUserMinimum() {
+        val candidate = SubscriptionRefreshCandidate(source, 720, now - 23L * 60L * 60L * 1000L)
+        assertEquals(
+            emptyList<String>(),
+            SubscriptionRefreshDuePolicy.select(listOf(candidate), emptySet(), setOf(source), 2, now)
+        )
+    }
+}
+
 class SubscriptionRefreshIntervalTest {
     @Test fun keepsSupportedIntervalsUnchanged() {
         assertEquals(1, SubscriptionRefreshInterval.normalize(1))
