@@ -7121,6 +7121,9 @@ class MainActivity : Activity() {
         }
         monitorExecutor.shutdownNow()
         importExecutor.shutdownNow()
+        latencyCheckGeneration.incrementAndGet()
+        latencyPreparationTimeout?.let(latencyPreparationHandler::removeCallbacks)
+        latencyPreparationTimeout = null
         latencyPreparationTask?.cancel(true)
         latencyPreparationTask = null
         pingExecutor.shutdownNow()
