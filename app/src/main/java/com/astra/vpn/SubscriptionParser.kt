@@ -9,7 +9,7 @@ import java.nio.charset.Charset
  * Imports one proxy URI, a multiline subscription, or an HTTPS subscription URL.
  * Network downloads are deliberately restricted to HTTPS.
  */
-data class SubscriptionMetadata(val title: String? = null, val uploadBytes: Long? = null, val downloadBytes: Long? = null, val totalBytes: Long? = null, val expiresAtEpochSeconds: Long? = null)
+data class SubscriptionMetadata(val title: String? = null, val uploadBytes: Long? = null, val downloadBytes: Long? = null, val totalBytes: Long? = null, val expiresAtEpochSeconds: Long? = null, val updateIntervalHours: Int? = null)
 data class ParsedSubscription(val links: List<String>, val metadata: SubscriptionMetadata)
 
 object SubscriptionParser {
@@ -85,12 +85,18 @@ object SubscriptionParser {
             ?.trim()
             ?.take(120)
             ?.takeIf { it.isNotBlank() }
+        // The provider header is advisory metadata, not permission to change
+        // the user's global WorkManager schedule. Accept only sane hour values.
+        val updateIntervalHours = headers.entries
+            .firstOrNull { it.key.equals("profile-update-interval", true) }
+            ?.value?.trim()?.toIntOrNull()?.takeIf { it in 1..720 }
         return SubscriptionMetadata(
             title,
             values["upload"],
             values["download"],
             values["total"],
-            values["expire"]?.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS }
+            values["expire"]?.takeIf { it in 1..MAX_EXPIRY_EPOCH_SECONDS },
+            updateIntervalHours
         )
     }
 
