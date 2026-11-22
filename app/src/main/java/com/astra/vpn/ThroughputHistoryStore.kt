@@ -97,7 +97,23 @@ internal class ThroughputHistoryStore(context: Context) {
     private fun prune(nowEpochMs: Long) {
         val expiredKeys = sampleCache.filterValues {
             !ThroughputFreshnessPolicy.isFresh(it, nowEpochMs)
-        }.keys
+        }.keys.toMutableSet()
+
+        // A user may import a very large subscription. Keep this cache bounded
+        // even if every server is measured within the five-minute freshness
+        // window; retain the most recently measured profiles deterministically.
+        val remainingCount = sampleCache.size - expiredKeys.size
+        if (remainingCount > MAX_SAMPLES) {
+            val excess = remainingCount - MAX_SAMPLES
+            sampleCache.entries
+                .asSequence()
+                .filter { it.key !in expiredKeys }
+                .sortedWith(compareBy<Map.Entry<String, ThroughputSample>> { it.value.measuredAtEpochMs }
+                    .thenBy { it.key })
+                .take(excess)
+                .forEach { expiredKeys.add(it.key) }
+        }
+
         if (expiredKeys.isEmpty()) return
         expiredKeys.forEach(sampleCache::remove)
         val editor = prefs.edit()
@@ -115,5 +131,6 @@ internal class ThroughputHistoryStore(context: Context) {
     companion object {
         private const val PREFERENCES = "astra_throughput_history"
         private const val PREFIX = "sample_"
+        private const val MAX_SAMPLES = 500
     }
 }
