@@ -92,6 +92,8 @@ internal class ThroughputHistoryStore(context: Context) {
         }
         cacheLoaded = true
         editor.apply()
+        // Enforce the same storage bound when restoring an older oversized cache.
+        prune(nowEpochMs)
     }
 
     private fun prune(nowEpochMs: Long) {
