@@ -6773,26 +6773,26 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Selected destination and currently active tunnel use separate accents:
-     * blue for selection, green for the live connection, violet when both match.
+     * Selection uses Astra gold; green is reserved for the live VPN tunnel.
+     * This keeps "chosen next" visually distinct from "currently connected".
      */
     private fun serverRowBackground(selected: Boolean, active: Boolean) = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
         when {
-            selected && active -> intArrayOf(0xFF26385A.toInt(), 0xFF1B2B43.toInt())
-            selected -> intArrayOf(0xFF202F50.toInt(), 0xFF17243C.toInt())
+            selected && active -> intArrayOf(0xFF30291B.toInt(), 0xFF1C2630.toInt())
+            selected -> intArrayOf(0xFF29251C.toInt(), 0xFF171F2D.toInt())
             active -> intArrayOf(0xFF193B3A.toInt(), 0xFF142B30.toInt())
             else -> intArrayOf(0xFF171F30.toInt(), 0xFF121A29.toInt())
         }
     ).apply {
-        cornerRadius = dp(20).toFloat()
+        cornerRadius = dp(18).toFloat()
         val outline = when {
-            selected && active -> 0xFF8C9BFF.toInt()
-            selected -> 0xFF718AFF.toInt()
+            selected && active -> 0xFFD6B36A.toInt()
+            selected -> 0xFF9E824B.toInt()
             active -> 0xFF55B99A.toInt()
             else -> 0xFF26344D.toInt()
         }
-        setStroke(dp(1), outline)
+        setStroke(dp(if (selected || active) 1.5f else 1f).toInt().coerceAtLeast(1), outline)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
