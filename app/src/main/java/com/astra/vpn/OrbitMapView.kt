@@ -64,26 +64,38 @@ internal class OrbitMapView(
 
         positions.forEachIndexed { index, (x, y) ->
             val isSelected = index == selectedIndex
-            val qualityColor = when (nodes[index].quality) {
-                3 -> Color.rgb(92, 205, 145)   // fast
-                2 -> Color.rgb(218, 177, 91)   // acceptable
-                1 -> Color.rgb(232, 166, 83)   // slow
-                else -> Color.rgb(116, 130, 154)
+            // Keep the map within Astra's gold visual language. Ping is encoded
+            // by brightness and halo size rather than unrelated status colors.
+            val quality = nodes[index].quality.coerceIn(0, 3)
+            val core = when (quality) {
+                3 -> Color.rgb(255, 224, 158)
+                2 -> Color.rgb(225, 183, 105)
+                1 -> Color.rgb(174, 137, 76)
+                else -> Color.rgb(112, 94, 65)
             }
-            val color = if (isSelected) Color.rgb(255, 211, 125) else qualityColor
+            val color = if (isSelected) Color.rgb(255, 235, 190) else core
+            val haloAlpha = when (quality) {
+                3 -> 72
+                2 -> 54
+                1 -> 34
+                else -> 18
+            } + if (isSelected) 38 else 0
 
             paint.style = Paint.Style.FILL
-            paint.color = Color.argb(if (isSelected) 62 else 32,
+            paint.color = Color.argb(haloAlpha.coerceAtMost(110),
                 Color.red(color), Color.green(color), Color.blue(color))
-            canvas.drawCircle(x, y, dp(if (isSelected) 25f else 17f), paint)
+            canvas.drawCircle(x, y, dp(if (isSelected) 29f else 15f + quality * 2.5f), paint)
             paint.color = color
-            canvas.drawCircle(x, y, dp(if (isSelected) 6.5f else 4.5f), paint)
+            canvas.drawCircle(x, y, dp(if (isSelected) 7.5f else 3.5f + quality * .7f), paint)
 
             if (isSelected) {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = dp(1.5f)
-                paint.color = Color.rgb(255, 225, 164)
-                canvas.drawCircle(x, y, dp(12f), paint)
+                paint.color = Color.rgb(255, 235, 190)
+                canvas.drawCircle(x, y, dp(13f), paint)
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb(30, 255, 222, 158)
+                canvas.drawCircle(x, y, dp(19f), paint)
             }
         }
 
