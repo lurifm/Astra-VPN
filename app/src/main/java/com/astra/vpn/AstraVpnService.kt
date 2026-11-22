@@ -761,7 +761,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.notify(
                 NOTIFICATION_ID,
-                AstraNotification.create(this, state, activeProfileName)
+                AstraNotification.create(this, state, activeProfileName, error)
             )
         }.onFailure { Log.w(TAG, "Не удалось обновить уведомление VPN (" + it.javaClass.simpleName + ")") }
     }

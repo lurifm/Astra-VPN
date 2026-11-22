@@ -42,9 +42,9 @@ class AstraQuickSettingsTileService : TileService() {
         qsTile?.apply {
             this.state = if (state == AstraVpnService.STATE_CONNECTED) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             label = "Astra VPN"
-            contentDescription = if (this.state == Tile.STATE_ACTIVE) "VPN подключён. Нажмите для отключения" else "VPN отключён. Нажмите для подключения"
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                stateDescription = if (this.state == Tile.STATE_ACTIVE) "Подключено" else "Отключено"
+            contentDescription = VpnSurfaceStatusPolicy.tileContentDescription(state)
+            if (Build.VERSION.SDK_INT >= 29) {
+                stateDescription = VpnSurfaceStatusPolicy.tileStateDescription(state)
             }
             updateTile()
         }
