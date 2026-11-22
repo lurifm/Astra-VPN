@@ -19,8 +19,8 @@ class ConnectionHistoryStore(context: Context) {
         val serverId: String = ""
     )
 
-    @Synchronized
-    fun record(state: String, serverName: String, protocol: String, profile: String = "") {
+    fun record(state: String, serverName: String, protocol: String, profile: String = "") =
+        synchronized(STORE_LOCK) {
         val entries = readArray()
         val updated = JSONArray()
         updated.put(
@@ -38,8 +38,7 @@ class ConnectionHistoryStore(context: Context) {
         prefs.edit().putString(KEY_ENTRIES, updated.toString()).apply()
     }
 
-    @Synchronized
-    fun getEntries(): List<Entry> {
+    fun getEntries(): List<Entry> = synchronized(STORE_LOCK) {
         val array = readArray()
         return buildList {
             for (index in 0 until array.length()) {
@@ -57,8 +56,7 @@ class ConnectionHistoryStore(context: Context) {
         }
     }
 
-    @Synchronized
-    fun clear() {
+    fun clear() = synchronized(STORE_LOCK) {
         prefs.edit().remove(KEY_ENTRIES).apply()
     }
 
@@ -68,6 +66,7 @@ class ConnectionHistoryStore(context: Context) {
     }
 
     private companion object {
+        val STORE_LOCK = Any()
         const val KEY_ENTRIES = "entries"
         const val MAX_ENTRIES = 100
     }
