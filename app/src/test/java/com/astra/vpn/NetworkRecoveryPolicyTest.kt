@@ -1,5 +1,6 @@
 package com.astra.vpn
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,6 +77,14 @@ class NetworkRecoveryPolicyTest {
     @Test
     fun networkWithoutInternetCapabilityIsRejected() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, false, true, true))
+    }
+
+    @Test
+    fun handoverRetryIsBoundedToTwoAttempts() {
+        assertTrue(NetworkRecoveryPolicy.shouldRetryAfterHandover(0))
+        assertTrue(NetworkRecoveryPolicy.shouldRetryAfterHandover(1))
+        assertFalse(NetworkRecoveryPolicy.shouldRetryAfterHandover(2))
+        assertFalse(NetworkRecoveryPolicy.shouldRetryAfterHandover(3))
     }
 
     @Test

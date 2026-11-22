@@ -66,6 +66,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     // Native URLTest has no per-request cancellation API. Results belonging to
     // probes started on a previous underlay are ignored until their native slot expires.
     private val discardedByNetworkChangeTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val handoverRetryCounts = mutableMapOf<String, Int>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
     // libbox 1.14.3 can keep a native URLTest running after the UI's 10s
     // deadline. Retain its scheduler slot through the conservative native
@@ -283,7 +284,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun dispatchNextUrlTests(activeClient: CommandClient?) {
-        if (stopped.get() || activeClient == null) return
+        if (stopped.get() || activeClient == null || pendingPreferredNetwork == null) return
         while (inFlightTags.size < URL_TEST_DISPATCH_CONCURRENCY && pendingTags.isNotEmpty()) {
             val tag = pendingTags.removeFirst()
             if (!LatencyProbeDispatchPolicy.shouldDispatch(
@@ -524,7 +525,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         pendingPreferredNetwork = network
         probePlatform?.updatePreferredPhysicalNetwork(network)
         if (previous != null && previous != network) {
-            handler.post { invalidateInFlightProbesForNetworkHandover() }
+            handler.post {
+                invalidateInFlightProbesForNetworkHandover()
+                dispatchNextUrlTests(client)
+            }
+        } else {
+            // Also resumes tags queued while the device had no validated underlay.
+            handler.post { dispatchNextUrlTests(client) }
         }
     }
 
@@ -549,6 +556,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 inFlightTags.remove(tag)
                 discardedByNetworkChangeTags.remove(tag)
                 timedOutTags.remove(tag)
+                val retries = handoverRetryCounts[tag] ?: 0
+                if (pendingPreferredNetwork != null &&
+                    NetworkRecoveryPolicy.shouldRetryAfterHandover(retries)
+                ) {
+                    handoverRetryCounts[tag] = retries + 1
+                    completedTags.remove(tag)
+                    if (tag !in pendingTags) pendingTags.addFirst(tag)
+                    publishResults(mapOf(tag to null), finished = false)
+                }
                 dispatchNextUrlTests(client)
                 finishIfAllTagsCompleted()
             }

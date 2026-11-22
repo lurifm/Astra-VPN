@@ -8,6 +8,10 @@ internal object NetworkRecoveryPolicy {
     // Coalesce the burst of availability/capability/link-property callbacks
     // emitted by Android for one physical network handover.
     const val NETWORK_CHANGE_DEBOUNCE_MS = 250L
+    const val MAX_HANDOVER_RETRIES = 2
+
+    fun shouldRetryAfterHandover(previousRetries: Int): Boolean =
+        previousRetries in 0 until MAX_HANDOVER_RETRIES
 
     fun monitorIntervalMs(
         appBatterySaverEnabled: Boolean,
