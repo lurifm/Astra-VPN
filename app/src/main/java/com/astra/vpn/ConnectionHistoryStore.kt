@@ -61,7 +61,7 @@ class ConnectionHistoryStore(context: Context) {
         }
     }
 
-    private companion object {
+    companion object {
         val STORE_LOCK = Any()
         const val KEY_ENTRIES = "entries"
         const val MAX_ENTRIES = 100
@@ -74,6 +74,7 @@ class ConnectionHistoryStore(context: Context) {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
                     if (!isValidEntry(item)) continue
+                    if (size >= MAX_ENTRIES) break
                     add(
                         Entry(
                             timestamp = item.optLong("timestamp"),

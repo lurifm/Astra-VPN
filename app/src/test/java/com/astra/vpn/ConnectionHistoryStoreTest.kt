@@ -31,6 +31,18 @@ class ConnectionHistoryStoreTest {
         assertTrue(ConnectionHistoryStore.decodeEntries("").isEmpty())
     }
 
+    @Test
+    fun decodeCapsRestoredHistoryAtOneHundredNewestEntries() {
+        val rows = (1..105).joinToString(",") { index ->
+            """{"timestamp":${1700000000000L + index},"state":"connected","server":"Server $index","protocol":"VLESS"}"""
+        }
+        val entries = ConnectionHistoryStore.decodeEntries("[$rows]")
+
+        assertEquals(100, entries.size)
+        assertEquals("Server 1", entries.first().serverName)
+        assertEquals("Server 100", entries.last().serverName)
+    }
+
     @Test(expected = org.json.JSONException::class)
     fun decodeRejectsMalformedJsonInsteadOfTreatingItAsEmpty() {
         ConnectionHistoryStore.decodeEntries("{not-json")
