@@ -5528,26 +5528,58 @@ class MainActivity : Activity() {
                 selected = profile == selectedProfile
             )
         }
-        var chosen = (selectedProfile?.let { profiles.take(36).indexOf(it) } ?: -1).coerceAtLeast(0)
+        val visibleProfiles = profiles.take(36)
+        var chosen = (selectedProfile?.let { visibleProfiles.indexOf(it) } ?: -1).coerceAtLeast(0)
+        fun detailsFor(index: Int): String {
+            val profile = visibleProfiles.getOrNull(index) ?: return "Выбери узел на карте"
+            val ping = freshLatencyMs(profile)?.let { "$it мс" } ?: "нет данных"
+            return "${profileName(profile)}  ·  ${protocolName(profile)}  ·  Ping $ping"
+        }
+        val selectedDetails = TextView(this).apply {
+            text = detailsFor(chosen)
+            textSize = 13f
+            setTextColor(0xFFF0DDB8.toInt())
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(0xFF171D32.toInt(), 14)
+            maxLines = 2
+        }
         val map = OrbitMapView(this, nodes) { index ->
-            // Keep map browsing provisional: closing the dialog must not silently
-            // change the active profile or cancel an Android VPN consent request.
+            // Browsing remains provisional until the user confirms with «Выбрать».
             chosen = index
-            // The map itself highlights the preview; the home-screen summary
-            // remains tied to the committed selection until confirmation.
+            selectedDetails.text = detailsFor(index)
+        }
+        val legend = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        listOf(
+            Triple("●", 0xFFFFCC69.toInt(), "≤100 мс"),
+            Triple("●", 0xFF97AEFF.toInt(), "≤250 мс"),
+            Triple("●", 0xFFB197CD.toInt(), ">250 мс"),
+            Triple("●", 0xFF6F7D9D.toInt(), "н/д")
+        ).forEach { (symbol, color, caption) ->
+            legend.addView(TextView(this).apply {
+                text = "$symbol $caption"
+                textSize = 10f
+                setTextColor(color)
+                setPadding(dp(5), 0, dp(5), 0)
+            })
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(12), dp(8), dp(12), dp(12))
             background = rounded(BG, 20)
             addView(map, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
             ))
+            addView(selectedDetails, matchWidth())
+            addView(legend, matchWidth())
             addView(TextView(this@MainActivity).apply {
-                text = "Нажми на звезду, чтобы выбрать сервер. Цвет показывает последнюю измеренную задержку: золотой — быстрый, сине-фиолетовый — средний, лавандовый — высокий; серый — нет данных."
-                textSize = 12f
-                setTextColor(0xFFD8E0F2.toInt())
-                setPadding(dp(8), dp(8), dp(8), dp(8))
+                text = "Нажми на звезду, чтобы посмотреть сервер. Выбор применится только после нажатия «Выбрать»."
+                textSize = 11f
+                setTextColor(0xFFADB8D0.toInt())
+                setPadding(dp(8), dp(8), dp(8), 0)
             })
         }
         MaterialAlertDialogBuilder(this)
