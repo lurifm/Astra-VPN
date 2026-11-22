@@ -10,12 +10,14 @@ internal object BestServerSelector {
     private const val FAILURE_PENALTY_MS = 18L
     private const val MAX_FAILURE_PENALTY_MS = 90L
     private const val CONTINUITY_BONUS_MS = 8L
+    private const val MAX_RELIABILITY_PENALTY_MS = 60L
 
     fun select(
         profiles: List<String>,
         latencyMs: Map<String, Long>,
         recentFailures: Map<String, Int> = emptyMap(),
         latencyStabilityPenaltyMs: Map<String, Long> = emptyMap(),
+        reliabilityPenaltyMs: Map<String, Long> = emptyMap(),
         throughputSamples: Map<String, ThroughputSample> = emptyMap(),
         nowEpochMs: Long = System.currentTimeMillis(),
         lastKnownGoodProfile: String? = null
@@ -34,9 +36,14 @@ internal object BestServerSelector {
                 .coerceAtMost(MAX_FAILURE_PENALTY_MS)
             val jitterPenalty = (latencyStabilityPenaltyMs[profile] ?: 0L)
                 .coerceIn(0L, LatencyStabilityScorer.MAX_PENALTY_MS)
+            val reliabilityPenalty = (reliabilityPenaltyMs[profile] ?: 0L)
+                .coerceIn(0L, MAX_RELIABILITY_PENALTY_MS)
             val baseScore = addPenalty(
-                addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty),
-                jitterPenalty
+                addPenalty(
+                    addPenalty(addPenalty(latency, protocolPenalty), stabilityPenalty),
+                    jitterPenalty
+                ),
+                reliabilityPenalty
             )
             val throughputBonus = throughputSamples[profile]?.let {
                 ThroughputFreshnessPolicy.selectionBonusMs(it, nowEpochMs)
