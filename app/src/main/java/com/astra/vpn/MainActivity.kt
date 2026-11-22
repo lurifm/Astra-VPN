@@ -757,7 +757,7 @@ class MainActivity : Activity() {
             text = "Все серверы  ›"; textSize = 11f; typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFC5D0FF.toInt()); gravity = Gravity.CENTER
             setPadding(dp(8), dp(5), dp(2), dp(5)); isClickable = true; isFocusable = true
-            setOnClickListener { profileScroll.post { profileScroll.smoothScrollTo(0, listHeader.top) } }
+            // Handler is attached after listHeader is created.
         })
         quickSwitchContainer.addView(quickSwitchHeader, matchWidth())
         connectCard.addView(quickSwitchContainer, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
@@ -766,6 +766,9 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(24), 0, dp(12))
+        }
+        quickSwitchHeader.getChildAt(1).setOnClickListener {
+            profileScroll.post { profileScroll.smoothScrollTo(0, listHeader.top) }
         }
         val listTitle = TextView(this).apply {
             text = "ОРБИТЫ"
