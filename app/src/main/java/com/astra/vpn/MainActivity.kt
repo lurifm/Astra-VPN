@@ -181,6 +181,7 @@ class MainActivity : Activity() {
     private var pendingFailoverSelection: FailoverSelectionTransaction? = null
     private var persistedSelectionSnapshot: String? = null
     private var selectionPersistenceReady = false
+    private var selectionPersistenceWarningShown = false
     private var activeProfile: String? = null
     private var pendingConfig: String? = null
     // Profile captured together with the config while Android VPN consent is pending.
@@ -1942,7 +1943,22 @@ class MainActivity : Activity() {
     private fun persistSelectedProfileIfChanged() {
         if (!selectionPersistenceReady || persistedSelectionSnapshot == selectedProfile) return
         runCatching { profileStore.setSelectedProfile(selectedProfile) }
-            .onSuccess { persistedSelectionSnapshot = selectedProfile }
+            .onSuccess {
+                persistedSelectionSnapshot = selectedProfile
+                selectionPersistenceWarningShown = false
+            }
+            .onFailure {
+                // Keep the old snapshot so a later render retries the encrypted write.
+                // Avoid a toast on every render while still making a real storage failure visible.
+                if (!selectionPersistenceWarningShown && !isFinishing && !isDestroyed) {
+                    selectionPersistenceWarningShown = true
+                    Toast.makeText(
+                        this,
+                        "Не удалось сохранить выбранный сервер. Проверь защищённое хранилище.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
     }
 
     private fun formatServerCount(count: Int): String {
