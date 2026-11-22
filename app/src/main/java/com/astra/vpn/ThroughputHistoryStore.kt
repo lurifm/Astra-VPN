@@ -10,6 +10,10 @@ import java.security.MessageDigest
  */
 internal class ThroughputHistoryStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    // Decode persisted JSON and hash each profile only once per process. Server-list
+    // renders can happen repeatedly while Ping updates arrive; they should be memory-only.
+    private val sampleCache = HashMap<String, ThroughputSample>()
+    private var cacheLoaded = false
 
     @Synchronized
     fun put(profile: String, sample: ThroughputSample) {
@@ -24,25 +28,20 @@ internal class ThroughputHistoryStore(context: Context) {
         // apply() updates the in-memory cache immediately and persists on a
         // background thread; this method is also called from BroadcastReceiver
         // callbacks on the main thread, so commit() would risk a UI stall.
-        prefs.edit().putString(key(profile), value.toString()).apply()
-        prune()
+        ensureCacheLoaded(System.currentTimeMillis())
+        val storageKey = key(profile)
+        sampleCache[storageKey] = sample
+        prefs.edit().putString(storageKey, value.toString()).apply()
+        prune(System.currentTimeMillis())
     }
 
     @Synchronized
     fun get(profile: String, nowEpochMs: Long = System.currentTimeMillis()): ThroughputSample? {
+        ensureCacheLoaded(nowEpochMs)
         val storageKey = key(profile)
-        val raw = prefs.getString(storageKey, null) ?: return null
-        val sample = runCatching {
-            val json = JSONObject(raw)
-            ThroughputSample(
-                json.getDouble("downloadMbps"),
-                json.getDouble("uploadMbps"),
-                json.getLong("measuredAt")
-            )
-        }.getOrNull()
-        if (sample == null || !ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
-            // Remove corrupt/expired entries on read so repeated profile-list
-            // renders do not keep encountering the same unusable cache value.
+        val sample = sampleCache[storageKey] ?: return null
+        if (!ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
+            sampleCache.remove(storageKey)
             prefs.edit().remove(storageKey).apply()
             return null
         }
@@ -57,18 +56,24 @@ internal class ThroughputHistoryStore(context: Context) {
 
     @Synchronized
     fun remove(profile: String) {
-        prefs.edit().remove(key(profile)).apply()
+        val storageKey = key(profile)
+        sampleCache.remove(storageKey)
+        prefs.edit().remove(storageKey).apply()
     }
 
     @Synchronized
     fun clear() {
+        sampleCache.clear()
+        cacheLoaded = true
         prefs.edit().clear().apply()
     }
 
-    private fun prune() {
-        val now = System.currentTimeMillis()
+    /** Load and validate the persisted snapshot once; later reads never parse JSON. */
+    private fun ensureCacheLoaded(nowEpochMs: Long) {
+        if (cacheLoaded) return
         val editor = prefs.edit()
         prefs.all.forEach { (storedKey, raw) ->
+            if (!storedKey.startsWith(PREFIX)) return@forEach
             val sample = (raw as? String)?.let {
                 runCatching {
                     val json = JSONObject(it)
@@ -79,10 +84,24 @@ internal class ThroughputHistoryStore(context: Context) {
                     )
                 }.getOrNull()
             }
-            if (sample == null || !ThroughputFreshnessPolicy.isFresh(sample, now)) {
+            if (sample != null && ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
+                sampleCache[storedKey] = sample
+            } else {
                 editor.remove(storedKey)
             }
         }
+        cacheLoaded = true
+        editor.apply()
+    }
+
+    private fun prune(nowEpochMs: Long) {
+        val expiredKeys = sampleCache.filterValues {
+            !ThroughputFreshnessPolicy.isFresh(it, nowEpochMs)
+        }.keys
+        if (expiredKeys.isEmpty()) return
+        expiredKeys.forEach(sampleCache::remove)
+        val editor = prefs.edit()
+        expiredKeys.forEach(editor::remove)
         // SharedPreferences applies removals to its in-memory map immediately;
         // disk I/O is delegated away from the caller/UI thread.
         editor.apply()
