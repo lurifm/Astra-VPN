@@ -77,6 +77,7 @@ internal object SubscriptionRefreshHistory {
 }
 
 class MainActivity : Activity() {
+    private var settingsDialog: android.app.Dialog? = null
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
     private lateinit var profileScroll: ScrollView
@@ -5470,7 +5471,17 @@ class MainActivity : Activity() {
     }
 
     private fun showAppSettingsDialog() {
+        // Prevent repeated taps from stacking identical settings windows.
+        // Keep one live instance and bring it forward if a tap arrives during animation.
+        settingsDialog?.takeIf { it.isShowing }?.let { existing ->
+            existing.window?.decorView?.bringToFront()
+            return
+        }
         val sheet = android.app.Dialog(this)
+        settingsDialog = sheet
+        sheet.setOnDismissListener {
+            if (settingsDialog === sheet) settingsDialog = null
+        }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(12))
@@ -5811,15 +5822,13 @@ class MainActivity : Activity() {
         val sheetContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(18))
+            // Full-screen settings surface: no strip of the home screen may remain
+            // visible at the side on narrow phones or with enlarged system fonts.
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(0xFF121D30.toInt(), 0xFF090F1B.toInt())
             ).apply {
-                cornerRadii = floatArrayOf(
-                    dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
-                setStroke(dp(1), 0xFF293A59.toInt())
+                cornerRadius = 0f
             }
         }
         val sheetHeader = LinearLayout(this).apply {
@@ -5901,9 +5910,9 @@ class MainActivity : Activity() {
         sheet.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         sheet.setOnShowListener {
             sheet.window?.let { dialogWindow ->
-                dialogWindow.setGravity(Gravity.START)
+                dialogWindow.setGravity(Gravity.CENTER)
                 dialogWindow.setLayout(
-                    dp(330).coerceAtMost(resources.displayMetrics.widthPixels - dp(28)),
+                    ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
                 dialogWindow.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -5916,9 +5925,9 @@ class MainActivity : Activity() {
         }
         sheet.show()
         sheet.window?.let { dialogWindow ->
-            dialogWindow.setGravity(Gravity.START)
+            dialogWindow.setGravity(Gravity.CENTER)
             dialogWindow.setLayout(
-                dp(330).coerceAtMost(resources.displayMetrics.widthPixels - dp(28)),
+                ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         }
