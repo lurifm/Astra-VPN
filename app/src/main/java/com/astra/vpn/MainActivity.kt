@@ -4170,7 +4170,12 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val previousFingerprint = settingsPrefs.getString(KEY_CONNECT_RETRY_PROFILE, null)
         val previousCreatedAt = settingsPrefs.getLong(KEY_CONNECT_RETRY_CREATED_AT, 0L)
-        val createdAt = if (previousFingerprint == fingerprint && previousCreatedAt > 0L) {
+        val previousStateAge = now - previousCreatedAt
+        val createdAt = if (
+            previousFingerprint == fingerprint &&
+            previousCreatedAt > 0L &&
+            previousStateAge in 0..TransientConnectRetryStatePolicy.MAX_STATE_AGE_MS
+        ) {
             previousCreatedAt
         } else {
             now
