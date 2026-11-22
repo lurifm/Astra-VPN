@@ -9,6 +9,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.SocketFactory
 
@@ -43,12 +44,16 @@ object TcpLatencyProbe {
         require(timeoutMs in 1L..60_000L) { "Timeout must be between 1 and 60000 ms" }
 
         val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = AtomicBoolean(false)
         return runBounded(timeoutMs, onTimeout = {
+            // DNS may ignore interruption and return after the caller's deadline.
+            timedOut.set(true)
             runCatching { activeSocket.getAndSet(null)?.close() }
         }) {
             val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             val dnsStarted = System.nanoTime()
             val addresses = network?.getAllByName(host) ?: InetAddress.getAllByName(host)
+            if (timedOut.get()) throw SocketTimeoutException("TCP latency probe timed out during DNS")
             val socketFactory = network?.socketFactory ?: SocketFactory.getDefault()
             val dnsMs = elapsedMillis(dnsStarted)
             if (addresses.isEmpty()) throw IllegalStateException("DNS returned no addresses")
@@ -59,10 +64,15 @@ object TcpLatencyProbe {
                 val samples = mutableListOf<Long>()
                 repeat(SAMPLE_COUNT) {
                     val remainingMs = remainingMillis(deadlineNanos)
-                    if (remainingMs <= 0L) throw SocketTimeoutException("TCP latency probe timed out")
+                    if (timedOut.get() || remainingMs <= 0L) {
+                        throw SocketTimeoutException("TCP latency probe timed out")
+                    }
                     val started = System.nanoTime()
                     val socket = socketFactory.createSocket()
-                    activeSocket.set(socket)
+                    // Close the race where the timeout fires before socket publication.
+                    if (!registerActiveSocket(activeSocket, socket, timedOut)) {
+                        throw SocketTimeoutException("TCP latency probe timed out")
+                    }
                     val connected = try {
                         socket.use {
                             it.connect(
@@ -110,6 +120,24 @@ object TcpLatencyProbe {
             if (cause is Error) throw cause
             throw IllegalStateException("TCP latency probe failed", cause)
         }
+    }
+
+    internal fun registerActiveSocket(
+        activeSocket: AtomicReference<Socket?>,
+        socket: Socket,
+        timedOut: AtomicBoolean
+    ): Boolean {
+        if (timedOut.get()) {
+            runCatching { socket.close() }
+            return false
+        }
+        activeSocket.set(socket)
+        if (timedOut.get()) {
+            activeSocket.compareAndSet(socket, null)
+            runCatching { socket.close() }
+            return false
+        }
+        return true
     }
 
     internal fun remainingMillis(deadlineNanos: Long): Long {
