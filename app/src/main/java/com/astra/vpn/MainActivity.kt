@@ -5818,7 +5818,7 @@ class MainActivity : Activity() {
             setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showProtectionStreakDialog() } }
         }
         addActionRow(streakEntry)
-        val speedFailoverEntry = CheckBox(this).apply {
+        val speedFailoverEntry = android.widget.Switch(this).apply {
             text = "Автопереключение при падении скорости"
             textSize = 13f
             setTextColor(Color.WHITE)
