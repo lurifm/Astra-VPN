@@ -21,6 +21,13 @@ internal class OrbitHeroView(context: Context) : View(context) {
     private val meteorStarts = floatArrayOf(.08f, .38f, .68f)
     private val satelliteRadii = floatArrayOf(.67f, .91f)
     private val satelliteDirections = floatArrayOf(1f, -0.62f)
+    private val gradientStops = floatArrayOf(0f, .48f, 1f)
+    private val nightGradientStops = floatArrayOf(0f, .62f, 1f)
+    private val connectedGlow = intArrayOf(0x5549D6A8, 0x1E36B88B, 0x00000000)
+    private val transitionGlow = intArrayOf(0x55FFC45C, 0x1EDB9A42, 0x00000000)
+    private val switchingGlow = intArrayOf(0x554D9BCB, 0x1E3D78A8, 0x00000000)
+    private val idleGlow = intArrayOf(0x35F6C85F, 0x12D8B65B, 0x00000000)
+    private val nightGlow = intArrayOf(0x001A2B55, 0x002B305B, 0x00000000)
 
     fun setConnectionState(state: String) {
         if (connectionState == state) return
@@ -61,14 +68,14 @@ internal class OrbitHeroView(context: Context) : View(context) {
         val phase = if (animationAllowed)
             (now % 18_000L) / 18_000f else 0f
         val pulse = if (animationAllowed) .94f + .06f * sin(phase * Math.PI * 2.0).toFloat() else 1f
+        val glowColors = when (connectionState) {
+            "connected" -> connectedGlow
+            "connecting", "disconnecting" -> transitionGlow
+            "switching" -> switchingGlow
+            else -> idleGlow
+        }
         glowPaint.shader = RadialGradient(cx, cy, radius * .72f * pulse,
-            when (connectionState) {
-                "connected" -> intArrayOf(0x5549D6A8, 0x1E36B88B, 0x00000000)
-                "connecting", "disconnecting" -> intArrayOf(0x55FFC45C, 0x1EDB9A42, 0x00000000)
-                "switching" -> intArrayOf(0x554D9BCB, 0x1E3D78A8, 0x00000000)
-                else -> intArrayOf(0x35F6C85F, 0x12D8B65B, 0x00000000)
-            },
-            floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
+            glowColors, gradientStops, Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, radius * .72f * pulse, glowPaint)
         glowPaint.shader = null
         for (index in ringFactors.indices) {
@@ -102,10 +109,9 @@ internal class OrbitHeroView(context: Context) : View(context) {
 
         if (nightActive && nightReveal > 0f) {
             // A soft, gradually illuminated sky; the overlay remains translucent.
+            nightGlow[1] = android.graphics.Color.argb((reveal * 38).toInt(), 27, 48, 91)
             glowPaint.shader = RadialGradient(cx, cy, radius * 1.42f,
-                intArrayOf(0x001A2B55, android.graphics.Color.argb((reveal * 38).toInt(), 27, 48, 91),
-                    0x00000000),
-                floatArrayOf(0f, .62f, 1f), Shader.TileMode.CLAMP)
+                nightGlow, nightGradientStops, Shader.TileMode.CLAMP)
             canvas.drawCircle(cx, cy, radius * 1.42f, glowPaint)
             glowPaint.shader = null
 
