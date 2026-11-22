@@ -341,8 +341,17 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             runCatching { server?.closeService() }
             runCatching { server?.close() }
         }, "Astra-ThroughputCleanup").apply { isDaemon = true; start() }
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Service lifecycle and notification operations are serialized on
+        // the main thread even when a successful probe finishes on its worker.
+        val stopService = Runnable {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            stopService.run()
+        } else {
+            mainHandler.post(stopService)
+        }
     }
 
     override fun serviceStop() { mainHandler.post { finish() } }
