@@ -19,6 +19,11 @@ internal class OrbitMapView(
 ) : View(context) {
     data class Node(val label: String, val quality: Int, val selected: Boolean)
 
+    private companion object {
+        const val ACTION_NEXT_SERVER = 0x00A57001
+        const val ACTION_PREVIOUS_SERVER = 0x00A57002
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val positions = mutableListOf<Pair<Float, Float>>()
     private var selectedIndex = nodes.indexOfFirst { it.selected }.coerceAtLeast(0)
@@ -56,14 +61,14 @@ internal class OrbitMapView(
         info: android.view.accessibility.AccessibilityNodeInfo
     ) {
         super.onInitializeAccessibilityNodeInfo(info)
-        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
-        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(ACTION_NEXT_SERVER, "Следующий сервер"))
+        info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(ACTION_PREVIOUS_SERVER, "Предыдущий сервер"))
     }
 
     override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
         return when (action) {
-            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> moveSelection(1)
-            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> moveSelection(-1)
+            ACTION_NEXT_SERVER -> moveSelection(1)
+            ACTION_PREVIOUS_SERVER -> moveSelection(-1)
             else -> super.performAccessibilityAction(action, arguments)
         }
     }
