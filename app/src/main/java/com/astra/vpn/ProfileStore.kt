@@ -450,7 +450,7 @@ class ProfileStore(context: Context) {
             lower.startsWith("tuic://")
         // A backup is untrusted input too: validate credentials, endpoint,
         // TLS and transport against the exact sing-box core before persisting.
-        link.length in 1..16_384 &&
+        return link.length in 1..16_384 &&
             supportedScheme &&
             SingBoxConfigBuilder.validateProxyOutbound(link)
     }
