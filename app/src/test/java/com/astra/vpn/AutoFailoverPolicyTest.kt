@@ -72,4 +72,14 @@ class AutoFailoverPolicyTest {
         )
     }
 
+    @Test
+    fun sharedCooldownGateRejectsEarlyAndInvalidSwitches() {
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(10_000L, 129_999L, 120_000L))
+        assertTrue(AutoFailoverPolicy.cooldownElapsed(10_000L, 130_000L, 120_000L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(-1L, 500_000L, 1L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(0L, 500_000L, 0L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(0L, -1L, 1L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(Long.MAX_VALUE, Long.MAX_VALUE, 1L))
+    }
+
 }
