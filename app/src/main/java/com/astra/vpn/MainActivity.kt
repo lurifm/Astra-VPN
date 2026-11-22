@@ -4072,23 +4072,38 @@ class MainActivity : Activity() {
         val generation = connectRetryGeneration
         status.text = "Повторная попытка подключения через ${delay / 1_000} сек…"
         status.setTextColor(AMBER)
-        connectRetryTask = Runnable {
-            val canExecute = TransientConnectRetryPolicy.shouldExecute(
+        lateinit var retryTask: Runnable
+        retryTask = Runnable {
+            val retryStillRelevant = TransientConnectRetryPolicy.shouldExecute(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
                 activityActive = !isFinishing && !isDestroyed,
                 userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
                 connecting = connecting,
                 connected = connected,
-                disconnecting = disconnecting
+                disconnecting = disconnecting,
+                // First validate cancellation/lifecycle gates independently from
+                // physical connectivity; an outage must defer, not consume, a retry.
+                hasValidatedPhysicalInternet = true
             )
-            if (!canExecute) {
+            if (!retryStillRelevant) {
                 connectRetryTask = null
+                return@Runnable
+            }
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            if (!hasValidatedPhysicalNetwork(connectivity)) {
+                status.text = "Ожидаем восстановления интернета…"
+                status.setTextColor(AMBER)
+                connectRetryTask = retryTask
+                connectRetryHandler.postDelayed(retryTask, 4_000L)
+                updateProtectionLabels()
                 return@Runnable
             }
             connectRetryTask = null
             connectSelectedProfile()
-        }.also { connectRetryHandler.postDelayed(it, delay) }
+        }
+        connectRetryTask = retryTask
+        connectRetryHandler.postDelayed(retryTask, delay)
         updateProtectionLabels()
         return true
     }
