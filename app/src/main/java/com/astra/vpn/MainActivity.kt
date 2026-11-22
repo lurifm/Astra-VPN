@@ -4639,6 +4639,7 @@ class MainActivity : Activity() {
             // No validated physical Internet: this is an access-network outage,
             // not evidence that the selected VPN server is broken.
             waitingForUnderlyingNetwork = true
+            waitingForVpnRoute = false
             tunnelInternetOk = null
             status.text = "Ожидаем восстановления интернета…"
             status.setTextColor(AMBER)
@@ -4723,6 +4724,7 @@ class MainActivity : Activity() {
                             )
                         ) {
                             waitingForUnderlyingNetwork = true
+                            waitingForVpnRoute = false
                             tunnelInternetOk = null
                             lastHealthCheckAt = 0L
                             status.text = "Ожидаем восстановления интернета…"
