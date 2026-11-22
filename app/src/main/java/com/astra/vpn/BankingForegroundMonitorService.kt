@@ -87,11 +87,7 @@ internal class BankingForegroundMonitorService : Service() {
                     return START_NOT_STICKY
                 }
                 startAsForeground()
-                if (!running) {
-                    running = true
-                    lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
-                    handler.post(poll)
-                }
+                startMonitoringIfNeeded()
                 return START_STICKY
             }
             null -> {
@@ -99,13 +95,27 @@ internal class BankingForegroundMonitorService : Service() {
                     .getBoolean("banking_auto_pause_enabled", false)
                 if (!enabled || !UsageAccessPermission.hasAccess(this)) return START_NOT_STICKY
                 startAsForeground()
-                running = true
-                lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
-                handler.post(poll)
+                startMonitoringIfNeeded()
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
         }
+    }
+
+    /**
+     * Start one polling chain and rebuild the foreground activity set from recent
+     * UsageEvents. A sticky service can be recreated while a bank app has remained
+     * open longer than a short startup window; replaying a full day avoids losing
+     * the active package merely because the monitor process was killed.
+     */
+    private fun startMonitoringIfNeeded() {
+        if (running) return
+        running = true
+        activeActivities.clear()
+        observationPolicy.reset()
+        lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
+        handler.removeCallbacks(poll)
+        handler.post(poll)
     }
 
     /**
@@ -404,7 +414,7 @@ internal class BankingForegroundMonitorService : Service() {
         private const val CHANNEL_ID = "astra_banking_monitor"
         private const val NOTIFICATION_ID = 43
         private const val POLL_INTERVAL_MS = 1_000L
-        private const val INITIAL_LOOKBACK_MS = 60_000L
+        private const val INITIAL_LOOKBACK_MS = 24L * 60L * 60L * 1_000L
         private const val PREF_AUTO_RESUME_LAST_ATTEMPT = "banking_auto_resume_last_attempt_ms"
 
         fun start(context: Context) {

@@ -13,6 +13,11 @@ internal class BankingForegroundObservationPolicy {
     private var candidate: String? = null
     private var consecutiveSamples = 0
 
+    fun reset() {
+        candidate = null
+        consecutiveSamples = 0
+    }
+
     fun observe(packageName: String?): String? {
         if (packageName.isNullOrBlank()) {
             candidate = null
