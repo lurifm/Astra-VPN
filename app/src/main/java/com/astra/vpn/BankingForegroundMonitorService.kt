@@ -110,8 +110,14 @@ internal class BankingForegroundMonitorService : Service() {
                             Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", failure)
                         } finally {
                             handler.post {
-                                stopForeground(STOP_FOREGROUND_REMOVE)
-                                stopSelf()
+                                // ACTION_START may arrive while durable stop cleanup is
+                                // queued. In that case the new monitoring session owns
+                                // the foreground service; do not tear it down afterward.
+                                stopCleanupPending = false
+                                if (!running) {
+                                    stopForeground(STOP_FOREGROUND_REMOVE)
+                                    stopSelf()
+                                }
                             }
                         }
                     }
