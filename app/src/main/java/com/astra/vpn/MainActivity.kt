@@ -5522,6 +5522,24 @@ class MainActivity : Activity() {
             params.bottomMargin = dp(6)
             panel.addView(row, params)
         }
+        fun addToggleRow(toggle: android.widget.CompoundButton) {
+            toggle.textSize = 13f
+            toggle.setTextColor(Color.WHITE)
+            toggle.minHeight = dp(52)
+            toggle.setPadding(dp(12), dp(8), dp(10), dp(8))
+            toggle.background = rounded(0xFF141F31.toInt(), 11)
+            if (toggle is android.widget.Switch) {
+                toggle.thumbTintList = android.content.res.ColorStateList.valueOf(0xFFD6B36A.toInt())
+                toggle.trackTintList = android.content.res.ColorStateList.valueOf(0x665D6B80)
+            } else {
+                toggle.buttonTintList = android.content.res.ColorStateList.valueOf(0xFFD6B36A.toInt())
+            }
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            params.bottomMargin = dp(5)
+            panel.addView(toggle, params)
+        }
         fun addSectionLabel(label: String) {
             panel.addView(TextView(this).apply {
                 text = label.uppercase(java.util.Locale.getDefault())
@@ -5543,9 +5561,9 @@ class MainActivity : Activity() {
         val sortGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         val currentMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         listOf(
-            "original" to "Как в подписке",
-            "ping" to "По пингу (от меньшего к большему)",
-            "alphabet" to "По алфавиту"
+            "original" to "Подписка",
+            "ping" to "Ping ↑",
+            "alphabet" to "А–Я"
         ).forEach { (value, label) ->
             sortGroup.addView(RadioButton(this).apply {
                 id = View.generateViewId()
@@ -5674,7 +5692,7 @@ class MainActivity : Activity() {
                 settingsPrefs.edit().putBoolean("auto_speed_failover", checked).apply()
             }
         }
-        panel.addView(speedFailoverEntry)
+        addToggleRow(speedFailoverEntry)
 
         val networkSecurityEntry = TextView(this).apply {
             text = getString(R.string.network_security_entry)
@@ -5749,7 +5767,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("vpn_recovery_enabled", false)
         }
-        panel.addView(vpnRecovery)
+        addToggleRow(vpnRecovery)
         panel.addView(TextView(this).apply {
             text = "При системном перезапуске процесса Astra попробует восстановить последний сервер. Требуется ранее выданное разрешение Android. После force-stop или перезагрузки телефона потребуется открыть приложение вручную."
             textSize = 11f
@@ -5774,7 +5792,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("battery_saver_mode", false)
         }
-        panel.addView(batterySaver)
+        addToggleRow(batterySaver)
         panel.addView(TextView(this).apply {
             text = "Снижает частоту обновления сетевого мониторинга с 1 до 4 секунд. Проверки безопасности туннеля продолжают работать."
             textSize = 11f
@@ -5789,21 +5807,21 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("auto_update", false)
         }
-        panel.addView(autoUpdate)
+        addToggleRow(autoUpdate)
         val updateOnOpen = android.widget.Switch(this).apply {
             text = "Обновлять при открытии приложения"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("update_on_open", false)
         }
-        panel.addView(updateOnOpen)
+        addToggleRow(updateOnOpen)
         val subscriptionNotifications = android.widget.Switch(this).apply {
             text = "Уведомлять об обновлении подписок"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = settingsPrefs.getBoolean("subscription_notifications", true)
         }
-        panel.addView(subscriptionNotifications)
+        addToggleRow(subscriptionNotifications)
         val interval = TextView(this).apply {
             textSize = 14f
             setTextColor(LIGHT_ACCENT)
