@@ -36,6 +36,18 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun healthResultIsAcceptedOnlyForSameVpnAndSameValidatedUnderlay() {
+        val vpn = "vpn-network"
+        val wifi = "wifi-network"
+        assertTrue(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, "cellular-network", true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, "replacement-vpn", true, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, false, wifi, wifi, true))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(vpn, vpn, true, wifi, wifi, false))
+        assertFalse(NetworkRecoveryPolicy.shouldAcceptHealthResult(null, null, true, wifi, wifi, true))
+    }
+
+    @Test
     fun unvalidatedOrCaptivePortalNetworkIsNotTreatedAsUsableUnderlay() {
         assertFalse(NetworkRecoveryPolicy.shouldProbeTunnel(false))
     }
