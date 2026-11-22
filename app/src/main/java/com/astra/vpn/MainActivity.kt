@@ -1911,7 +1911,10 @@ class MainActivity : Activity() {
                             stopTunnel()
                         }
                         if (removesActiveProfile) activeProfile = null
-                        if (selectedProfile?.let { it in removed } == true) selectedProfile = null
+                        if (selectedProfile?.let { it in removed } == true) {
+                            cancelConnectRetry(resetAttempts = true)
+                            selectedProfile = null
+                        }
                         renderProfiles()
                         checkAllLatencies()
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
@@ -1992,6 +1995,7 @@ class MainActivity : Activity() {
         // Subscription refresh can rotate the selected URI while Android's
         // consent dialog is still open. Never let its captured old config start.
         if (pendingConfig != null && pendingProfile != resolvedSelection) cancelPendingConnect()
+        if (selectedProfile != resolvedSelection) cancelConnectRetry(resetAttempts = true)
         selectedProfile = resolvedSelection
     }
 
@@ -2541,7 +2545,10 @@ class MainActivity : Activity() {
                                 latencyMs.remove(link)
                                 throughputSamples.remove(link)
                                 runCatching { throughputHistory.remove(link) }
-                                if (selectedProfile == link) selectedProfile = null
+                                if (selectedProfile == link) {
+                                    cancelConnectRetry(resetAttempts = true)
+                                    selectedProfile = null
+                                }
                                 renderProfiles()
                                 Toast.makeText(this@MainActivity, "Сервер удалён", Toast.LENGTH_SHORT).show()
                             }
@@ -2818,6 +2825,7 @@ class MainActivity : Activity() {
                         // Cancel it before changing selection so RESULT_OK cannot start
                         // a server that no longer matches the UI selection.
                         if (pendingConfig != null) cancelPendingConnect()
+                        cancelConnectRetry(resetAttempts = true)
                         selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
                         if (connected) connectSelectedProfile()
                     }
@@ -3076,6 +3084,7 @@ class MainActivity : Activity() {
             throughputSamples = throughputHistory.getFresh(candidates)
         )
         if (fastest != null) {
+            if (selectedProfile != fastest) cancelConnectRetry(resetAttempts = true)
             selectedProfile = fastest
             // A successful latency selection is not a VPN connection.
             // Keep the connection status neutral until the tunnel is validated.
