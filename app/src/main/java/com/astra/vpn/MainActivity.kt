@@ -2674,7 +2674,17 @@ class MainActivity : Activity() {
             val clean = fragment.removePrefix("#").replace(Regex("^\\d+[ _-]+"), "")
             val name = clean.takeIf { it.isNotBlank() && it.length <= 48 } ?: uri.host.orEmpty().ifBlank { "Сервер" }
             val flag = CountryFlagResolver.flagFor(name)
-            val country = CountryFlagResolver.countryNameForFlag(flag).ifBlank { name }
+            val country = CountryFlagResolver.countryNameForFlag(flag).takeUnless { it == "Другая страна" } ?: name
+            val countryCode = when (flag) {
+                "🇳🇱" -> "NL"; "🇩🇪" -> "DE"; "🇫🇷" -> "FR"; "🇬🇧" -> "GB"
+                "🇺🇸" -> "US"; "🇸🇪" -> "SE"; "🇫🇮" -> "FI"; "🇵🇱" -> "PL"
+                "🇨🇭" -> "CH"; "🇨🇦" -> "CA"; "🇯🇵" -> "JP"; "🇸🇬" -> "SG"
+                "🇪🇸" -> "ES"; "🇮🇹" -> "IT"; "🇳🇴" -> "NO"; "🇩🇰" -> "DK"
+                "🇧🇪" -> "BE"; "🇦🇹" -> "AT"; "🇷🇺" -> "RU"; "🇹🇷" -> "TR"
+                "🇨🇿" -> "CZ"; "🇪🇪" -> "EE"; "🇱🇻" -> "LV"; "🇱🇹" -> "LT"
+                "🇺🇦" -> "UA"; "🇰🇷" -> "KR"; "🇭🇰" -> "HK"; "🇦🇪" -> "AE"
+                else -> null
+            }
             val measuredLatency = freshLatencyMs(link)
             val ping = measuredLatency?.let { "$it мс" } ?: "— мс"
             val selected = link == selectedProfile
@@ -2710,8 +2720,16 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            tile.addView(TextView(this@MainActivity).apply { text = flag.ifBlank { "✦" }; textSize = 10f; setTextColor(0xFFC7D2F0.toInt()); maxLines = 1 })
-            tile.addView(TextView(this@MainActivity).apply { text = country; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            tile.addView(TextView(this@MainActivity).apply {
+                // Use a stable country code when known; otherwise show the actual
+                // server label instead of the misleading generic "Other country".
+                text = countryCode?.let { "$it · ${protocolName(link)}" } ?: name
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
             tile.addView(TextView(this@MainActivity).apply {
                 text = "●  $healthLabel"
                 textSize = 8f
