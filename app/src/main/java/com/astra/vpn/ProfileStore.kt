@@ -398,9 +398,12 @@ class ProfileStore(context: Context) {
             val item = subscriptionArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Повреждена запись подписки в резервной копии")
             val source = item.optString("sourceUrl").trim()
-            require(source.startsWith("https://", ignoreCase = true) && android.net.Uri.parse(source).host != null) {
-                "В резервной копии найден некорректный адрес HTTPS-подписки"
-            }
+            runCatching { SubscriptionParser.validateSubscriptionUrl(source) }
+                .getOrElse {
+                    throw IllegalArgumentException(
+                        "В резервной копии найден некорректный адрес HTTPS-подписки"
+                    )
+                }
             val links = readLinks(item.optJSONArray("profiles")
                 ?: throw IllegalArgumentException("В резервной копии у подписки отсутствуют серверы"))
             val metadata = item.optString("metadata", "")
@@ -441,12 +444,15 @@ class ProfileStore(context: Context) {
 
     private fun isSupportedBackupLink(link: String): Boolean {
         val lower = link.lowercase(java.util.Locale.ROOT)
-        return link.length in 1..16_384 && (
-            lower.startsWith("vless://") ||
-                lower.startsWith("hysteria2://") ||
-                lower.startsWith("hy2://") ||
-                lower.startsWith("tuic://")
-            )
+        val supportedScheme = lower.startsWith("vless://") ||
+            lower.startsWith("hysteria2://") ||
+            lower.startsWith("hy2://") ||
+            lower.startsWith("tuic://")
+        // A backup is untrusted input too: validate credentials, endpoint,
+        // TLS and transport against the exact sing-box core before persisting.
+        link.length in 1..16_384 &&
+            supportedScheme &&
+            SingBoxConfigBuilder.validateProxyOutbound(link)
     }
 
     private fun sourceId(source: String): String =
