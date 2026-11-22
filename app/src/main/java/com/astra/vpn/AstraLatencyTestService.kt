@@ -50,6 +50,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private var latestResults = LatencyResultAccumulator(emptySet())
     private val batchTimeout = Runnable { finishAndPublish() }
     private val completedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val timedOutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val errorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -190,7 +192,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                             val dispatchStartedAt = SystemClock.uptimeMillis()
                             handler.post {
                                 if (!stopped.get() && outboundTag !in completedTags) {
-                                    val deadline = Runnable { completeUnmeasuredTag(outboundTag) }
+                                    val deadline = Runnable { completeUnmeasuredTag(outboundTag, timedOut = true) }
                                     perServerTimeouts[outboundTag] = deadline
                                     handler.postAtTime(deadline, dispatchStartedAt + BATCH_TIMEOUT_MS)
                                 }
@@ -198,7 +200,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                             runCatching {
                                 activeClient.urlTest(SingBoxUrlTestConfig.groupTagForOutbound(outboundTag))
                             }.onFailure {
-                                handler.post { completeUnmeasuredTag(outboundTag) }
+                                handler.post { completeUnmeasuredTag(outboundTag, timedOut = false) }
                             }
                         }
                     } catch (_: RejectedExecutionException) {
@@ -208,7 +210,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (notDispatched.isNotEmpty()) {
                     // Coalesce overflow into one handler message. Unmeasured is not offline.
                     handler.post {
-                        if (!stopped.get()) notDispatched.forEach(::completeUnmeasuredTag)
+                        if (!stopped.get()) notDispatched.forEach { completeUnmeasuredTag(it, timedOut = false) }
                     }
                 }
             }
@@ -277,11 +279,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
     }
 
-    private fun completeUnmeasuredTag(tag: String) {
+    private fun completeUnmeasuredTag(tag: String, timedOut: Boolean) {
         if (stopped.get() || tag !in expectedTags || !completedTags.add(tag)) return
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
-        // Publish the completion even when URLTest produced no latency. The UI
-        // can now stop showing "Проверяем…" for this server and advance progress.
+        if (timedOut) timedOutTags.add(tag) else errorTags.add(tag)
+        // Publish completion and its reason even without a positive latency.
         publishResults(mapOf(tag to null), finished = false)
         finishIfAllTagsCompleted()
     }
@@ -318,6 +320,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 .putExtra(EXTRA_RESULTS, payload)
                 .putExtra(EXTRA_FINAL, finished)
                 .putExtra(EXTRA_COMPLETED_TAGS, JSONArray(completedTags.toList().sorted()).toString())
+                .putExtra(EXTRA_TIMEOUT_TAGS, JSONArray(timedOutTags.toList().sorted()).toString())
+                .putExtra(EXTRA_ERROR_TAGS, JSONArray(errorTags.toList().sorted()).toString())
                 .putExtra(EXTRA_SESSION, sessionId)
         )
     }
@@ -440,6 +444,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_RESULTS = "com.astra.vpn.extra.LATENCY_RESULTS"
         const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
         const val EXTRA_COMPLETED_TAGS = "com.astra.vpn.extra.LATENCY_COMPLETED_TAGS"
+        const val EXTRA_TIMEOUT_TAGS = "com.astra.vpn.extra.LATENCY_TIMEOUT_TAGS"
+        const val EXTRA_ERROR_TAGS = "com.astra.vpn.extra.LATENCY_ERROR_TAGS"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         const val EXTRA_SESSION = "com.astra.vpn.extra.LATENCY_SESSION"
         private const val LATENCY_PREFS = "astra_latency_results"
