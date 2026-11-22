@@ -4074,29 +4074,41 @@ class MainActivity : Activity() {
         status.setTextColor(AMBER)
         lateinit var retryTask: Runnable
         retryTask = Runnable {
-            val retryStillRelevant = TransientConnectRetryPolicy.shouldExecute(
+            val retryStillRelevant = TransientConnectRetryPolicy.shouldRemainPending(
                 generationCurrent = generation == connectRetryGeneration,
                 selectedProfileUnchanged = selectedProfile == retryProfile,
                 activityActive = !isFinishing && !isDestroyed,
                 userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
                 connecting = connecting,
                 connected = connected,
-                disconnecting = disconnecting,
-                // First validate cancellation/lifecycle gates independently from
-                // physical connectivity; an outage must defer, not consume, a retry.
-                hasValidatedPhysicalInternet = true
+                disconnecting = disconnecting
             )
             if (!retryStillRelevant) {
                 connectRetryTask = null
                 return@Runnable
             }
             val connectivity = getSystemService(ConnectivityManager::class.java)
-            if (!hasValidatedPhysicalNetwork(connectivity)) {
-                status.text = "Ожидаем восстановления интернета…"
-                status.setTextColor(AMBER)
-                connectRetryTask = retryTask
-                connectRetryHandler.postDelayed(retryTask, 4_000L)
-                updateProtectionLabels()
+            val hasValidatedInternet = hasValidatedPhysicalNetwork(connectivity)
+            if (!TransientConnectRetryPolicy.shouldExecute(
+                    generationCurrent = generation == connectRetryGeneration,
+                    selectedProfileUnchanged = selectedProfile == retryProfile,
+                    activityActive = !isFinishing && !isDestroyed,
+                    userRequestedDisconnect = settingsPrefs.getBoolean("vpn_disconnect_requested", false),
+                    connecting = connecting,
+                    connected = connected,
+                    disconnecting = disconnecting,
+                    hasValidatedPhysicalInternet = hasValidatedInternet
+                )
+            ) {
+                if (!hasValidatedInternet) {
+                    status.text = "Ожидаем восстановления интернета…"
+                    status.setTextColor(AMBER)
+                    connectRetryTask = retryTask
+                    connectRetryHandler.postDelayed(retryTask, 4_000L)
+                    updateProtectionLabels()
+                } else {
+                    connectRetryTask = null
+                }
                 return@Runnable
             }
             connectRetryTask = null
