@@ -5577,28 +5577,51 @@ class MainActivity : Activity() {
             background = rounded(BG, 22)
         }
         fun addActionRow(row: TextView) {
-            val marker = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFFD6B36A.toInt())
-                setSize(dp(7), dp(7))
+            // Compact, consistent navigation row: one monochrome line icon,
+            // one-line title and a quiet chevron. The row remains the original
+            // clickable TextView, so existing navigation callbacks are preserved.
+            val label = row.text.toString().trim()
+            val icon = when {
+                label.contains("монитор", true) -> "⌁"
+                label.contains("скорост", true) || label.contains("ping", true) -> "⌁"
+                label.contains("диагност", true) || label.contains("защит", true) -> "◇"
+                label.contains("истори", true) -> "◷"
+                label.contains("карт", true) || label.contains("орбит", true) -> "⌖"
+                label.contains("трафик", true) || label.contains("прогноз", true) -> "▥"
+                label.contains("семейн", true) || label.contains("доступ", true) -> "⌂"
+                label.contains("банк", true) -> "▣"
+                label.contains("экспорт", true) || label.contains("резерв", true) -> "↗"
+                label.contains("восстанов", true) -> "↻"
+                label.contains("подпис", true) -> "⇄"
+                label.contains("знаком", true) || label.contains("нов", true) -> "✧"
+                else -> "◌"
             }
-            row.setCompoundDrawablesWithIntrinsicBounds(marker, null, null, null)
-            row.compoundDrawablePadding = dp(12)
-            row.minHeight = dp(48)
+            val text = android.text.SpannableString("$icon   $label   ›")
+            text.setSpan(
+                android.text.style.ForegroundColorSpan(0xFF9DAFEA.toInt()),
+                0, icon.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            text.setSpan(
+                android.text.style.ForegroundColorSpan(0xFF77839E.toInt()),
+                text.length - 1, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            row.text = text
+            row.maxLines = 1
+            row.ellipsize = android.text.TextUtils.TruncateAt.END
+            row.minHeight = dp(46)
             row.gravity = Gravity.CENTER_VERTICAL
-            row.text = row.text.toString().trimEnd() + "     ›"
-            row.setPadding(dp(14), dp(9), dp(12), dp(9))
+            row.setPadding(dp(14), dp(7), dp(12), dp(7))
             row.textSize = 13.5f
             row.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             row.setTextColor(0xFFE9EDF6.toInt())
-            row.background = rounded(0xFF141B2A.toInt(), 13).apply {
-                setStroke(dp(1), 0xFF29364C.toInt())
-            }
+            row.background = Color.TRANSPARENT
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            params.bottomMargin = dp(6)
             panel.addView(row, params)
+            panel.addView(View(this).apply {
+                setBackgroundColor(0x222D3B57)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         }
         fun addToggleRow(toggle: android.widget.CompoundButton) {
             toggle.textSize = 13f
