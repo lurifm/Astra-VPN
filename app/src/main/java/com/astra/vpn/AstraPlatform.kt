@@ -36,11 +36,17 @@ class AstraPlatform(
     private val vpnService: VpnService,
     private val onTunCreated: (ParcelFileDescriptor) -> Boolean,
     private val protectSockets: Boolean = true,
-    private val preferredPhysicalNetwork: Network? = null,
+    initialPreferredPhysicalNetwork: Network? = null,
     private val manageVpnUnderlyingNetworks: Boolean = true
 ) : PlatformInterface {
 
+    @Volatile private var preferredPhysicalNetwork: Network? = initialPreferredPhysicalNetwork
     private val connectivity = vpnService.getSystemService(ConnectivityManager::class.java)
+
+    /** Change the preferred underlay for sockets opened after a network handover. */
+    fun updatePreferredPhysicalNetwork(network: Network) {
+        preferredPhysicalNetwork = network
+    }
     private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var interfaceListener: InterfaceUpdateListener? = null
     private var lastUnderlyingNetwork: Network? = null
@@ -404,7 +410,8 @@ class AstraPlatform(
      */
     private fun probeNetworkCandidates(): List<Network> {
         val active = runCatching { connectivity.activeNetwork }.getOrNull()
-        return (listOfNotNull(preferredPhysicalNetwork, active) + connectivity.allNetworks)
+        val preferred = preferredPhysicalNetwork
+        return (listOfNotNull(preferred, active) + connectivity.allNetworks)
             .distinct()
             .mapNotNull { network ->
                 val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
@@ -419,7 +426,7 @@ class AstraPlatform(
                     true
                 }
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                val preferred = network == preferredPhysicalNetwork
+                val isPreferred = network == preferred
                 val isActive = network == active
                 val transportPriority = when {
                     caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 2
@@ -427,7 +434,7 @@ class AstraPlatform(
                     caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0
                     else -> -1
                 }
-                ProbeNetworkCandidate(network, validated, notSuspended, preferred, isActive, transportPriority)
+                ProbeNetworkCandidate(network, validated, notSuspended, isPreferred, isActive, transportPriority)
             }
             .filter { it.notSuspended }
             .sortedWith(
@@ -475,7 +482,8 @@ class AstraPlatform(
 
         // URL-test receives the exact physical network selected by the main
         // process. Keep interface metadata and socket binding on that same route.
-        if (isUsablePhysicalNetwork(preferredPhysicalNetwork)) return preferredPhysicalNetwork
+        val preferred = preferredPhysicalNetwork
+        if (isUsablePhysicalNetwork(preferred)) return preferred
 
         // If Android exposes a physical default network, it is authoritative.
         // Do not choose another simultaneously-connected transport just because

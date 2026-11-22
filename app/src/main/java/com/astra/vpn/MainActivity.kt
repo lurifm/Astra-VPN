@@ -324,6 +324,20 @@ class MainActivity : Activity() {
         }
         updateProtectionLabels()
         updateNetworkLabel()
+
+        // Keep an in-progress Ping batch on the newly selected physical network.
+        // This updates only the isolated probe process; it does not restart Astra's VPN.
+        if (latencyTestInFlight) {
+            val session = activeLatencySessionId
+            val physicalNetwork = networkForLatencyProbe()
+            if (!session.isNullOrBlank() && physicalNetwork != null) {
+                runCatching {
+                    AstraLatencyTestService.updatePhysicalNetwork(this, physicalNetwork, session)
+                }.onFailure {
+                    android.util.Log.w("AstraVPN", "Не удалось обновить сеть проверки Ping", it)
+                }
+            }
+        }
         if (connected) scheduleTunnelHealthCheck()
     }
 

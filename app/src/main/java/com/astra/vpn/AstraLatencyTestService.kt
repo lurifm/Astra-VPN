@@ -43,6 +43,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val urlTestsDispatched = AtomicBoolean(false)
     @Volatile private var server: CommandServer? = null
     @Volatile private var client: CommandClient? = null
+    // Updated from the foreground Activity after Wi-Fi/cellular handovers.
+    @Volatile private var probePlatform: AstraPlatform? = null
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     private var latestResults = LatencyResultAccumulator(emptySet())
@@ -61,9 +63,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val nativeSlotReleaseTimeouts = linkedMapOf<String, Runnable>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            finish()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                finish()
+                return START_NOT_STICKY
+            }
+            ACTION_NETWORK_UPDATE -> {
+                val incomingSession = intent.getStringExtra(EXTRA_SESSION)
+                val network = intent.getParcelableExtra<Network>(EXTRA_NETWORK)
+                if (!stopped.get() && incomingSession == sessionId && network != null) {
+                    probePlatform?.updatePreferredPhysicalNetwork(network)
+                }
+                return START_NOT_STICKY
+            }
         }
         if (!startAccepted.compareAndSet(false, true)) return START_NOT_STICKY
         sessionId = intent?.getStringExtra(EXTRA_SESSION)
@@ -102,7 +114,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 val platform = AstraPlatform(this, { _ ->
                     failIfActive("Проверка неожиданно запросила VPN-интерфейс")
                     false
-                }, protectSockets = false, preferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
+                }, protectSockets = false, initialPreferredPhysicalNetwork = probeNetwork, manageVpnUnderlyingNetworks = false)
+                probePlatform = platform
+                if (stopped.get()) return@execute
                 val commandServer = CommandServer(this, platform)
                 createdServer = commandServer
                 commandServer.start()
@@ -437,6 +451,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         client = null
         val currentServer = server
         server = null
+        probePlatform = null
         closeLibboxResourcesAsync(currentClient, currentServer)
         getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_ACTIVE_SESSION_ID).apply()
@@ -493,6 +508,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     companion object {
         const val ACTION_START = "com.astra.vpn.action.START_LATENCY_TEST"
         const val ACTION_STOP = "com.astra.vpn.action.STOP_LATENCY_TEST"
+        const val ACTION_NETWORK_UPDATE = "com.astra.vpn.action.UPDATE_LATENCY_NETWORK"
         const val ACTION_RESULTS = "com.astra.vpn.action.LATENCY_RESULTS"
         const val ACTION_ERROR = "com.astra.vpn.action.LATENCY_ERROR"
         const val EXTRA_CONFIG = "com.astra.vpn.extra.LATENCY_CONFIG"
@@ -527,6 +543,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             } else {
                 context.startService(intent)
             }
+        }
+
+        /** Update only the underlay preference; the native test engine and VPN stay running. */
+        fun updatePhysicalNetwork(context: Context, network: Network, sessionId: String) {
+            val intent = Intent(context, AstraLatencyTestService::class.java)
+                .setAction(ACTION_NETWORK_UPDATE)
+                .putExtra(EXTRA_NETWORK, network)
+                .putExtra(EXTRA_SESSION, sessionId)
+            context.startService(intent)
         }
     }
 }
