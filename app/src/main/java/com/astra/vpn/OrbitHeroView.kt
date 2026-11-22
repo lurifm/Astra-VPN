@@ -14,10 +14,18 @@ import kotlin.math.sin
 internal class OrbitHeroView(context: Context) : View(context) {
     private var connectionState: String = "idle"
     private var animationAllowed: Boolean = true
+    private var cachedNightState = false
+    private var nextNightCheckAt = 0L
+
+    private val ringFactors = floatArrayOf(.42f, .67f, .91f)
+    private val meteorStarts = floatArrayOf(.08f, .38f, .68f)
+    private val satelliteRadii = floatArrayOf(.67f, .91f)
+    private val satelliteDirections = floatArrayOf(1f, -0.62f)
 
     fun setConnectionState(state: String) {
         if (connectionState == state) return
         connectionState = state
+        nextNightCheckAt = 0L
         invalidate()
     }
 
@@ -49,8 +57,9 @@ internal class OrbitHeroView(context: Context) : View(context) {
         val cx = width / 2f
         val cy = height / 2f
         val radius = min(width * .43f, height * .43f)
+        val now = android.os.SystemClock.uptimeMillis()
         val phase = if (animationAllowed)
-            (android.os.SystemClock.uptimeMillis() % 18_000L) / 18_000f else 0f
+            (now % 18_000L) / 18_000f else 0f
         val pulse = if (animationAllowed) .94f + .06f * sin(phase * Math.PI * 2.0).toFloat() else 1f
         glowPaint.shader = RadialGradient(cx, cy, radius * .72f * pulse,
             when (connectionState) {
@@ -62,7 +71,8 @@ internal class OrbitHeroView(context: Context) : View(context) {
             floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, radius * .72f * pulse, glowPaint)
         glowPaint.shader = null
-        floatArrayOf(.42f, .67f, .91f).forEachIndexed { index, factor ->
+        for (index in ringFactors.indices) {
+            val factor = ringFactors[index]
             ringPaint.color = when (connectionState) {
                 "connected" -> if (index == 0) 0x6658D6A5 else 0x3475C7A7
                 "connecting", "disconnecting" -> if (index == 0) 0x66FFC45C else 0x34D99C53
@@ -72,7 +82,6 @@ internal class OrbitHeroView(context: Context) : View(context) {
             ringPaint.strokeWidth = dp(if (index == 0) 1.3f else 1f)
             canvas.drawCircle(cx, cy, radius * factor, ringPaint)
         }
-        val calendar = java.util.Calendar.getInstance()
         points.forEachIndexed { index, point ->
             starPaint.alpha = if (index % 3 == 0) 220 else 145
             canvas.drawCircle(width * point.first, height * point.second,
@@ -80,10 +89,12 @@ internal class OrbitHeroView(context: Context) : View(context) {
         }
 
         // The ordinary night-sky overlay is time-gated and uses deterministic coordinates.
-        val localHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
-        val isNight = NightSkyAnimationPolicy.isNight(localHour)
-        val nightActive = connectionState == "connected" && isNight
-        val now = android.os.SystemClock.uptimeMillis()
+        if (now >= nextNightCheckAt) {
+            val localHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            cachedNightState = NightSkyAnimationPolicy.isNight(localHour)
+            nextNightCheckAt = now + 60_000L
+        }
+        val nightActive = connectionState == "connected" && cachedNightState
         if (nightActive && !nightWasActive) nightRevealStartedAt = now
         nightWasActive = nightActive
         val nightReveal = if (nightActive) NightSkyAnimationPolicy.revealProgress(now - nightRevealStartedAt) else 0f
@@ -120,8 +131,8 @@ internal class OrbitHeroView(context: Context) : View(context) {
         // A small, fixed number of ordinary night-sky meteor trails; no calendar-based events.
         if (nightActive && animationAllowed) {
             val elapsed = now - nightRevealStartedAt
-            val meteorStarts = floatArrayOf(0.08f, 0.38f, 0.68f)
-            meteorStarts.forEachIndexed { index, fraction ->
+            for (index in meteorStarts.indices) {
+                val fraction = meteorStarts[index]
                 val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 2_700L)
                 if (progress <= 0f) return@forEachIndexed
                 val startX = width * fraction
@@ -139,10 +150,9 @@ internal class OrbitHeroView(context: Context) : View(context) {
         starPaint.color = 0xFFFFD477.toInt()
 
         // Slow counter-rotating satellites add depth without competing with the CTA.
-        val orbitSpecs = listOf(.67f to 1f, .91f to -0.62f)
-        orbitSpecs.forEachIndexed { index, spec ->
-            val angle = ((if (animationAllowed) phase else 0f) * Math.PI * 2.0 * spec.second + index * 1.7).toFloat()
-            val orbitRadius = radius * spec.first
+        for (index in satelliteRadii.indices) {
+            val angle = ((if (animationAllowed) phase else 0f) * Math.PI * 2.0 * satelliteDirections[index] + index * 1.7).toFloat()
+            val orbitRadius = radius * satelliteRadii[index]
             val x = cx + (cos(angle) * orbitRadius).toFloat()
             val y = cy + (sin(angle) * orbitRadius).toFloat()
             orbitDotPaint.alpha = if (index == 0) 235 else 155
