@@ -226,4 +226,51 @@ class ServerFailureScorerTest {
         )
     }
 
+
+    @Test
+    fun validatedSuccessClearsOlderFailurePenalty() {
+        val now = 1_000_000_000L
+        val result = ServerFailureScorer.weightedFailures(
+            listOf(
+                ConnectionHistoryStore.Entry(now - 1L, "connected", "Node A", "VLESS"),
+                ConnectionHistoryStore.Entry(now - 2L, "error", "Node A", "VLESS"),
+                ConnectionHistoryStore.Entry(now - 3L, "error", "Node A", "VLESS")
+            ),
+            now
+        )
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun failureAfterValidatedSuccessStillAffectsReliability() {
+        val now = 1_000_000_000L
+        val result = ServerFailureScorer.weightedFailures(
+            listOf(
+                ConnectionHistoryStore.Entry(now - 1L, "error", "Node A", "VLESS"),
+                ConnectionHistoryStore.Entry(now - 2L, "connected", "Node A", "VLESS"),
+                ConnectionHistoryStore.Entry(now - 3L, "error", "Node A", "VLESS")
+            ),
+            now
+        )
+        assertEquals(3, result["node a|vless"])
+    }
+
+    @Test
+    fun validatedSuccessReleasesServerQuarantine() {
+        val now = 1_000_000L
+        val profile = "vless://id@bad.example:443#Bad"
+        val entries = listOf(
+            ConnectionHistoryStore.Entry(now - 1L, "connected", "Bad", "VLESS"),
+            ConnectionHistoryStore.Entry(now - 2L, "error", "Bad", "VLESS")
+        )
+        assertEquals(
+            listOf(profile),
+            ServerFailureScorer.excludeRecentlyFailedProfiles(
+                listOf(profile), entries, now,
+                nameOf = { it.substringAfterLast('#') },
+                protocolOf = { it.substringBefore("://").uppercase() }
+            )
+        )
+    }
+
 }
