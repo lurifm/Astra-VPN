@@ -13,6 +13,15 @@ internal object NetworkRecoveryPolicy {
     fun shouldRetryAfterHandover(previousRetries: Int): Boolean =
         previousRetries in 0 until MAX_HANDOVER_RETRIES
 
+    /**
+     * Keep interrupted probes queued while the device has no validated underlay.
+     * An outage is not a failed retry and must not consume the handover retry budget.
+     */
+    fun shouldRequeueAfterHandover(
+        previousRetries: Int,
+        hasValidatedUnderlay: Boolean
+    ): Boolean = !hasValidatedUnderlay || shouldRetryAfterHandover(previousRetries)
+
     fun isLatestNetworkChange(expectedGeneration: Long, currentGeneration: Long): Boolean =
         expectedGeneration == currentGeneration
 

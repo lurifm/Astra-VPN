@@ -94,6 +94,21 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun prolongedUnderlayOutageDoesNotConsumeHandoverRetryBudget() {
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(0, false))
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(1, false))
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(2, false))
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(3, false))
+    }
+
+    @Test
+    fun recoveredUnderlayRetriesOnlyWithinConfiguredBudget() {
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(0, true))
+        assertTrue(NetworkRecoveryPolicy.shouldRequeueAfterHandover(1, true))
+        assertFalse(NetworkRecoveryPolicy.shouldRequeueAfterHandover(2, true))
+    }
+
+    @Test
     fun handoverKeepsNativeProbeSlotForFullCancellationSafetyWindow() {
         assertEquals(
             NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS +

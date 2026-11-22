@@ -627,10 +627,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 discardedByNetworkChangeTags.remove(tag)
                 timedOutTags.remove(tag)
                 val retries = handoverRetryCounts[tag] ?: 0
-                val shouldWaitForUnderlay = pendingPreferredNetwork == null
-                val shouldRetry = NetworkRecoveryPolicy.shouldRetryAfterHandover(retries)
-                if (shouldWaitForUnderlay || shouldRetry) {
-                    if (!shouldWaitForUnderlay) handoverRetryCounts[tag] = retries + 1
+                val hasValidatedUnderlay = pendingPreferredNetwork != null
+                val shouldRequeue = NetworkRecoveryPolicy.shouldRequeueAfterHandover(
+                    previousRetries = retries,
+                    hasValidatedUnderlay = hasValidatedUnderlay
+                )
+                if (shouldRequeue) {
+                    if (hasValidatedUnderlay) handoverRetryCounts[tag] = retries + 1
                     completedTags.remove(tag)
                     if (tag !in pendingTags) pendingTags.addFirst(tag)
                     publishResults(mapOf(tag to null), finished = false)
