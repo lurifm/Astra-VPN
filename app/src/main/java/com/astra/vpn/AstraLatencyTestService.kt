@@ -87,7 +87,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         )
         // Bound native engine startup. Once connected, each individual server
         // receives its own independent ten-second URLTest timeout at dispatch.
-        handler.postDelayed(batchTimeout, BATCH_TIMEOUT_MS)
+        handler.postDelayed(batchTimeout, ENGINE_STARTUP_TIMEOUT_MS)
         worker.execute {
             var createdServer: CommandServer? = null
             var createdClient: CommandClient? = null
@@ -194,7 +194,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                                 if (!stopped.get() && outboundTag !in completedTags) {
                                     val deadline = Runnable { completeUnmeasuredTag(outboundTag, timedOut = true) }
                                     perServerTimeouts[outboundTag] = deadline
-                                    handler.postAtTime(deadline, dispatchStartedAt + BATCH_TIMEOUT_MS)
+                                    handler.postAtTime(deadline, dispatchStartedAt + SERVER_URLTEST_TIMEOUT_MS)
                                 }
                             }
                             runCatching {
@@ -477,7 +477,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
-        private const val BATCH_TIMEOUT_MS = 8_000L
+        private const val ENGINE_STARTUP_TIMEOUT_MS = 8_000L
+        private const val SERVER_URLTEST_TIMEOUT_MS = 10_000L
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
         private const val URL_TEST_QUEUE_CAPACITY = 1_024
 
