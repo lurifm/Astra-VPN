@@ -18,6 +18,6 @@ internal object VpnSurfaceStatusPolicy {
 
     fun notificationErrorDetail(errorMessage: String?): String =
         errorMessage?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let { if (it.length > 160) it.take(157) + "…" else it }
+            ?.let { if (it.length > 160) it.take(159) + "…" else it }
             ?: "Не удалось установить соединение"
 }
