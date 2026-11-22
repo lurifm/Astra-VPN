@@ -5,21 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LatencyProbeDispatchPolicyTest {
-    @Test fun dispatchesOnlyActiveIncompleteProbesWithTimeRemaining() {
-        assertTrue(LatencyProbeDispatchPolicy.shouldDispatch(false, false, 1L))
+    @Test fun dispatchesOnlyActiveIncompleteProbes() {
+        assertTrue(LatencyProbeDispatchPolicy.shouldDispatch(false, false))
     }
 
-    @Test fun skipsProbesAfterBatchDeadline() {
-        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, false, 0L))
-        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, false, -1L))
+    @Test fun skipsProbesAfterCancellation() {
+        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(true, false))
+        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(true, true))
     }
 
     @Test fun skipsProbesAlreadyCompletedByResultOrTimeout() {
-        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true, 500L))
-    }
-
-    @Test fun skipsAllQueuedWorkAfterCancellation() {
-        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(true, false, 500L))
-        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(true, true, 0L))
+        assertFalse(LatencyProbeDispatchPolicy.shouldDispatch(false, true))
     }
 }
