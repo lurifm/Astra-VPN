@@ -5124,16 +5124,27 @@ class MainActivity : Activity() {
             return
         }
         val nodes = profiles.take(36).map { profile ->
-            val latency = latencyMs[profile]
+            val latency = freshLatencyMs(profile)
             val quality = when {
                 latency == null -> 0
-                latency <= 80L -> 3
-                latency <= 180L -> 2
-                latency <= 350L -> 1
-                else -> 0
+                latency <= 100L -> 3
+                latency <= 250L -> 2
+                else -> 1
+            }
+            val displayName = profileName(profile)
+            val flag = CountryFlagResolver.flagFor(displayName)
+            val code = when (flag) {
+                "🇳🇱" -> "NL"; "🇩🇪" -> "DE"; "🇫🇷" -> "FR"; "🇬🇧" -> "GB"
+                "🇺🇸" -> "US"; "🇸🇪" -> "SE"; "🇫🇮" -> "FI"; "🇵🇱" -> "PL"
+                "🇨🇭" -> "CH"; "🇨🇦" -> "CA"; "🇯🇵" -> "JP"; "🇸🇬" -> "SG"
+                "🇪🇸" -> "ES"; "🇮🇹" -> "IT"; "🇳🇴" -> "NO"; "🇩🇰" -> "DK"
+                "🇧🇪" -> "BE"; "🇦🇹" -> "AT"; "🇷🇺" -> "RU"; "🇹🇷" -> "TR"
+                "🇨🇿" -> "CZ"; "🇪🇪" -> "EE"; "🇱🇻" -> "LV"; "🇱🇹" -> "LT"
+                "🇺🇦" -> "UA"; "🇰🇷" -> "KR"; "🇭🇰" -> "HK"; "🇦🇪" -> "AE"
+                else -> null
             }
             OrbitMapView.Node(
-                label = profileName(profile),
+                label = code ?: displayName.take(12),
                 quality = quality,
                 selected = profile == selectedProfile
             )
