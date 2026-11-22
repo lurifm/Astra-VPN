@@ -1392,8 +1392,11 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
+                // Dismiss the import sheet before launching another UI surface.
                 dialog.dismiss()
-                startQrScan()
+                window.decorView.post {
+                    if (!isFinishing && !isDestroyed) startQrScan()
+                }
             }
         }
         importMethodsRow.addView(qrButton, LinearLayout.LayoutParams(0, dp(44), 0.78f).apply { rightMargin = dp(5) })
@@ -1407,18 +1410,21 @@ class MainActivity : Activity() {
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
                 dialog.dismiss()
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                        "text/plain", "application/octet-stream", "application/x-yaml"
-                    ))
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                }
-                runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
-                    .onFailure {
-                        Toast.makeText(this@MainActivity, "Не удалось открыть выбор файла", Toast.LENGTH_SHORT).show()
+                window.decorView.post {
+                    if (isFinishing || isDestroyed) return@post
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                            "text/plain", "application/octet-stream", "application/x-yaml"
+                        ))
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }
+                    runCatching { startActivityForResult(intent, REQUEST_IMPORT_FILE) }
+                        .onFailure {
+                            Toast.makeText(this@MainActivity, "Не удалось открыть выбор файла", Toast.LENGTH_SHORT).show()
+                        }
+                }
             }
         }
         importMethodsRow.addView(fileButton, LinearLayout.LayoutParams(0, dp(44), 0.9f))
