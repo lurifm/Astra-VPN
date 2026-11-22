@@ -36,7 +36,7 @@ internal class BankingForegroundMonitorService : Service() {
     @Volatile private var running = false
     @Volatile private var stopCleanupPending = false
 
-    private val poll = object : Runnable {
+    private val poll: Runnable = object : Runnable {
         override fun run() {
             if (!running) return
             try {
