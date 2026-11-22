@@ -31,29 +31,18 @@ class ConnectionHistoryStore(context: Context) {
                 .put("protocol", protocol.take(32))
                 .put("serverId", ProfileIdentity.of(profile))
         )
-        for (index in 0 until minOf(entries.length(), MAX_ENTRIES - 1)) {
+        for (index in 0 until entries.length()) {
             val item = entries.optJSONObject(index) ?: continue
+            if (!isValidEntry(item)) continue
+            if (updated.length() >= MAX_ENTRIES) break
             updated.put(item)
         }
         prefs.edit().putString(KEY_ENTRIES, updated.toString()).apply()
     }
 
     fun getEntries(): List<Entry> = synchronized(STORE_LOCK) {
-        val array = readArray()
-        buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                add(
-                    Entry(
-                        timestamp = item.optLong("timestamp"),
-                        state = item.optString("state", "unknown"),
-                        serverName = item.optString("server", "Сервер не выбран"),
-                        protocol = item.optString("protocol", "—"),
-                        serverId = item.optString("serverId", "")
-                    )
-                )
-            }
-        }
+        runCatching { decodeEntries(prefs.getString(KEY_ENTRIES, null)) }
+            .getOrElse { emptyList() }
     }
 
     fun clear() = synchronized(STORE_LOCK) {
@@ -62,12 +51,51 @@ class ConnectionHistoryStore(context: Context) {
 
     private fun readArray(): JSONArray {
         val raw = prefs.getString(KEY_ENTRIES, null) ?: return JSONArray()
-        return runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        // Do not silently replace an unreadable history with an empty array on
+        // the next append. Let the caller report the failure and keep the raw
+        // preference untouched until the user explicitly clears the history.
+        return try {
+            JSONArray(raw)
+        } catch (error: Exception) {
+            throw IllegalStateException("Connection history is unreadable", error)
+        }
     }
 
     private companion object {
         val STORE_LOCK = Any()
         const val KEY_ENTRIES = "entries"
         const val MAX_ENTRIES = 100
+        private val VALID_STATES = setOf("connecting", "connected", "disconnected", "error")
+
+        internal fun decodeEntries(raw: String?): List<Entry> {
+            if (raw.isNullOrBlank()) return emptyList()
+            val array = JSONArray(raw)
+            return buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    if (!isValidEntry(item)) continue
+                    add(
+                        Entry(
+                            timestamp = item.optLong("timestamp"),
+                            state = item.optString("state"),
+                            serverName = item.optString("server", "Сервер не выбран").take(100),
+                            protocol = item.optString("protocol", "—").take(32),
+                            serverId = item.optString("serverId", "").takeIf {
+                                it.isEmpty() || it.matches(Regex("[0-9a-fA-F]{64}"))
+                            }.orEmpty()
+                        )
+                    )
+                }
+            }
+        }
+
+        private fun isValidEntry(item: JSONObject): Boolean {
+            val timestamp = item.optLong("timestamp", -1L)
+            val state = item.optString("state", "")
+            val serverId = item.optString("serverId", "")
+            return timestamp > 0L &&
+                state in VALID_STATES &&
+                (serverId.isEmpty() || serverId.matches(Regex("[0-9a-fA-F]{64}")))
+        }
     }
 }
