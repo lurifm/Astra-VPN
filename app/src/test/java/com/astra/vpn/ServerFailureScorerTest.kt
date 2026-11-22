@@ -183,6 +183,8 @@ class ServerFailureScorerTest {
     fun repeatedFailuresUseThirtyMinuteMaximumQuarantine() {
         val now = 10_000_000L
         val profile = "vless://id@bad.example:443#Bad"
+        val healthy = "tuic://id:pass@good.example:443#Good"
+        val profiles = listOf(profile, healthy)
         val entries = listOf(1L, 2L, 3L, 4L).map { minutes ->
             ConnectionHistoryStore.Entry(
                 now - minutes * 60L * 1_000L, "error", "Bad", "VLESS"
@@ -192,14 +194,18 @@ class ServerFailureScorerTest {
         val protocolOf: (String) -> String = { it.substringBefore("://").uppercase() }
         assertTrue(
             ServerFailureScorer.excludeRecentlyFailedProfiles(
-                listOf(profile), entries, now,
+                profiles, entries, now,
                 nameOf = nameOf, protocolOf = protocolOf
-            ).isEmpty()
+            )
+        )
+        assertEquals(listOf(healthy), ServerFailureScorer.excludeRecentlyFailedProfiles(
+            profiles, entries, now, nameOf = nameOf, protocolOf = protocolOf
+        ))
         )
         assertEquals(
-            listOf(profile),
+            profiles,
             ServerFailureScorer.excludeRecentlyFailedProfiles(
-                listOf(profile), entries, now + 35L * 60L * 1_000L,
+                profiles, entries, now + 35L * 60L * 1_000L,
                 nameOf = nameOf, protocolOf = protocolOf
             )
         )
