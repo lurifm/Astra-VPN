@@ -21,6 +21,7 @@ internal object ServerFailureScorer {
         windowMs: Long = DEFAULT_WINDOW_MS
     ): Map<String, Int> {
         if (now <= 0L || windowMs <= 0L) return emptyMap()
+        val latestSuccessByIdentity = latestSuccessTimestamps(entries, now)
         val totals = linkedMapOf<String, Int>()
         entries.forEach { entry ->
             if (entry.state != "error" || entry.timestamp <= 0L || entry.timestamp > now) return@forEach
@@ -30,6 +31,9 @@ internal object ServerFailureScorer {
             val protocol = normalizeProtocol(entry.protocol)
             if (name.isEmpty() || protocol.isEmpty()) return@forEach
             val key = "$name|$protocol"
+            // A later end-to-end validated session proves recovery. Only errors
+            // newer than that success should influence the next server decision.
+            if (entry.timestamp <= (latestSuccessByIdentity[key] ?: 0L)) return@forEach
             val weight = when {
                 age <= RECENT_WINDOW_MS -> 3
                 age <= DAY_MS -> 2
@@ -63,6 +67,7 @@ internal object ServerFailureScorer {
 
         // Repeated failures extend only that server's quarantine. A single
         // transient failure keeps the original five-minute recovery window.
+        val latestSuccessByIdentity = latestSuccessTimestamps(entries, now)
         val recentErrors = entries.asSequence()
             .filter { it.state == "error" && it.timestamp > 0L && it.timestamp <= now }
             .filter { now - it.timestamp <= escalationWindowMs }
@@ -70,7 +75,11 @@ internal object ServerFailureScorer {
                 val name = normalizeIdentity(entry.serverName)
                 val protocol = normalizeProtocol(entry.protocol)
                 if (name.isBlank() || protocol.isBlank()) null
-                else "$name|$protocol" to entry.timestamp
+                else {
+                    val key = "$name|$protocol"
+                    if (entry.timestamp <= (latestSuccessByIdentity[key] ?: 0L)) null
+                    else key to entry.timestamp
+                }
             }
             .groupBy({ it.first }, { it.second })
 
@@ -91,6 +100,20 @@ internal object ServerFailureScorer {
         }
         return preferred.ifEmpty { profiles }
     }
+
+    private fun latestSuccessTimestamps(
+        entries: List<ConnectionHistoryStore.Entry>,
+        now: Long
+    ): Map<String, Long> = entries.asSequence()
+        .filter { it.state == "connected" && it.timestamp > 0L && it.timestamp <= now }
+        .mapNotNull { entry ->
+            val name = normalizeIdentity(entry.serverName)
+            val protocol = normalizeProtocol(entry.protocol)
+            if (name.isBlank() || protocol.isBlank()) null
+            else "$name|$protocol" to entry.timestamp
+        }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, timestamps) -> timestamps.maxOrNull() ?: 0L }
 
     private fun normalizeIdentity(value: String): String =
         value.trim().lowercase(Locale.ROOT)
