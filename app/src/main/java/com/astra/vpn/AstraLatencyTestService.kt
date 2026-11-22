@@ -456,6 +456,17 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 )
                 if (!usable) {
                     callbackNetworks.remove(network)
+                    if (pendingPreferredNetwork == network) {
+                        val fallback = callbackNetworks.entries
+                            .maxByOrNull { it.value.transportPriority }
+                            ?.key
+                        if (fallback == null) {
+                            pendingPreferredNetwork = null
+                            probePlatform?.clearPreferredPhysicalNetwork(network)
+                        } else {
+                            preferProbeNetwork(fallback)
+                        }
+                    }
                     return
                 }
                 val priority = when {
@@ -467,7 +478,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 callbackNetworks[network] = ProbeNetworkState(priority)
                 // Keep the currently preferred path while it remains usable.
                 // If it disappeared, onLost selects the best validated candidate.
-                if (pendingPreferredNetwork == null || pendingPreferredNetwork == network) {
+                val currentPreferredIsUsable =
+                    pendingPreferredNetwork?.let(callbackNetworks::containsKey) == true
+                if (!currentPreferredIsUsable || pendingPreferredNetwork == network) {
                     preferProbeNetwork(network)
                 }
             }
