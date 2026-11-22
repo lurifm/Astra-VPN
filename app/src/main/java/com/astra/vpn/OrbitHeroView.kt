@@ -134,7 +134,7 @@ internal class OrbitHeroView(context: Context) : View(context) {
             for (index in meteorStarts.indices) {
                 val fraction = meteorStarts[index]
                 val progress = NightSkyAnimationPolicy.meteorProgress(elapsed, index * 2_700L)
-                if (progress <= 0f) return@forEachIndexed
+                if (progress <= 0f) continue
                 val startX = width * fraction
                 val startY = height * (0.12f + (index % 2) * 0.13f)
                 val endX = startX + width * 0.25f * progress
