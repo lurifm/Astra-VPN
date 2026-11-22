@@ -2431,18 +2431,17 @@ class MainActivity : Activity() {
                     if (connecting) {
                         Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     } else if (connected && link != activeProfile) {
-                        // A new explicit user choice supersedes any delayed retry for the old node.
+                        // Route live server changes through the same guarded connect pipeline
+                        // as the main button: it marks the UI busy immediately, persists the
+                        // selected target on render, and prevents rapid duplicate reloads.
                         cancelConnectRetry(resetAttempts = true)
-                        // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
-                            Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
-                            return@setOnClickListener
-                        }
-                        startTunnel(nextConfig)
+                        renderProfiles()
+                        connectSelectedProfile()
                     } else {
                         if (selectedProfile != link) cancelConnectRetry(resetAttempts = true)
                         selectedProfile = link
+                        persistSelectedProfileIfChanged()
                         renderProfiles()
                     }
                 }
