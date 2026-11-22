@@ -4859,7 +4859,12 @@ class MainActivity : Activity() {
         if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
         val now = android.os.SystemClock.elapsedRealtime()
-        if (!AutoFailoverPolicy.shouldSwitch(consecutiveHealthFailures, lastAutoFailoverAt, now)) return
+        val attemptsInWindow = autoFailoverBudget.attemptsInWindow(now)
+        val adaptiveCooldown = AutoFailoverPolicy.cooldownMs(attemptsInWindow)
+        if (!AutoFailoverPolicy.shouldSwitch(
+                consecutiveHealthFailures, lastAutoFailoverAt, now, adaptiveCooldown
+            )
+        ) return
         if (!autoFailoverBudget.canAttempt(now)) {
             status.text = "Автопереключения временно приостановлены"
             status.setTextColor(AMBER)
