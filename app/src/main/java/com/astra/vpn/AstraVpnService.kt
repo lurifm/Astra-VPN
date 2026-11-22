@@ -743,7 +743,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
         if (historyState != null && historyState != lastHistoryState) {
             runCatching {
-                ConnectionHistoryStore(this).record(historyState, activeProfileName, activeProtocol, activeProfileLink)
+                ConnectionHistoryStore(this).record(historyState, activeProfileName, activeProtocol, activeProfileLink.orEmpty())
             }.onFailure { Log.w(TAG, "Не удалось сохранить историю подключений (" + it.javaClass.simpleName + ")") }
             lastHistoryState = historyState
         }
