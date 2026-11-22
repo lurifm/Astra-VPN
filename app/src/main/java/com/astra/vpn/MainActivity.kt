@@ -6646,12 +6646,8 @@ class MainActivity : Activity() {
             else -> 0xFF806B3A.toInt()
         }
         if (::constellationView.isInitialized) constellationView.setActive(state == "connected")
-        connectionCard.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, colors
-        ).apply {
-            cornerRadius = dp(26).toFloat()
-            setStroke(dp(1), stroke)
-        }
+        // Keep the hero transparent in every VPN state; only the star and
+        // the small status indicator communicate connection health.
         if (::connectButton.isInitialized) {
             val starColor = when (state) {
                 "connected" -> 0xFF2A1B06.toInt()
