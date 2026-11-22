@@ -242,7 +242,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (listOf("dns", "urltest", "url-test", "resolve", "timeout",
                         "failed", "failure", "error", "network", "connect")
                         .none(lower::contains)) continue
-                Log.d(TAG, sanitizeDiagnostic(raw).take(1_200))
+                Log.d(TAG, DiagnosticSanitizer.sanitize(raw).take(1_200))
             }
         }
         override fun writeStatus(message: StatusMessage?) = Unit
@@ -441,15 +441,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     override fun writeDebugMessage(message: String?) {
         // Native debug messages use the same redaction as structured URLTest logs.
         if (!message.isNullOrBlank()) {
-            Log.d(TAG, sanitizeDiagnostic(message).take(1_500))
+            Log.d(TAG, DiagnosticSanitizer.sanitize(message).take(1_500))
         }
     }
 
-    private fun sanitizeDiagnostic(message: String): String {
-        return message
-            .replace(Regex("(?i)(vless|vmess|trojan|ss|hysteria2?|tuic)://\\S+"), "<profile-uri-redacted>")
-            .replace(Regex("(?i)(://)[^/@\\s]+@"), "$1<credentials-redacted>@")
-    }
     override fun connectSSHAgent(): Int = -1
 
     override fun onDestroy() {
