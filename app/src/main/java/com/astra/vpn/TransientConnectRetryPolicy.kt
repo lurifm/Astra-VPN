@@ -1,6 +1,6 @@
 package com.astra.vpn
 
-/** Bounded retry schedule for a transient TUN-creation timeout only. */
+/** Bounded retry schedule for explicitly retryable transient VPN start/reload failures. */
 internal object TransientConnectRetryPolicy {
     private val delays = longArrayOf(3_000L, 8_000L, 15_000L, 30_000L)
 
