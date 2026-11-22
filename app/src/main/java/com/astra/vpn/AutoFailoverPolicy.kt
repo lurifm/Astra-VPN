@@ -4,16 +4,35 @@ package com.astra.vpn
 internal object AutoFailoverPolicy {
     const val REQUIRED_FAILURES = 3
     const val COOLDOWN_MS = 60_000L
+    const val MAX_COOLDOWN_MS = 3L * 60L * 1_000L
+
+    /**
+     * Increase the minimum interval after each automatic hop in the rolling
+     * window. This slows recovery loops without disabling the final fallback.
+     */
+    fun cooldownMs(attemptsInWindow: Int): Long {
+        if (attemptsInWindow <= 0) return COOLDOWN_MS
+        var cooldown = COOLDOWN_MS
+        repeat((attemptsInWindow - 1).coerceAtMost(2)) {
+            cooldown = (cooldown * 2L).coerceAtMost(MAX_COOLDOWN_MS)
+        }
+        return cooldown
+    }
 
     /** Increment a failure streak without allowing integer wraparound. */
     fun nextFailureCount(current: Int): Int =
         if (current < 0) 1 else if (current == Int.MAX_VALUE) Int.MAX_VALUE else current + 1
 
-    fun shouldSwitch(consecutiveFailures: Int, lastSwitchAt: Long, now: Long): Boolean {
+    fun shouldSwitch(
+        consecutiveFailures: Int,
+        lastSwitchAt: Long,
+        now: Long,
+        cooldownMs: Long = COOLDOWN_MS
+    ): Boolean {
         if (consecutiveFailures < REQUIRED_FAILURES) return false
-        // Timestamps come from the system clock; negative values are invalid/corrupt.
-        if (lastSwitchAt < 0L || now < 0L) return false
-        if (lastSwitchAt > Long.MAX_VALUE - COOLDOWN_MS) return false
-        return now >= lastSwitchAt + COOLDOWN_MS
+        // Timestamps come from elapsedRealtime; invalid values fail closed.
+        if (lastSwitchAt < 0L || now < 0L || cooldownMs <= 0L) return false
+        if (lastSwitchAt > Long.MAX_VALUE - cooldownMs) return false
+        return now >= lastSwitchAt + cooldownMs
     }
 }
