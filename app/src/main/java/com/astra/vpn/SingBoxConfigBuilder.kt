@@ -86,8 +86,8 @@ object SingBoxConfigBuilder {
                     .put("type", "local")
                     .put("tag", "dns-direct")))
             .put("final", "dns-remote")
-            // Evaluate Cloudflare first. A valid address response is returned directly;
-            // an empty/error response is retried through the independent Google DoH endpoint.
+            // Evaluate Cloudflare first. While its response is pending, start Google
+            // speculatively; race the successful responses and cancel the loser.
             .put("rules", JSONArray()
                 .put(JSONObject()
                     .put("action", "evaluate")
@@ -96,13 +96,20 @@ object SingBoxConfigBuilder {
                     .put("timeout", "5s"))
                 .put(JSONObject()
                     .put("match_response", "primary-doh")
-                    .put("ip_accept_any", true)
-                    .put("action", "respond"))
+                    .put("response_rcode", "NOERROR")
+                    .put("action", "respond")
+                    .put("race", true))
                 .put(JSONObject()
-                    .put("match_response", "primary-doh")
-                    .put("invert", true)
-                    .put("action", "route")
-                    .put("server", "dns-fallback")))
+                    .put("action", "evaluate")
+                    .put("server", "dns-fallback")
+                    .put("tag", "fallback-doh")
+                    .put("timeout", "5s")
+                    .put("speculative", true))
+                .put(JSONObject()
+                    .put("match_response", "fallback-doh")
+                    .put("response_rcode", "NOERROR")
+                    .put("action", "respond")
+                    .put("race", true)))
             .put("optimistic", if (options.dnsCacheEnabled) {
                 JSONObject().put("enabled", true).put("timeout", "30m")
             } else {
