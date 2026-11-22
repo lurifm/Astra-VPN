@@ -71,6 +71,15 @@ class TransientConnectRetryStatePolicyTest {
         )
     }
 
+    @Test fun fourthAndFinalScheduledAttemptCanBeRestored() {
+        val finalAttempt = state.copy(attempt = 4)
+        assertTrue(
+            TransientConnectRetryStatePolicy.isValid(
+                finalAttempt, fingerprint, 12_000L, false, true
+            )
+        )
+    }
+
     @Test fun invalidAttemptAndExcessiveDueWindowAreRejected() {
         assertFalse(
             TransientConnectRetryStatePolicy.isValid(
