@@ -48,6 +48,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private var expectedTags: Set<String> = emptySet()
     private var sessionId: String? = null
     @Volatile private var batchDeadlineElapsedMs = 0L
+    @Volatile private var batchTimeoutMs = BATCH_TIMEOUT_MS
     private var latestResults = LatencyResultAccumulator(emptySet())
     private val batchTimeout = Runnable { finishAndPublish() }
     private val completedTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -60,6 +61,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
         if (!startAccepted.compareAndSet(false, true)) return START_NOT_STICKY
         sessionId = intent?.getStringExtra(EXTRA_SESSION)
+        batchTimeoutMs = intent?.getLongExtra(EXTRA_TIMEOUT_MS, BATCH_TIMEOUT_MS)
+            ?.coerceIn(1L, BATCH_TIMEOUT_MS) ?: BATCH_TIMEOUT_MS
 
         val config = intent?.getStringExtra(EXTRA_CONFIG)
         val tagsJson = intent?.getStringExtra(EXTRA_TAGS)
@@ -87,9 +90,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         // One absolute deadline covers native startup and every server probe.
         // A slow engine startup must not silently extend the user's 10-second wait.
         batchDeadlineElapsedMs = LatencyBatchDeadlinePolicy.deadlineAt(
-            SystemClock.elapsedRealtime(), BATCH_TIMEOUT_MS
+            SystemClock.elapsedRealtime(), batchTimeoutMs
         )
-        handler.postDelayed(batchTimeout, BATCH_TIMEOUT_MS)
+        handler.postDelayed(batchTimeout, batchTimeoutMs)
         worker.execute {
             var createdServer: CommandServer? = null
             var createdClient: CommandClient? = null
@@ -446,6 +449,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         const val EXTRA_FINAL = "com.astra.vpn.extra.LATENCY_FINAL"
         const val EXTRA_ERROR = "com.astra.vpn.extra.LATENCY_ERROR"
         const val EXTRA_SESSION = "com.astra.vpn.extra.LATENCY_SESSION"
+        const val EXTRA_TIMEOUT_MS = "com.astra.vpn.extra.LATENCY_TIMEOUT_MS"
         private const val LATENCY_PREFS = "astra_latency_results"
         private const val KEY_PENDING_RESULTS = "pending_results"
         private const val KEY_LAST_RESULTS = "last_results"
@@ -457,13 +461,21 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val URL_TEST_DISPATCH_CONCURRENCY = 4
         private const val URL_TEST_QUEUE_CAPACITY = 128
 
-        fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
+        fun start(
+            context: Context,
+            config: String,
+            tags: Set<String>,
+            network: Network,
+            sessionId: String,
+            timeoutMs: Long = BATCH_TIMEOUT_MS
+        ) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_CONFIG, config)
                 .putExtra(EXTRA_TAGS, JSONArray(tags.toList()).toString())
                 .putExtra(EXTRA_NETWORK, network)
                 .putExtra(EXTRA_SESSION, sessionId)
+                .putExtra(EXTRA_TIMEOUT_MS, timeoutMs.coerceIn(1L, BATCH_TIMEOUT_MS))
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
