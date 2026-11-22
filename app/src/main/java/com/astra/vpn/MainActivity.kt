@@ -81,6 +81,8 @@ class MainActivity : Activity() {
     private lateinit var profileStore: ProfileStore
     private lateinit var profileList: LinearLayout
     private lateinit var profileScroll: ScrollView
+    private lateinit var serverFilterRow: LinearLayout
+    private var serverBrowserDialog: android.app.Dialog? = null
     private lateinit var serverSearch: EditText
     private lateinit var countryFilter: Spinner
     private lateinit var serverCountLabel: TextView
@@ -876,15 +878,34 @@ class MainActivity : Activity() {
             )
             setOnClickListener { selectFastestServer() }
         }
+        val allServersButton = TextView(this).apply {
+            text = "Все серверы  ↗"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(LIGHT_ACCENT)
+            gravity = Gravity.CENTER
+            minHeight = dp(40)
+            setPadding(dp(10), 0, dp(10), 0)
+            background = rounded(0x1A9AA6BF, 12)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Открыть полноэкранный список серверов"
+            setOnClickListener { showAllServersDialog() }
+        }
         listHeader.addView(listTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
         listHeader.addView(updateSubscriptions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
-        listHeader.addView(throughputCheckButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply { leftMargin = dp(5) })
-        listHeader.addView(pingCheckButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            leftMargin = dp(5)
-        })
-        listHeader.addView(refresh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            leftMargin = dp(5)
-        })
+        listHeader.addView(allServersButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply { leftMargin = dp(5) })
+        val serverActionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8))
+        }
+        listOf(throughputCheckButton, pingCheckButton, refresh).forEach { action ->
+            serverActionsRow.addView(action, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                leftMargin = dp(3)
+                rightMargin = dp(3)
+            })
+        }
 
         val filterRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -950,6 +971,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        serverFilterRow = filterRow
         filterRow.addView(serverSearch, LinearLayout.LayoutParams(0, dp(48), 1f))
         filterRow.addView(clearSearch, LinearLayout.LayoutParams(dp(48), dp(48)).apply { leftMargin = dp(4) })
         filterRow.addView(countryFilter, LinearLayout.LayoutParams(dp(132), dp(48)).apply { leftMargin = dp(4) })
@@ -1125,6 +1147,7 @@ class MainActivity : Activity() {
         // Network monitoring is intentionally hidden from the home screen.
         // It remains available from Settings → Tools.
         root.addView(listHeader)
+        root.addView(serverActionsRow, matchWidth())
         root.addView(filterRow, matchWidth())
         root.addView(serverCountLabel, matchWidth().apply { bottomMargin = dp(8) })
         root.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
@@ -2007,6 +2030,105 @@ class MainActivity : Activity() {
         while (value >= 1024.0 && unit < units.lastIndex) { value /= 1024.0; unit++ }
         return String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[unit])
     }
+    /**
+     * Opens the existing, live server list as a dedicated full-screen screen.
+     * Views are temporarily re-parented (not copied), so selection, filtering,
+     * sorting and incremental Ping updates remain exactly the same as on Home.
+     */
+    private fun showAllServersDialog() {
+        if (serverBrowserDialog?.isShowing == true) return
+        val originalParent = profileScroll.parent as? ViewGroup ?: return
+        val views = listOf(serverFilterRow, serverCountLabel, profileScroll)
+        val placements = views.map { view ->
+            Triple(view, originalParent.indexOfChild(view), view.layoutParams)
+        }
+        views.forEach { originalParent.removeView(it) }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(12))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF0B1220.toInt(), 0xFF111B2D.toInt())
+            )
+        }
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(10))
+        }
+        toolbar.addView(TextView(this).apply {
+            text = "ВСЕ СЕРВЕРЫ"
+            textSize = 18f
+            letterSpacing = .06f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val close = TextView(this).apply {
+            text = "Закрыть  ×"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(LIGHT_ACCENT)
+            minHeight = dp(44)
+            setPadding(dp(12), 0, dp(8), 0)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Закрыть список серверов"
+        }
+        toolbar.addView(close)
+        content.addView(toolbar, matchWidth())
+
+        val pingAction = TextView(this).apply {
+            text = if (latencyTestInFlight) "×  Остановить проверку Ping" else "◷  Проверить Ping всех серверов"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(LIGHT_ACCENT)
+            minHeight = dp(46)
+            background = rounded(0x1A9AA6BF, 12)
+            setPadding(dp(12), 0, dp(12), 0)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Запустить или отменить проверку задержки всех серверов"
+            setOnClickListener {
+                if (latencyTestInFlight) cancelLatencyCheck() else checkAllLatencies()
+                text = if (latencyTestInFlight) "×  Остановить проверку Ping" else "◷  Проверить Ping всех серверов"
+            }
+        }
+        content.addView(pingAction, LinearLayout.LayoutParams(matchWidth().width, dp(46)).apply {
+            bottomMargin = dp(10)
+        })
+        content.addView(serverFilterRow, matchWidth())
+        content.addView(serverCountLabel, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(8)
+        })
+        content.addView(profileScroll, LinearLayout.LayoutParams(matchWidth().width, 0, 1f))
+
+        val dialog = android.app.Dialog(this)
+        dialog.setContentView(content)
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.58f)
+        }
+        close.setOnClickListener { dialog.dismiss() }
+        dialog.setOnDismissListener {
+            serverBrowserDialog = null
+            // Restore in ascending order to retain the original Home screen layout.
+            placements.sortedBy { it.second }.forEach { (view, index, params) ->
+                (view.parent as? ViewGroup)?.removeView(view)
+                originalParent.addView(view, index.coerceIn(0, originalParent.childCount), params)
+            }
+            originalParent.requestLayout()
+        }
+        serverBrowserDialog = dialog
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        renderProfiles()
+    }
+
     private fun renderProfiles() {
         if (::throughputCheckButton.isInitialized) {
             throughputCheckButton.text = when {
@@ -2574,10 +2696,10 @@ class MainActivity : Activity() {
             val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val title = TextView(this).apply {
                 text = name
-                textSize = 15f
+                textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                maxLines = 2
+                maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val protocolText = TextView(this).apply {
