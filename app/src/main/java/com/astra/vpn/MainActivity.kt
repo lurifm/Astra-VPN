@@ -5575,9 +5575,14 @@ class MainActivity : Activity() {
     private fun showAppSettingsDialog() {
         // Prevent repeated taps from stacking identical settings windows.
         // Keep one live instance and bring it forward if a tap arrives during animation.
-        settingsDialog?.takeIf { it.isShowing }?.let { existing ->
-            existing.window?.decorView?.bringToFront()
-            return
+        settingsDialog?.let { existing ->
+            // Dialog.show() can still be in its first layout/animation frame.
+            // Treat a non-null instance as active too, otherwise rapid taps
+            // create a stack of identical settings windows.
+            if (!existing.isShowing || existing.window?.decorView?.isAttachedToWindow == true) {
+                existing.window?.decorView?.bringToFront()
+                return
+            }
         }
         val sheet = android.app.Dialog(this)
         settingsDialog = sheet
@@ -5726,7 +5731,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showWhatsNewDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showWhatsNewDialog() } }
         }
         addActionRow(whatsNewEntry)
         val monitorEntry = TextView(this).apply {
@@ -5736,7 +5741,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showNetworkMonitorDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showNetworkMonitorDialog() } }
         }
         addActionRow(monitorEntry)
 
@@ -5747,7 +5752,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { runCombinedSpeedAndIpTest() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) runCombinedSpeedAndIpTest() } }
         }
         addActionRow(speedTestEntry)
 
@@ -5758,7 +5763,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showConnectionDiagnostics() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showConnectionDiagnostics() } }
         }
         addActionRow(diagnosticsEntry)
 
@@ -5796,7 +5801,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showFamilyQrDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showFamilyQrDialog() } }
         }
         addActionRow(familyQrEntry)
         val streakEntry = TextView(this).apply {
@@ -5806,7 +5811,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showProtectionStreakDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showProtectionStreakDialog() } }
         }
         addActionRow(streakEntry)
         val speedFailoverEntry = CheckBox(this).apply {
@@ -5827,7 +5832,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showNetworkSecurityDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showNetworkSecurityDialog() } }
         }
         addActionRow(networkSecurityEntry)
 
@@ -5838,7 +5843,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showConnectionHistoryDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showConnectionHistoryDialog() } }
         }
         addActionRow(historyEntry)
 
@@ -5849,7 +5854,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showAppRoutingDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showAppRoutingDialog() } }
         }
         addActionRow(appRoutingEntry)
 
@@ -5860,7 +5865,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showBankingProtectionDialog() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showBankingProtectionDialog() } }
         }
         addActionRow(bankingEntry)
 
@@ -5872,7 +5877,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { startBackupExport() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) startBackupExport() } }
         }
         addActionRow(backupExportEntry)
         val backupImportEntry = TextView(this).apply {
@@ -5882,7 +5887,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { startBackupImport() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) startBackupImport() } }
         }
         addActionRow(backupImportEntry)
 
@@ -5907,7 +5912,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(0xFF172238.toInt(), 10)
-            setOnClickListener { showAndroidLockdownGuide() }
+            setOnClickListener { sheet.dismiss(); window.decorView.post { if (!isFinishing && !isDestroyed) showAndroidLockdownGuide() } }
         }
         addActionRow(lockdownEntry)
 
