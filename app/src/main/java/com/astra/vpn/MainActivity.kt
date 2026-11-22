@@ -5224,7 +5224,9 @@ class MainActivity : Activity() {
             return
         }
         val nodes = profiles.take(36).map { profile ->
-            val latency = latencyMs[profile]
+            // The orbit map must follow the same freshness rule as the server
+            // list; an expired result is unknown, not a low-quality live Ping.
+            val latency = freshLatencyMs(profile)
             val quality = when {
                 latency == null -> 0
                 latency <= 80L -> 3
