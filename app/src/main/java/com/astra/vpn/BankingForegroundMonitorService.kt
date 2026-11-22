@@ -19,6 +19,7 @@ import android.os.Looper
 import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * User-started foreground observer and executor for conservative banking transitions.
@@ -36,15 +37,15 @@ internal class BankingForegroundMonitorService : Service() {
     @Volatile private var running = false
     @Volatile private var stopCleanupPending = false
     // Invalidates work and delayed callbacks belonging to an earlier start/stop cycle.
-    @Volatile private var monitorGeneration = 0L
+    private val monitorGeneration = AtomicLong(0L)
 
     private val poll: Runnable = object : Runnable {
         override fun run() {
             if (!running) return
-            val pollGeneration = monitorGeneration
+            val pollGeneration = monitorGeneration.get()
             try {
                 pollExecutor.execute {
-                    if (!running || pollGeneration != monitorGeneration) return@execute
+                    if (!running || pollGeneration != monitorGeneration.get()) return@execute
                     val settings = getSharedPreferences("astra_settings", MODE_PRIVATE)
                     if (!settings.getBoolean("banking_auto_pause_enabled", false) ||
                         !UsageAccessPermission.hasAccess(this@BankingForegroundMonitorService)
@@ -80,7 +81,7 @@ internal class BankingForegroundMonitorService : Service() {
                         systemBatterySaverEnabled = getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
                     )
                     handler.post {
-                        if (running && pollGeneration == monitorGeneration) {
+                        if (running && pollGeneration == monitorGeneration.get()) {
                             handler.postDelayed(poll, interval)
                         }
                     }
@@ -102,7 +103,7 @@ internal class BankingForegroundMonitorService : Service() {
                 // Stop observation immediately, then serialize durable cleanup behind
                 // any in-flight poll without blocking the main thread.
                 running = false
-                monitorGeneration++
+                monitorGeneration.incrementAndGet()
                 stopCleanupPending = true
                 handler.removeCallbacksAndMessages(null)
                 try {
