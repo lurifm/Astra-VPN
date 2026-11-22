@@ -1,7 +1,5 @@
 package com.astra.vpn
 
-import java.util.Locale
-
 /**
  * Converts recent connection errors into a recency-weighted reliability signal.
  *
@@ -27,10 +25,8 @@ internal object ServerFailureScorer {
             if (entry.state != "error" || entry.timestamp <= 0L || entry.timestamp > now) return@forEach
             val age = now - entry.timestamp
             if (age > windowMs) return@forEach
-            val name = normalizeIdentity(entry.serverName)
-            val protocol = normalizeProtocol(entry.protocol)
-            if (name.isEmpty() || protocol.isEmpty()) return@forEach
-            val key = "$name|$protocol"
+            val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+            if (key == "|") return@forEach
             // A later end-to-end validated session proves recovery. Only errors
             // newer than that success should influence the next server decision.
             if (entry.timestamp <= (latestSuccessByIdentity[key] ?: 0L)) return@forEach
@@ -72,11 +68,9 @@ internal object ServerFailureScorer {
             .filter { it.state == "error" && it.timestamp > 0L && it.timestamp <= now }
             .filter { now - it.timestamp <= escalationWindowMs }
             .mapNotNull { entry ->
-                val name = normalizeIdentity(entry.serverName)
-                val protocol = normalizeProtocol(entry.protocol)
-                if (name.isBlank() || protocol.isBlank()) null
+                val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+                if (key == "|") null
                 else {
-                    val key = "$name|$protocol"
                     if (entry.timestamp <= (latestSuccessByIdentity[key] ?: 0L)) null
                     else key to entry.timestamp
                 }
@@ -95,7 +89,7 @@ internal object ServerFailureScorer {
         }.toSet()
         if (quarantined.isEmpty()) return profiles
         val preferred = profiles.filter { profile ->
-            val key = "${normalizeIdentity(nameOf(profile))}|${normalizeProtocol(protocolOf(profile))}"
+            val key = ReliabilityScore.identity(nameOf(profile), protocolOf(profile))
             key !in quarantined
         }
         return preferred.ifEmpty { profiles }
@@ -107,19 +101,10 @@ internal object ServerFailureScorer {
     ): Map<String, Long> = entries.asSequence()
         .filter { it.state == "connected" && it.timestamp > 0L && it.timestamp <= now }
         .mapNotNull { entry ->
-            val name = normalizeIdentity(entry.serverName)
-            val protocol = normalizeProtocol(entry.protocol)
-            if (name.isBlank() || protocol.isBlank()) null
-            else "$name|$protocol" to entry.timestamp
+            val key = ReliabilityScore.identity(entry.serverName, entry.protocol)
+            if (key == "|") null else key to entry.timestamp
         }
         .groupBy({ it.first }, { it.second })
         .mapValues { (_, timestamps) -> timestamps.maxOrNull() ?: 0L }
 
-    private fun normalizeIdentity(value: String): String =
-        value.trim().lowercase(Locale.ROOT)
-
-    private fun normalizeProtocol(value: String): String {
-        val normalized = value.trim().lowercase(Locale.ROOT)
-        return if (normalized == "hy2") "hysteria2" else normalized
-    }
 }
