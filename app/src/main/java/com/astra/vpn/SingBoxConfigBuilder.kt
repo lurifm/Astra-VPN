@@ -30,7 +30,8 @@ object SingBoxConfigBuilder {
                         .put("tls", JSONObject()
                             .put("enabled", true)
                             .put("server_name", "cloudflare-dns.com"))
-                        )
+                        // Keep DNS transport explicitly outside the proxy/TUN route.
+                        .put("detour", "direct"))
                     .put(JSONObject()
                         .put("type", "local")
                         .put("tag", "dns-direct")))
