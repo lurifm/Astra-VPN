@@ -12,6 +12,13 @@ import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.SystemProxyStatus
+import java.util.concurrent.Executors
+
+private data class TunnelCleanupResources(
+    val server: CommandServer?,
+    val trafficMonitor: LibboxTrafficMonitor?,
+    val tunDescriptor: ParcelFileDescriptor?
+)
 
 class AstraVpnService : VpnService(), CommandServerHandler {
     private var commandServer: CommandServer? = null
@@ -39,6 +46,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Serialize libbox configuration transitions; OpenTun is invoked synchronously
     // from startOrReloadService and must be attributed to that exact request.
     private val tunOperationLock = Any()
+    // Resource teardown must never wait for tunOperationLock while holding lifecycleLock.
+    private val cleanupExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "AstraVpnCleanup").apply { isDaemon = true }
+    }
     private var activeTunRequestToken: Long? = null
     private var tunReadyRequestToken: Long? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -634,40 +645,62 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             true
         }
 
-    private fun stopTunnel(): Unit = synchronized(lifecycleLock) {
-        if (stopping) return@synchronized
-        stopping = true
-        // A failed or user-cancelled start must leave the previous recovery node intact.
-        recoveryProfileTransaction.cancel()
-        startRequestGeneration.invalidate()
-        lifecycleGeneration.advance()
-        // Match the upstream sing-box Android lifecycle: release the Android
-        // TUN descriptor, then close the service and finally the command server.
-        cancelTunTimeoutLocked()
-        val server = commandServer
-        commandServer = null
-        trafficMonitor?.stop()
-        trafficMonitor = null
-        publishTrafficSnapshot(emptyMap())
-        activeConfig = null
-        activeProfileLink = null
-        configurationAccepted = false
-        activeTunRequestToken = null
-        tunReadyRequestToken = null
-
-        runCatching { tunDescriptor?.close() }
-            .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
-        tunDescriptor = null
-
-        if (server != null) {
-            runCatching { server.closeService() }
-                .onFailure { Log.w(TAG, "closeService failed (" + it.javaClass.simpleName + ")") }
-            runCatching { server.close() }
-                .onFailure { Log.w(TAG, "CommandServer close failed (" + it.javaClass.simpleName + ")") }
+    private fun stopTunnel() {
+        val cleanup = synchronized(lifecycleLock) {
+            if (stopping) return
+            stopping = true
+            // Invalidate callbacks and detach ownership immediately. A concurrent
+            // ACTION_START can now create a fresh lifecycle without inheriting these resources.
+            recoveryProfileTransaction.cancel()
+            startRequestGeneration.invalidate()
+            lifecycleGeneration.advance()
+            cancelTunTimeoutLocked()
+            val detached = TunnelCleanupResources(
+                server = commandServer,
+                trafficMonitor = trafficMonitor,
+                tunDescriptor = tunDescriptor
+            )
+            commandServer = null
+            trafficMonitor = null
+            tunDescriptor = null
+            publishTrafficSnapshot(emptyMap())
+            activeConfig = null
+            activeProfileLink = null
+            configurationAccepted = false
+            activeTunRequestToken = null
+            tunReadyRequestToken = null
+            publishState(STATE_DISCONNECTED)
+            detached
         }
-        publishState(STATE_DISCONNECTED)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+
+        // libbox may synchronously call back into lifecycleLock while a config
+        // operation owns tunOperationLock. Waiting for that lock here would invert
+        // the lock order and deadlock. Teardown runs on a dedicated serial worker.
+        cleanupExecutor.execute {
+            synchronized(tunOperationLock) {
+                cleanup.trafficMonitor?.let { monitor ->
+                    runCatching { monitor.stop() }
+                        .onFailure { Log.w(TAG, "Traffic monitor close failed (" + it.javaClass.simpleName + ")") }
+                }
+                runCatching { cleanup.tunDescriptor?.close() }
+                    .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
+                cleanup.server?.let { server ->
+                    runCatching { server.closeService() }
+                        .onFailure { Log.w(TAG, "closeService failed (" + it.javaClass.simpleName + ")") }
+                    runCatching { server.close() }
+                        .onFailure { Log.w(TAG, "CommandServer close failed (" + it.javaClass.simpleName + ")") }
+                }
+            }
+            mainHandler.post {
+                val shouldFinish = synchronized(lifecycleLock) {
+                    VpnServiceCleanupPolicy.shouldFinish(stopping, commandServer == null)
+                }
+                if (shouldFinish) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+        }
     }
 
     /**
