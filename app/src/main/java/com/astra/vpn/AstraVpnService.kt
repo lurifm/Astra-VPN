@@ -654,6 +654,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             recoveryProfileTransaction.cancel()
             startRequestGeneration.invalidate()
             lifecycleGeneration.advance()
+            // Invalidate callbacks before clearing the published traffic snapshot.
+            trafficMonitorGeneration += 1L
             cancelTunTimeoutLocked()
             val detached = TunnelCleanupResources(
                 server = commandServer,
@@ -749,11 +751,34 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             .onFailure { Log.w(TAG, "Не удалось сохранить профиль восстановления") }
     }
 
+    // Access is protected by lifecycleLock; callbacks carry the generation
+    // of the monitor that created them so detached monitors cannot publish stale data.
+    private var trafficMonitorGeneration = 0L
+
     private fun startTrafficMonitor() {
         if (trafficMonitor != null) return
-        val monitor = LibboxTrafficMonitor(::publishTrafficSnapshot)
+        val ownerGeneration = ++trafficMonitorGeneration
+        val monitor = LibboxTrafficMonitor { snapshot ->
+            publishTrafficSnapshotIfCurrent(ownerGeneration, snapshot)
+        }
         trafficMonitor = monitor
         monitor.start()
+    }
+
+    private fun publishTrafficSnapshotIfCurrent(
+        ownerGeneration: Long,
+        snapshot: Map<String, LibboxTrafficAccumulator.Totals>
+    ) {
+        synchronized(lifecycleLock) {
+            if (!TrafficMonitorCallbackPolicy.shouldPublish(
+                    ownerGeneration = ownerGeneration,
+                    currentGeneration = trafficMonitorGeneration,
+                    monitorAttached = trafficMonitor != null,
+                    stopping = stopping
+                )
+            ) return
+            publishTrafficSnapshot(snapshot)
+        }
     }
 
     private fun publishTrafficSnapshot(snapshot: Map<String, LibboxTrafficAccumulator.Totals>) {
