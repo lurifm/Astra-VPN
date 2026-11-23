@@ -65,6 +65,24 @@ class VpnTrafficRateTrackerTest {
     }
 
     @Test
+    fun currentRejectsInvalidOrBackwardsMonotonicTimestamps() {
+        val tracker = VpnTrafficRateTracker()
+        tracker.update(0L, 0L, 1_000L)
+        tracker.update(1_000_000L, 250_000L, 2_000L)
+
+        assertNull(tracker.current(0L))
+        assertNull(tracker.current(-1L))
+        assertNull(tracker.current(1_500L))
+
+        // Read-only invalid queries do not corrupt the next valid delta.
+        assertEquals(
+            8.0,
+            tracker.update(2_000_000L, 500_000L, 3_000L)!!.downloadMbps,
+            0.0001
+        )
+    }
+
+    @Test
     fun invalidCountersResetTheTracker() {
         val tracker = VpnTrafficRateTracker()
         tracker.update(0L, 0L, 1_000L)

@@ -72,7 +72,10 @@ internal class VpnTrafficRateTracker(
     fun current(nowElapsedMs: Long): Rate? {
         val sample = latestRate ?: return null
         val sampledAt = previousAtElapsedMs ?: return null
-        val age = (nowElapsedMs - sampledAt).coerceAtLeast(0L)
+        // elapsedRealtime is monotonic. A stale/invalid caller timestamp must
+        // never make an old rate look fresh through a negative-delta clamp.
+        if (nowElapsedMs <= 0L || nowElapsedMs < sampledAt) return null
+        val age = nowElapsedMs - sampledAt
         return if (age > staleAfterMs) {
             Rate(0.0, 0.0, age)
         } else {
