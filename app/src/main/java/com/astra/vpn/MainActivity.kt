@@ -198,6 +198,13 @@ class MainActivity : Activity() {
     private var connected = false
     private var connecting = false
     private var disconnecting = false
+    // Android can publish the VPN Network a moment after the service persists CONNECTED.
+    // Retry the snapshot briefly instead of showing a false disconnect during that race.
+    private val vpnRouteRestoreHandler = Handler(Looper.getMainLooper())
+    private var vpnRouteRestoreAttempts = 0
+    private val vpnRouteRestoreTask = Runnable {
+        if (!isFinishing && !isDestroyed) restoreVpnState()
+    }
     private val connectRetryHandler = Handler(Looper.getMainLooper())
     private var connectRetryTask: Runnable? = null
     private var connectRetryGeneration = 0L
@@ -4068,6 +4075,29 @@ class MainActivity : Activity() {
         val activeNetwork = connectivity.activeNetwork
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         val androidVpnActive = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        val stopRequested = settingsPrefs.getBoolean("vpn_disconnect_requested", false)
+
+        // Service state persistence and Android's activeNetwork publication are
+        // not atomic. During Activity/process recreation, allow a short bounded
+        // window for Android to expose the just-created VPN route before deciding
+        // that a persisted CONNECTED tunnel has disappeared.
+        if (VpnRouteRestorePolicy.shouldRetry(
+                savedConnected = saved == AstraVpnService.STATE_CONNECTED,
+                androidVpnActive = androidVpnActive,
+                stopRequested = stopRequested,
+                attempt = vpnRouteRestoreAttempts
+            )
+        ) {
+            vpnRouteRestoreAttempts++
+            vpnRouteRestoreHandler.removeCallbacks(vpnRouteRestoreTask)
+            vpnRouteRestoreHandler.postDelayed(
+                vpnRouteRestoreTask,
+                VpnRouteRestorePolicy.RETRY_DELAY_MS
+            )
+            return
+        }
+        vpnRouteRestoreHandler.removeCallbacks(vpnRouteRestoreTask)
+        vpnRouteRestoreAttempts = 0
 
         // A saved flag alone is insufficient: Android may have revoked the
         // tunnel while the Activity was in the background.
@@ -4131,6 +4161,8 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        vpnRouteRestoreHandler.removeCallbacks(vpnRouteRestoreTask)
+        vpnRouteRestoreAttempts = 0
         // A health probe may finish after the Activity moves to the background.
         // It must not trigger UI failover or act on a route no longer monitored here.
         tunnelHealthCheckGeneration.advance()
