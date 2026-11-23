@@ -43,6 +43,15 @@ class AutoFailoverPolicyTest {
         assertFalse(AutoFailoverPolicy.shouldSwitch(3, 0L, -1L))
     }
 
+    @Test
+    fun firstAutomaticSwitchDoesNotWaitForDeviceUptime() {
+        assertTrue(AutoFailoverPolicy.cooldownElapsed(null, 0L, 60_000L))
+        assertTrue(AutoFailoverPolicy.shouldSwitch(3, null, 0L))
+        assertFalse(AutoFailoverPolicy.shouldSwitch(2, null, 0L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(null, -1L, 60_000L))
+        assertFalse(AutoFailoverPolicy.cooldownElapsed(null, 0L, 0L))
+    }
+
     @Test fun ignoresClockMovingBackwards() {
         assertFalse(AutoFailoverPolicy.shouldSwitch(4, 100_000L, 99_000L))
     }

@@ -273,7 +273,7 @@ class MainActivity : Activity() {
     @Volatile private var waitingForUnderlyingNetwork = false
     @Volatile private var waitingForVpnRoute = false
     private var consecutiveHealthFailures = 0
-    private var lastAutoFailoverAt = 0L
+    private var lastAutoFailoverAt: Long? = null
     private val autoFailoverBudget = AutoFailoverBudget(maxAttempts = 3, windowMs = 10 * 60_000L)
     private val speedDropPolicy = SpeedDropFailoverPolicy(maxSampleGapMs = 5_000L)
     private val vpnTrafficRateTracker = VpnTrafficRateTracker()

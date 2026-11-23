@@ -24,8 +24,10 @@ internal object AutoFailoverPolicy {
         if (current < 0) 1 else if (current == Int.MAX_VALUE) Int.MAX_VALUE else current + 1
 
     /** Shared cooldown gate for every automatic switch trigger. */
-    fun cooldownElapsed(lastSwitchAt: Long, now: Long, cooldownMs: Long): Boolean {
-        // Timestamps come from elapsedRealtime; invalid values fail closed.
+    fun cooldownElapsed(lastSwitchAt: Long?, now: Long, cooldownMs: Long): Boolean {
+        // No previous automatic switch means the first recovery attempt has
+        // no cooldown. Once a timestamp exists, invalid values fail closed.
+        if (lastSwitchAt == null) return now >= 0L && cooldownMs > 0L
         if (lastSwitchAt < 0L || now < 0L || cooldownMs <= 0L) return false
         if (lastSwitchAt > Long.MAX_VALUE - cooldownMs) return false
         return now >= lastSwitchAt + cooldownMs
@@ -33,7 +35,7 @@ internal object AutoFailoverPolicy {
 
     fun shouldSwitch(
         consecutiveFailures: Int,
-        lastSwitchAt: Long,
+        lastSwitchAt: Long?,
         now: Long,
         cooldownMs: Long = COOLDOWN_MS
     ): Boolean = consecutiveFailures >= REQUIRED_FAILURES &&
