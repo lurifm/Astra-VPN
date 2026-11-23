@@ -16,7 +16,21 @@ class DiagnosticSanitizerTest {
     @Test fun redactsInlineCredentialsWithoutProxyScheme() {
         val output = DiagnosticSanitizer.sanitize("connect https://user:password@example.com/path failed")
         assertFalse(output.contains("user:password"))
-        assertTrue(output.contains("<credentials-redacted>"))
+        assertTrue(output.contains("<uri-redacted>"))
+    }
+
+    @Test fun redactsSubscriptionUrlsContainingQueryTokens() {
+        val input = "refresh failed for https://example.com/subscription?token=secret&user=alice"
+        val output = DiagnosticSanitizer.sanitize(input)
+        assertFalse(output.contains("token=secret"))
+        assertFalse(output.contains("user=alice"))
+        assertTrue(output.contains("<uri-redacted>"))
+    }
+
+    @Test fun redactsUnknownProxySchemes() {
+        val output = DiagnosticSanitizer.sanitize("failed wireguard://private-key@vpn.example:51820")
+        assertFalse(output.contains("private-key"))
+        assertTrue(output.contains("<uri-redacted>"))
     }
 
     @Test fun preservesOrdinaryDiagnosticText() {
