@@ -249,7 +249,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return Sample(total, elapsed, total * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
-            if (activeConnection === connection) activeConnection = null
+            clearActiveConnection(connection)
         }
     }
 
@@ -284,16 +284,30 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return Sample(payload.size.toLong(), elapsed, payload.size * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
-            if (activeConnection === connection) activeConnection = null
+            clearActiveConnection(connection)
         }
     }
 
     private fun openConnection(network: Network, url: URL, port: Int): HttpURLConnection {
         val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
-        return (network.openConnection(url, proxy) as HttpURLConnection).apply {
+        val connection = (network.openConnection(url, proxy) as HttpURLConnection).apply {
             instanceFollowRedirects = false
             useCaches = false
-            activeConnection = this
+        }
+        // Serialize registration with finish() so a late socket cannot escape cleanup.
+        synchronized(this) {
+            if (stopped.get()) {
+                connection.disconnect()
+                throw InterruptedException("throughput probe cancelled")
+            }
+            activeConnection = connection
+        }
+        return connection
+    }
+
+    private fun clearActiveConnection(connection: HttpURLConnection) {
+        synchronized(this) {
+            if (activeConnection === connection) activeConnection = null
         }
     }
 
@@ -335,8 +349,10 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                     .unregisterNetworkCallback(callback)
             }
         }
-        val connection = activeConnection
-        activeConnection = null
+        // stopped is set before this snapshot; later registrations are rejected.
+        val connection = synchronized(this) {
+            activeConnection.also { activeConnection = null }
+        }
         worker.shutdownNow()
         probeWorker.shutdownNow()
         val client = commandClient
