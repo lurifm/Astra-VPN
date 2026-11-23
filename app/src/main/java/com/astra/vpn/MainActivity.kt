@@ -2722,8 +2722,10 @@ class MainActivity : Activity() {
                     if (connecting) {
                         Toast.makeText(this@MainActivity, "Дождись завершения текущего переключения", Toast.LENGTH_SHORT).show()
                     } else if (connected && link != activeProfile) {
-                        // A new explicit user choice supersedes any delayed retry for the old node.
+                        // A manual choice supersedes both delayed retries and any provisional
+                        // automatic failover transaction for the previous target.
                         cancelConnectRetry(resetAttempts = true)
+                        clearPendingFailoverForManualSelection()
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
                         val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
@@ -2732,7 +2734,10 @@ class MainActivity : Activity() {
                         }
                         startTunnel(nextConfig)
                     } else {
-                        if (selectedProfile != link) cancelConnectRetry(resetAttempts = true)
+                        if (selectedProfile != link) {
+                            cancelConnectRetry(resetAttempts = true)
+                            clearPendingFailoverForManualSelection()
+                        }
                         selectedProfile = link
                         renderProfiles()
                     }
@@ -3036,6 +3041,7 @@ class MainActivity : Activity() {
                         // Cancel it before changing selection so RESULT_OK cannot start
                         // a server that no longer matches the UI selection.
                         if (pendingConfig != null) cancelPendingConnect()
+                        clearPendingFailoverForManualSelection()
                         selectedProfile = link; persistSelectedProfileIfChanged(); renderProfiles()
                         if (connected) connectSelectedProfile()
                     }
@@ -3303,6 +3309,7 @@ class MainActivity : Activity() {
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
         if (fastest != null) {
+            if (selectedProfile != fastest) clearPendingFailoverForManualSelection()
             selectedProfile = fastest
             // A successful latency selection is not a VPN connection.
             // Keep the connection status neutral until the tunnel is validated.
@@ -4188,6 +4195,11 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    /** A deliberate user choice must not leave an obsolete automatic failover transaction blocking recovery. */
+    private fun clearPendingFailoverForManualSelection() {
+        pendingFailoverSelection = null
     }
 
     /** Restore the last known-good selection if an automatic failover attempt fails. */
@@ -5565,6 +5577,7 @@ class MainActivity : Activity() {
                 // The map mutates selection immediately, before the dialog's
                 // positive button is pressed. Invalidate any consent request here.
                 if (pendingConfig != null) cancelPendingConnect()
+                clearPendingFailoverForManualSelection()
             }
             selectedProfile = mappedProfile
             selectedInfo.text = profileSummary(profiles.take(36)[index])
@@ -5592,6 +5605,7 @@ class MainActivity : Activity() {
                 if (selectedProfile != profile) {
                     cancelConnectRetry(resetAttempts = true)
                     if (pendingConfig != null) cancelPendingConnect()
+                    clearPendingFailoverForManualSelection()
                 }
                 selectedProfile = profile
                 selectedInfo.text = profileSummary(profile)
