@@ -68,6 +68,45 @@ class TcpLatencyProbeTest {
         assertEquals(null, activeSocket.get())
     }
 
+
+    @Test
+    fun timeoutClosesSocketThatWasAlreadyRegistered() {
+        val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = AtomicBoolean(false)
+        val socket = object : Socket() {
+            var closeCount = 0
+            override fun close() {
+                closeCount++
+            }
+        }
+        activeSocket.set(socket)
+
+        TcpLatencyProbe.closeActiveSocketOnTimeout(activeSocket, timedOut)
+
+        assertTrue(timedOut.get())
+        assertEquals(1, socket.closeCount)
+        assertTrue(activeSocket.get() == null)
+    }
+
+    @Test
+    fun timeoutSocketCleanupIsSafeWhenRepeated() {
+        val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = AtomicBoolean(false)
+        val socket = object : Socket() {
+            var closeCount = 0
+            override fun close() {
+                closeCount++
+            }
+        }
+        activeSocket.set(socket)
+
+        TcpLatencyProbe.closeActiveSocketOnTimeout(activeSocket, timedOut)
+        TcpLatencyProbe.closeActiveSocketOnTimeout(activeSocket, timedOut)
+
+        assertEquals(1, socket.closeCount)
+        assertTrue(activeSocket.get() == null)
+    }
+
     @Test
     fun boundedProbeReturnsCompletedOperation() {
         assertEquals("ok", TcpLatencyProbe.runBounded(1_000L) { "ok" })

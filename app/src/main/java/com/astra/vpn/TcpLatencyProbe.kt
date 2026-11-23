@@ -45,10 +45,7 @@ object TcpLatencyProbe {
         val activeSocket = AtomicReference<Socket?>(null)
         val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         return runBounded(timeoutMs, onTimeout = {
-            // Publish timeout before draining the slot. A socket registered concurrently
-            // will observe this flag and close itself instead of escaping cancellation.
-            timedOut.set(true)
-            runCatching { activeSocket.getAndSet(null)?.close() }
+            closeActiveSocketOnTimeout(activeSocket, timedOut)
         }) {
             val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             val dnsStarted = System.nanoTime()
@@ -114,6 +111,16 @@ object TcpLatencyProbe {
             if (cause is Error) throw cause
             throw IllegalStateException("TCP latency probe failed", cause)
         }
+    }
+
+    internal fun closeActiveSocketOnTimeout(
+        activeSocket: AtomicReference<Socket?>,
+        timedOut: java.util.concurrent.atomic.AtomicBoolean
+    ) {
+        // Publish timeout before draining the slot. A socket registered concurrently
+        // will observe this flag and close itself instead of escaping cancellation.
+        timedOut.set(true)
+        runCatching { activeSocket.getAndSet(null)?.close() }
     }
 
     internal fun registerActiveSocket(
