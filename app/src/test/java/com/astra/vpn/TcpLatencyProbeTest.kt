@@ -3,7 +3,9 @@ package com.astra.vpn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 
@@ -47,6 +49,23 @@ class TcpLatencyProbeTest {
         val elapsedMs = (System.nanoTime() - started) / 1_000_000L
         assertTrue("Probe should return close to its 40 ms deadline, elapsed=${elapsedMs}ms", elapsedMs < 1_000L)
         assertTrue(timedOut.get())
+    }
+
+    @Test
+    fun socketRegisteredAfterTimeoutIsClosedImmediately() {
+        val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = AtomicBoolean(true)
+        val socket = object : Socket() {
+            var wasClosed = false
+            override fun close() {
+                wasClosed = true
+            }
+        }
+
+        TcpLatencyProbe.registerActiveSocket(activeSocket, timedOut, socket)
+
+        assertTrue(socket.wasClosed)
+        assertEquals(null, activeSocket.get())
     }
 
     @Test

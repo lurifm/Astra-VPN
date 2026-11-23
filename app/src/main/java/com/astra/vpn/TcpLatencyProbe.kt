@@ -43,7 +43,11 @@ object TcpLatencyProbe {
         require(timeoutMs in 1L..60_000L) { "Timeout must be between 1 and 60000 ms" }
 
         val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         return runBounded(timeoutMs, onTimeout = {
+            // Publish timeout before draining the slot. A socket registered concurrently
+            // will observe this flag and close itself instead of escaping cancellation.
+            timedOut.set(true)
             runCatching { activeSocket.getAndSet(null)?.close() }
         }) {
             val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
@@ -62,7 +66,7 @@ object TcpLatencyProbe {
                     if (remainingMs <= 0L) throw SocketTimeoutException("TCP latency probe timed out")
                     val started = System.nanoTime()
                     val socket = socketFactory.createSocket()
-                    activeSocket.set(socket)
+                    registerActiveSocket(activeSocket, timedOut, socket)
                     val connected = try {
                         socket.use {
                             it.connect(
@@ -109,6 +113,19 @@ object TcpLatencyProbe {
             if (cause is RuntimeException) throw cause
             if (cause is Error) throw cause
             throw IllegalStateException("TCP latency probe failed", cause)
+        }
+    }
+
+    internal fun registerActiveSocket(
+        activeSocket: AtomicReference<Socket?>,
+        timedOut: java.util.concurrent.atomic.AtomicBoolean,
+        socket: Socket
+    ) {
+        activeSocket.set(socket)
+        // Closes the race where the deadline handler drained the slot just before
+        // this newly-created socket was published.
+        if (timedOut.get() && activeSocket.compareAndSet(socket, null)) {
+            runCatching { socket.close() }
         }
     }
 
