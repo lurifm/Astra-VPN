@@ -6,14 +6,17 @@ package com.astra.vpn
  * traffic increments, which avoids double-counting cumulative connection totals.
  */
 internal class LibboxTrafficEventTracker {
-    private val outboundByConnection = mutableMapOf<String, String>()
+    private val outboundByConnection = LinkedHashMap<String, String>()
     private val accumulator = LibboxTrafficAccumulator()
 
     @Synchronized
     fun onNew(connectionId: String?, outboundTag: String?) {
         val id = connectionId?.takeIf { it.isNotBlank() } ?: return
         val tag = outboundTag?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        // Reinsert so a reused connection ID becomes the newest tracked entry.
+        outboundByConnection.remove(id)
         outboundByConnection[id] = tag
+        trimConnectionCache()
     }
 
     @Synchronized
@@ -21,7 +24,17 @@ internal class LibboxTrafficEventTracker {
         val id = connectionId?.takeIf { it.isNotBlank() } ?: return
         val eventTag = outboundTag?.trim()?.takeIf { it.isNotEmpty() }
         val tag = eventTag ?: outboundByConnection[id] ?: return
-        if (eventTag != null) outboundByConnection[id] = eventTag
+        if (eventTag != null) {
+            outboundByConnection.remove(id)
+            outboundByConnection[id] = eventTag
+            trimConnectionCache()
+        } else {
+            // Refresh insertion order: the cache evicts least-recently-updated IDs.
+            outboundByConnection[id]?.let {
+                outboundByConnection.remove(id)
+                outboundByConnection[id] = it
+            }
+        }
         accumulator.add(tag, uploadDelta, downloadDelta)
     }
 
@@ -39,4 +52,17 @@ internal class LibboxTrafficEventTracker {
 
     @Synchronized
     fun snapshot(): Map<String, LibboxTrafficAccumulator.Totals> = accumulator.snapshot()
+
+    private fun trimConnectionCache() {
+        while (outboundByConnection.size > MAX_TRACKED_CONNECTIONS) {
+            val oldestId = outboundByConnection.entries.iterator().next().key
+            outboundByConnection.remove(oldestId)
+        }
+    }
+
+    private companion object {
+        // Defensive ceiling in case a close/reset event is lost. Normal active
+        // connection counts are far below this; eviction only affects attribution.
+        const val MAX_TRACKED_CONNECTIONS = 4_096
+    }
 }
