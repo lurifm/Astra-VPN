@@ -347,7 +347,7 @@ class MainActivity : Activity() {
                 runCatching {
                     AstraLatencyTestService.updatePhysicalNetwork(this, physicalNetwork, session)
                 }.onFailure {
-                    android.util.Log.w("AstraVPN", "Не удалось обновить сеть проверки Ping", it)
+                    SafeLog.w("AstraVPN", "Не удалось обновить сеть проверки Ping", it)
                 }
             }
         }
@@ -385,7 +385,7 @@ class MainActivity : Activity() {
                 .registerNetworkCallback(request, physicalNetworkCallback)
             physicalNetworkCallbackRegistered = true
         }.onFailure {
-            android.util.Log.w("AstraVPN", "Не удалось зарегистрировать мониторинг физической сети", it)
+            SafeLog.w("AstraVPN", "Не удалось зарегистрировать мониторинг физической сети", it)
         }
     }
 
@@ -424,7 +424,7 @@ class MainActivity : Activity() {
                                 val array = org.json.JSONArray(encoded)
                                 for (index in 0 until array.length()) target.add(array.getString(index))
                             }.onFailure {
-                                android.util.Log.w("AstraVPN", "Не удалось разобрать статус проверки Ping", it)
+                                SafeLog.w("AstraVPN", "Не удалось разобрать статус проверки Ping", it)
                             }
                         }
                     }
@@ -3893,7 +3893,7 @@ class MainActivity : Activity() {
             UsageAccessPermission.hasAccess(this)
         ) {
             runCatching { BankingForegroundMonitorService.start(this) }
-                .onFailure { android.util.Log.w("AstraVPN", "Не удалось запустить банковский монитор", it) }
+                .onFailure { SafeLog.w("AstraVPN", "Не удалось запустить банковский монитор", it) }
         }
         sortMode = settingsPrefs.getString("sort_mode", "original") ?: "original"
         restoreVpnState()
@@ -4196,7 +4196,7 @@ class MainActivity : Activity() {
             }
             batterySaverReceiverRegistered = true
         }.onFailure {
-            android.util.Log.w("AstraVPN", "Не удалось подписаться на смену Battery Saver", it)
+            SafeLog.w("AstraVPN", "Не удалось подписаться на смену Battery Saver", it)
         }
     }
 
@@ -4403,7 +4403,7 @@ class MainActivity : Activity() {
             )
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure {
-            android.util.Log.e("AstraVPN", "Не удалось сохранить ручное переопределение банковской автопаузы", it)
+            SafeLog.e("AstraVPN", "Не удалось сохранить ручное переопределение банковской автопаузы", it)
         }
     }
 
@@ -4414,7 +4414,7 @@ class MainActivity : Activity() {
             stateStore.write(stateStore.read().cancelAutomaticResume())
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure {
-            android.util.Log.e("AstraVPN", "Не удалось отменить восстановление удалённого профиля", it)
+            SafeLog.e("AstraVPN", "Не удалось отменить восстановление удалённого профиля", it)
         }
     }
 

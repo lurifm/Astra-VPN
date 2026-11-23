@@ -242,7 +242,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                         ?.let { ledger.cancel(it.transitionId, it.command) }
                     ProfileStore(this).clearBankPauseSnapshot()
                     ProfileStore(this).setActiveTunnelProfile(null)
-                }.onFailure { Log.w(TAG, "Не удалось отменить банковское восстановление при ручном отключении", it) }
+                }.onFailure { SafeLog.w(TAG, "Не удалось отменить банковское восстановление при ручном отключении", it) }
                 recoveryProfileTransaction.cancel()
                 runCatching { ProfileStore(this).setRecoveryProfile(null) }
                     .onFailure { Log.w(TAG, "Не удалось очистить профиль восстановления") }
@@ -407,7 +407,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                             cancelTunTimeoutLocked()
                             commitRecoveryProfileLocked()
                             runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
-                                .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
+                                .onFailure { SafeLog.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                             publishState(STATE_CONNECTED)
                             completeBankingAutoResumeLocked()
                         } else {
@@ -461,7 +461,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
                 ) {
                     commitRecoveryProfileLocked()
                     runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
-                        .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
+                        .onFailure { SafeLog.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                     publishState(STATE_CONNECTED)
                     completeBankingAutoResumeLocked()
                 } else {
@@ -638,7 +638,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             ) {
                 commitRecoveryProfileLocked()
                 runCatching { ProfileStore(this).setActiveTunnelProfile(activeProfileLink) }
-                    .onFailure { Log.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
+                    .onFailure { SafeLog.e(TAG, "Не удалось сохранить активный профиль для банковской защиты", it) }
                 publishState(STATE_CONNECTED)
                 completeBankingAutoResumeLocked()
             }
@@ -734,7 +734,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             bankingAutoResumePending = false
             bankingAutoResumeTransitionId = null
         }.onFailure {
-            Log.e(TAG, "Не удалось завершить очистку банковского snapshot", it)
+            SafeLog.e(TAG, "Не удалось завершить очистку банковского snapshot", it)
         }
     }
 
@@ -850,7 +850,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // process/UI is absent. Refresh launcher and Quick Settings surfaces here
         // from the same authoritative persisted state.
         runCatching { AstraHomeWidgetProvider.refreshAll(this) }
-            .onFailure { Log.w(TAG, "Не удалось обновить виджет VPN", it) }
+            .onFailure { SafeLog.w(TAG, "Не удалось обновить виджет VPN", it) }
         AstraQuickSettingsTileService.requestSync(this)
         runCatching {
             val notificationManager = getSystemService(NotificationManager::class.java)
