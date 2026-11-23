@@ -68,7 +68,16 @@ internal class LibboxTrafficMonitor(
                 Log.w(TAG, "libbox traffic subscription failed (${error.javaClass.simpleName})")
             }
 
+            // A failed connect or a disconnected event can leave the command
+            // channel partially alive. Reset it before the next attempt; this runs
+            // on the monitor worker, never on the service or UI thread.
             if (!isActive(activeClient, activeGeneration)) return
+            runCatching { activeClient.disconnect() }
+                .onFailure {
+                    Log.w(TAG, "libbox traffic client reset failed (${it.javaClass.simpleName})")
+                }
+            if (!isActive(activeClient, activeGeneration)) return
+
             val connectedDuration = if (connectedAt > 0L) {
                 (SystemClock.elapsedRealtime() - connectedAt).coerceAtLeast(0L)
             } else 0L
