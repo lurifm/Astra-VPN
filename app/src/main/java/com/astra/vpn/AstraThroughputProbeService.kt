@@ -33,7 +33,6 @@ import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Runs one bounded throughput measurement through one imported proxy.
@@ -42,7 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class AstraThroughputProbeService : VpnService(), CommandServerHandler {
     private val stopped = AtomicBoolean(false)
     // Success, failure and cancellation compete for one terminal state.
-    private val terminalState = AtomicInteger(TERMINAL_ACTIVE)
+    private val terminalState = ThroughputTerminalState()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val timeoutRunnable = Runnable { fail("Проверка скорости превысила лимит времени") }
     private val started = AtomicBoolean(false)
@@ -209,7 +208,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 .put("uploadBytes", upload.bytes)
                 .put("durationMs", download.durationMs + upload.durationMs)
                 .put("measuredAt", System.currentTimeMillis())
-            if (stopped.get() || !terminalState.compareAndSet(TERMINAL_ACTIVE, TERMINAL_SUCCESS)) return
+            if (stopped.get() || !terminalState.claimSuccess()) return
             sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName)
                 .putExtra(EXTRA_RESULT, result.toString())
                 .putExtra(EXTRA_SESSION, sessionId))
@@ -310,7 +309,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         // Claim the terminal event before posting to the main thread. Otherwise
         // a worker could publish a successful sample while this error waits in
         // the main queue (for example after the physical network is lost).
-        if (!terminalState.compareAndSet(TERMINAL_ACTIVE, TERMINAL_FAILURE)) return
+        if (!terminalState.claimFailure()) return
         mainHandler.post {
             if (stopped.get()) return@post
             publishError(message)
@@ -325,7 +324,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     }
 
     private fun finish() {
-        terminalState.compareAndSet(TERMINAL_ACTIVE, TERMINAL_CANCELLED)
+        terminalState.cancel()
         if (!stopped.compareAndSet(false, true)) return
         mainHandler.removeCallbacks(timeoutRunnable)
         val callback = networkCallback
@@ -391,10 +390,6 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         const val EXTRA_RESULT = "com.astra.vpn.extra.THROUGHPUT_RESULT"
         const val EXTRA_ERROR = "com.astra.vpn.extra.THROUGHPUT_ERROR"
         const val EXTRA_FAST_MODE = "com.astra.vpn.extra.THROUGHPUT_FAST_MODE"
-        private const val TERMINAL_ACTIVE = 0
-        private const val TERMINAL_SUCCESS = 1
-        private const val TERMINAL_FAILURE = 2
-        private const val TERMINAL_CANCELLED = 3
         private const val TAG = "AstraThroughputProbe"
         private const val NOTIFICATION_ID = 3
         private const val TOTAL_TIMEOUT_MS = 20_000L
