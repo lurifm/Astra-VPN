@@ -4589,8 +4589,12 @@ class MainActivity : Activity() {
         // Reserve the shared budget before mutating selection or starting a connection.
         if (!autoFailoverBudget.recordAttempt(now)) return
         lastAutoFailoverAt = now
-        pendingFailoverSelection = FailoverSelectionTransaction(
-            previousProfile = current,
+        // Speed-triggered recovery can be a later hop in the same chain
+        // as a health-check failover. Preserve the original known-good anchor
+        // so a failed second/third hop never rolls back to an unverified node.
+        pendingFailoverSelection = FailoverSelectionPolicy.nextTransaction(
+            existing = pendingFailoverSelection,
+            currentProfile = current,
             targetProfile = alternate
         )
         selectedProfile = alternate
