@@ -23,6 +23,33 @@ class ServiceStateEventSequenceTest {
     }
 
     @Test
+    fun concurrentPublishersReceiveUniqueIncreasingSequences() {
+        val sequence = ServiceStateEventSequence()
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val done = java.util.concurrent.CountDownLatch(64)
+        val values = java.util.Collections.synchronizedList(mutableListOf<Long>())
+
+        repeat(64) {
+            Thread {
+                try {
+                    gate.await()
+                    values.add(sequence.next())
+                } finally {
+                    done.countDown()
+                }
+            }.start()
+        }
+        gate.countDown()
+        done.await()
+
+        val snapshot = synchronized(values) { values.toList() }
+        assertEquals(64, snapshot.size)
+        assertEquals(64, snapshot.toSet().size)
+        assertEquals((1L..64L).toSet(), snapshot.toSet())
+        assertEquals(64L, sequence.current())
+    }
+
+    @Test
     fun invalidPersistedValueIsIgnored() {
         val sequence = ServiceStateEventSequence()
         sequence.restoreAtLeast(-1L)

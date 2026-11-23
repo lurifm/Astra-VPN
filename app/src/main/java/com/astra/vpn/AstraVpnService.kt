@@ -743,7 +743,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun publishState(state: String, error: String? = null, retryable: Boolean = false) {
         // Save the latest state so the Activity can restore its UI after
         // recreation instead of depending on a broadcast it may have missed.
-        val eventSequence = synchronized(statePublishLock) {
+        synchronized(statePublishLock) {
             val sequence = processStateEventSequence.next()
             getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
                 .putString(PREF_STATE, state)
@@ -759,7 +759,6 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             if (error != null) intent.putExtra(EXTRA_ERROR, error)
             if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
             sendBroadcast(intent)
-            sequence
         }
         val historyState = when (state) {
             STATE_CONNECTING -> "connecting"
@@ -787,10 +786,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // transition can retry instead of being silently deduplicated.
             if (recorded) lastHistoryState = historyState
         }
-        // eventSequence is allocated, persisted and broadcast under one lock so
-        // concurrent callbacks cannot publish a lower sequence after a newer one.
-        @Suppress("UNUSED_VARIABLE")
-        val publishedSequence = eventSequence
+        // Sequence allocation, persistence and broadcast are atomic with respect
+        // to other publishers, so callbacks cannot publish events out of order.
         // Activity broadcasts are not guaranteed to be observed while the app
         // process/UI is absent. Refresh launcher and Quick Settings surfaces here
         // from the same authoritative persisted state.
