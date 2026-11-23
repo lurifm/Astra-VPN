@@ -43,7 +43,14 @@ internal class AutoFailoverBudget(
     @Synchronized
     fun attemptsInWindow(now: Long): Int {
         if (now < 0L) return 0
-        if (lastObservedAt != Long.MIN_VALUE && now < lastObservedAt) attempts.clear()
+        // A read-only query must not consume the clock-rollback observation.
+        // Keep the previous monotonic watermark so the next admission check
+        // still fails closed instead of treating the same stale timestamp as
+        // a fresh window.
+        if (lastObservedAt != Long.MIN_VALUE && now < lastObservedAt) {
+            attempts.clear()
+            return 0
+        }
         lastObservedAt = now
         prune(now)
         return attempts.size
