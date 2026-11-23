@@ -13,6 +13,7 @@ internal class SpeedDropFailoverPolicy(
     private val samples = ArrayDeque<Sample>()
     private var belowSince: Long? = null
     private var lastSampleAt: Long? = null
+    private var lastObservedAt: Long? = null
     private var lastTriggeredAt = Long.MIN_VALUE
 
     init {
@@ -33,6 +34,16 @@ internal class SpeedDropFailoverPolicy(
             resetObservationWindow()
             return false
         }
+        val previousObservedAt = lastObservedAt
+        if (previousObservedAt != null && now < previousObservedAt) {
+            // elapsedRealtime must be monotonic within one process. If the clock
+            // epoch changes, discard both the observation window and its cooldown;
+            // otherwise a stale trigger timestamp can suppress recovery indefinitely.
+            resetObservationWindow()
+            lastTriggeredAt = Long.MIN_VALUE
+        }
+        lastObservedAt = now
+
         if (downloadMbps < minimumActiveMbps) {
             // Idle traffic resets the continuous-drop timer but keeps a recent
             // healthy peak as the comparison baseline when traffic resumes.

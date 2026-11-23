@@ -81,6 +81,20 @@ class SpeedDropFailoverPolicyTest {
     }
 
     @Test
+    fun timestampRollbackAlsoResetsOldCooldownEpoch() {
+        val policy = SpeedDropFailoverPolicy(sustainedMs = 1_000L, cooldownMs = 120_000L)
+        assertFalse(policy.update(10.0, 10_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 11_000L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 12_000L, true, trafficIsVpnScoped = true))
+
+        // Simulate a new monotonic-clock epoch. A prior trigger must not leave
+        // the policy blocked for the remainder of the old epoch's cooldown.
+        assertFalse(policy.update(10.0, 1_000L, true, trafficIsVpnScoped = true))
+        assertFalse(policy.update(4.0, 2_000L, true, trafficIsVpnScoped = true))
+        assertTrue(policy.update(4.0, 3_000L, true, trafficIsVpnScoped = true))
+    }
+
+    @Test
     fun constructorRejectsUnsafeTimingAndThresholdValues() {
         assertTrue(runCatching { SpeedDropFailoverPolicy(thresholdFraction = 1.5) }.isFailure)
         assertTrue(runCatching { SpeedDropFailoverPolicy(sustainedMs = 0L) }.isFailure)
