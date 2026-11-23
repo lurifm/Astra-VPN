@@ -16,7 +16,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 
 /**
  * User-started foreground observer and executor for conservative banking transitions.
@@ -40,7 +39,7 @@ internal class BankingForegroundMonitorService : Service() {
                 return
             }
             val observed = runCatching { readForegroundPackage() }
-                .onFailure { Log.w(TAG, "Usage events unavailable", it) }
+                .onFailure { SafeLog.w(TAG, "Usage events unavailable", it) }
                 .getOrNull()
             // Require two consecutive non-ambiguous observations before publishing
             // a foreground change. Null means unknown (transition, split-screen,
@@ -54,7 +53,7 @@ internal class BankingForegroundMonitorService : Service() {
                         .putExtra(EXTRA_OBSERVED_AT, observedAt)
                 )
                 runCatching { executeBankingTransition(stablePackage, observedAt) }
-                    .onFailure { Log.e(TAG, "Banking transition failed closed", it) }
+                    .onFailure { SafeLog.e(TAG, "Banking transition failed closed", it) }
             }
             handler.postDelayed(this, POLL_INTERVAL_MS)
         }
@@ -74,7 +73,7 @@ internal class BankingForegroundMonitorService : Service() {
                     val state = stateStore.read()
                     if (state.autoPausedByBanking) stateStore.write(state.cancelAutomaticResume())
                     ProfileStore(this).clearBankPauseSnapshot()
-                }.onFailure { Log.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
+                }.onFailure { SafeLog.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
                 running = false
                 handler.removeCallbacksAndMessages(null)
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -130,7 +129,7 @@ internal class BankingForegroundMonitorService : Service() {
                 stateStore.write(state.cancelAutomaticResume())
             }
             ProfileStore(this).clearBankPauseSnapshot()
-        }.onFailure { Log.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
+        }.onFailure { SafeLog.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
         handler.removeCallbacksAndMessages(null)
         stopForeground(STOP_FOREGROUND_REMOVE)

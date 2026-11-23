@@ -489,7 +489,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             connectivity.registerNetworkCallback(request, callback)
             probeNetworkCallback = callback
         } catch (failure: Exception) {
-            Log.w(TAG, "Не удалось включить мониторинг сети для Ping", failure)
+            SafeLog.w(TAG, "Не удалось включить мониторинг сети для Ping", failure)
         }
     }
 
@@ -693,7 +693,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         runCatching {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
         }.onFailure {
-            Log.w(TAG, "Не удалось остановить мониторинг сети Ping", it)
+            SafeLog.w(TAG, "Не удалось остановить мониторинг сети Ping", it)
         }
     }
 
