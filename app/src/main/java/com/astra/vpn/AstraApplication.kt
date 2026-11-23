@@ -15,7 +15,7 @@ class AstraApplication : Application() {
         runCatching {
             setupLibbox()
         }.onFailure { error ->
-            Log.e(TAG, "Не удалось инициализировать sing-box", error)
+            SafeLog.e(TAG, "Не удалось инициализировать sing-box", error)
         }
     }
 
