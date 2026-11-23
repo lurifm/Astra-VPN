@@ -294,7 +294,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             instanceFollowRedirects = false
             useCaches = false
         }
-        // Serialize registration with finish() so a late socket cannot escape cleanup.
+        // The registry rejects and disconnects sockets opened after cancellation.
         if (!connectionRegistry.register(connection)) {
             throw InterruptedException("throughput probe cancelled")
         }
@@ -315,7 +315,8 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         // the main queue (for example after the physical network is lost).
         if (!terminalState.claimFailure()) return
         mainHandler.post {
-            if (stopped.get()) return@post
+            // claimFailure() already won the terminal-state race. A later
+            // STOP may shut down the service, but must not suppress this event.
             publishError(message)
             finish()
         }
