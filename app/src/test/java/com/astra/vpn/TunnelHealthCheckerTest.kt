@@ -6,11 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TunnelHealthCheckerTest {
-    @Test fun acceptsSuccessfulAndRedirectResponses() {
+    @Test fun acceptsSuccessfulResponsesAndRejectsRedirects() {
         assertTrue(TunnelHealthChecker.isReachableStatusCode(200))
+        assertTrue(TunnelHealthChecker.isReachableStatusCode(201))
         assertTrue(TunnelHealthChecker.isReachableStatusCode(204))
+        assertTrue(TunnelHealthChecker.isReachableStatusCode(299))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(300))
         assertFalse(TunnelHealthChecker.isReachableStatusCode(301))
         assertFalse(TunnelHealthChecker.isReachableStatusCode(302))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(307))
+        assertFalse(TunnelHealthChecker.isReachableStatusCode(308))
         assertFalse(TunnelHealthChecker.isReachableStatusCode(399))
     }
 
