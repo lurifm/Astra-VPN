@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
 
 class AutoFailoverBudgetTest {
     @Test fun allowsOnlyConfiguredAttemptsWithinRollingWindow() {
@@ -43,4 +45,38 @@ class AutoFailoverBudgetTest {
         assertEquals(0, budget.attemptsInWindow(400L))
         assertTrue(budget.canAttempt(401L))
     }
+    @Test
+    fun concurrentReservationsNeverExceedTheRollingWindowLimit() {
+        val limit = 3
+        val budget = AutoFailoverBudget(maxAttempts = limit, windowMs = 60_000L)
+        val workers = 24
+        val ready = CountDownLatch(workers)
+        val start = CountDownLatch(1)
+        val accepted = AtomicInteger(0)
+        val threads = (0 until workers).map {
+            Thread {
+                ready.countDown()
+                start.await()
+                if (budget.recordAttempt(10_000L)) accepted.incrementAndGet()
+            }.apply { start() }
+        }
+
+        ready.await()
+        start.countDown()
+        threads.forEach { it.join() }
+
+        assertEquals(limit, accepted.get())
+        assertEquals(limit, budget.attemptsInWindow(10_000L))
+    }
+
+    @Test
+    fun backwardClockObservationFailsClosedButAllowsFreshWindowAfterward() {
+        val budget = AutoFailoverBudget(maxAttempts = 1, windowMs = 1_000L)
+        assertTrue(budget.recordAttempt(5_000L))
+        assertEquals(0, budget.attemptsInWindow(4_000L))
+        assertFalse(budget.canAttempt(4_000L))
+        assertTrue(budget.recordAttempt(4_001L))
+        assertEquals(1, budget.attemptsInWindow(4_001L))
+    }
+
 }
