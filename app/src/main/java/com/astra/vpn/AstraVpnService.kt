@@ -30,8 +30,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
-    // Invalidates delayed start/reload completions after a newer request or stop.
-    private val startRequestGeneration = ServiceStartRequestGeneration()
+    // Shared across service recreation in this app process so generation IDs never go backwards.
+    private val startRequestGeneration = processStartRequestGeneration
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
@@ -760,7 +760,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // transition can retry instead of being silently deduplicated.
             if (recorded) lastHistoryState = historyState
         }
-        val intent = Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state)
+        val intent = Intent(ACTION_STATE).setPackage(packageName)
+            .putExtra(EXTRA_STATE, state)
+            .putExtra(EXTRA_REQUEST_GENERATION, startRequestGeneration.current())
         if (error != null) intent.putExtra(EXTRA_ERROR, error)
         if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
         sendBroadcast(intent)
@@ -799,6 +801,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val EXTRA_PROFILE_NAME = "com.astra.vpn.extra.PROFILE_NAME"
         const val EXTRA_PROTOCOL = "com.astra.vpn.extra.PROTOCOL"
         const val EXTRA_STATE = "com.astra.vpn.extra.STATE"
+        const val EXTRA_REQUEST_GENERATION = "com.astra.vpn.extra.REQUEST_GENERATION"
         const val EXTRA_ERROR = "com.astra.vpn.extra.ERROR"
         const val EXTRA_RETRYABLE = "com.astra.vpn.extra.RETRYABLE"
         const val STATE_CONNECTED = "connected"
@@ -809,6 +812,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val PREF_STATE = "state"
         const val PREF_ERROR = "error"
         const val PREF_UPDATED_AT = "updated_at"
+        private val processStartRequestGeneration = ServiceStartRequestGeneration()
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1
         private const val TUN_TIMEOUT_MS = 20_000L

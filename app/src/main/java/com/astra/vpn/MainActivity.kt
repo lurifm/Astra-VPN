@@ -191,6 +191,8 @@ class MainActivity : Activity() {
     private var pendingConfig: String? = null
     // Profile captured together with the config while Android VPN consent is pending.
     private var pendingProfile: String? = null
+    // High-water mark rejects delayed state broadcasts from superseded service starts.
+    private var latestVpnServiceRequestGeneration: Long? = null
     private var connected = false
     private var connecting = false
     private var disconnecting = false
@@ -469,6 +471,16 @@ class MainActivity : Activity() {
                 else -> return
             }
             val serviceState = intent.getStringExtra(AstraVpnService.EXTRA_STATE)
+            val serviceRequestGeneration = intent.getLongExtra(
+                AstraVpnService.EXTRA_REQUEST_GENERATION,
+                Long.MIN_VALUE
+            )
+            if (!ServiceStateEventPolicy.shouldAccept(
+                    eventGeneration = serviceRequestGeneration,
+                    latestGeneration = latestVpnServiceRequestGeneration
+                )
+            ) return
+            latestVpnServiceRequestGeneration = serviceRequestGeneration
             // CONNECTING/CONNECTED may be delayed broadcasts from a request that
             // was already in flight when the user pressed Disconnect. Only the
             // terminal DISCONNECTED acknowledgement may clear that stop intent.
