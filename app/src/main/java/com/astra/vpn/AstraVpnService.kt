@@ -733,6 +733,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             .putString(PREF_STATE, state)
             .putString(PREF_ERROR, error)
             .putLong(PREF_UPDATED_AT, System.currentTimeMillis())
+            .putLong(PREF_REQUEST_GENERATION, startRequestGeneration.current())
             .apply()
         val historyState = when (state) {
             STATE_CONNECTING -> "connecting"
@@ -812,6 +813,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val PREF_STATE = "state"
         const val PREF_ERROR = "error"
         const val PREF_UPDATED_AT = "updated_at"
+        const val PREF_REQUEST_GENERATION = "request_generation"
         private val processStartRequestGeneration = ServiceStartRequestGeneration()
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1

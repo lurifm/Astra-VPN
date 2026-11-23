@@ -585,6 +585,11 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Restore the service-event high-water mark before registering the receiver.
+        // Activity recreation must not make an older delayed broadcast look current.
+        latestVpnServiceRequestGeneration = getSharedPreferences(
+            AstraVpnService.STATE_PREFS, MODE_PRIVATE
+        ).getLong(AstraVpnService.PREF_REQUEST_GENERATION, -1L).takeIf { it >= 0L }
         profileStore = ProfileStore(this)
         runCatching {
             val filter = IntentFilter().apply {
