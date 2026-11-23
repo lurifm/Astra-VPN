@@ -78,6 +78,16 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         tunTimeout = null
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        // The process-wide counter resets after process death. Restore its persisted
+        // high-water mark before any state event can be emitted, otherwise a new
+        // low token would be rejected by an Activity restored from preferences.
+        val persistedGeneration = getSharedPreferences(STATE_PREFS, MODE_PRIVATE)
+            .getLong(PREF_REQUEST_GENERATION, -1L)
+        startRequestGeneration.restoreAtLeast(persistedGeneration)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_UPDATE_RECOVERY) {
             val enabled = getSharedPreferences("astra_settings", MODE_PRIVATE)

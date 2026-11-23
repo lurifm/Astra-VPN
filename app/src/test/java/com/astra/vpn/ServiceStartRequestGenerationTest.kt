@@ -9,6 +9,36 @@ import org.junit.Test
 
 class ServiceStartRequestGenerationTest {
     @Test
+    fun restoresPersistedGenerationAfterProcessRecreation() {
+        val oldProcess = ServiceStartRequestGeneration()
+        repeat(12) { oldProcess.next() }
+        val persisted = oldProcess.current()
+
+        // A new process starts with a fresh in-memory counter.
+        val recreatedProcess = ServiceStartRequestGeneration()
+        recreatedProcess.restoreAtLeast(persisted)
+        val nextRequest = recreatedProcess.next()
+
+        assertTrue(nextRequest > persisted)
+        assertTrue(recreatedProcess.isCurrent(nextRequest))
+    }
+
+    @Test
+    fun restoringOlderGenerationNeverMovesCounterBackwards() {
+        val generation = ServiceStartRequestGeneration()
+        val current = generation.next()
+        generation.restoreAtLeast(current - 1L)
+        assertEquals(current, generation.current())
+    }
+
+    @Test
+    fun ignoresNegativePersistedGeneration() {
+        val generation = ServiceStartRequestGeneration()
+        generation.restoreAtLeast(-1L)
+        assertEquals(0L, generation.current())
+    }
+
+    @Test
     fun newerStartInvalidatesPreviousRequest() {
         val generation = ServiceStartRequestGeneration()
         val first = generation.next()

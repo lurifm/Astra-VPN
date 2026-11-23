@@ -18,6 +18,14 @@ internal class ServiceStartRequestGeneration {
         generation++
     }
 
+    /** Restores the persisted high-water mark after Android recreates the app process. */
+    @Synchronized
+    fun restoreAtLeast(persistedGeneration: Long) {
+        if (persistedGeneration >= 0L && persistedGeneration > generation) {
+            generation = persistedGeneration
+        }
+    }
+
     @Synchronized
     fun current(): Long = generation
 
