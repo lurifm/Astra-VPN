@@ -86,8 +86,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         if (config.isNullOrBlank() || physicalNetwork == null ||
             profileId.isNullOrBlank() || listenPort !in 1..65535
         ) {
-            publishError("Недостаточно данных для проверки скорости")
-            finish()
+            fail("Недостаточно данных для проверки скорости")
             return START_NOT_STICKY
         }
 
@@ -114,8 +113,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         } catch (error: RuntimeException) {
             networkCallback = null
             Log.e(TAG, "Unable to monitor the physical network (" + error.javaClass.simpleName + ")")
-            publishError("Не удалось отслеживать состояние мобильной сети")
-            finish()
+            fail("Не удалось отслеживать состояние мобильной сети")
             return START_NOT_STICKY
         }
 
