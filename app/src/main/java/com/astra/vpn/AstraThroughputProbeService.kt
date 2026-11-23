@@ -284,7 +284,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return Sample(payload.size.toLong(), elapsed, payload.size * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
-            clearActiveConnection(connection)
+            connectionRegistry.clear(connection)
         }
     }
 

@@ -46,12 +46,11 @@ class ThroughputConnectionRegistryTest {
             registration.start()
             ready.await()
             start.countDown()
-            registry.close()
+            val ownedByCloser = registry.close()
             registration.join()
-            assertTrue(connection.disconnected.get() || registry.close() === connection)
-            // If close won, register must have disconnected it; if register
-            // won, close returned ownership and the caller must disconnect it.
-            registry.close()?.disconnect()
+            // If registration won the lock, close returns the connection.
+            // If close won, register rejects and disconnects it itself.
+            ownedByCloser?.disconnect()
             assertTrue(connection.disconnected.get())
         }
     }
