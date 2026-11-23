@@ -35,6 +35,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
     private val lifecycleGeneration = ServiceLifecycleGeneration()
     private val lifecycleLock = Any()
+    private val statePublishLock = Any()
     // Serialize libbox configuration transitions; OpenTun is invoked synchronously
     // from startOrReloadService and must be attributed to that exact request.
     private val tunOperationLock = Any()
@@ -86,6 +87,9 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         val persistedGeneration = getSharedPreferences(STATE_PREFS, MODE_PRIVATE)
             .getLong(PREF_REQUEST_GENERATION, -1L)
         startRequestGeneration.restoreAtLeast(persistedGeneration)
+        val persistedEventSequence = getSharedPreferences(STATE_PREFS, MODE_PRIVATE)
+            .getLong(PREF_STATE_EVENT_SEQUENCE, -1L)
+        processStateEventSequence.restoreAtLeast(persistedEventSequence)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -739,12 +743,24 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun publishState(state: String, error: String? = null, retryable: Boolean = false) {
         // Save the latest state so the Activity can restore its UI after
         // recreation instead of depending on a broadcast it may have missed.
-        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
-            .putString(PREF_STATE, state)
-            .putString(PREF_ERROR, error)
-            .putLong(PREF_UPDATED_AT, System.currentTimeMillis())
-            .putLong(PREF_REQUEST_GENERATION, startRequestGeneration.current())
-            .apply()
+        val eventSequence = synchronized(statePublishLock) {
+            val sequence = processStateEventSequence.next()
+            getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+                .putString(PREF_STATE, state)
+                .putString(PREF_ERROR, error)
+                .putLong(PREF_UPDATED_AT, System.currentTimeMillis())
+                .putLong(PREF_REQUEST_GENERATION, startRequestGeneration.current())
+                .putLong(PREF_STATE_EVENT_SEQUENCE, sequence)
+                .apply()
+            val intent = Intent(ACTION_STATE).setPackage(packageName)
+                .putExtra(EXTRA_STATE, state)
+                .putExtra(EXTRA_REQUEST_GENERATION, startRequestGeneration.current())
+                .putExtra(EXTRA_STATE_EVENT_SEQUENCE, sequence)
+            if (error != null) intent.putExtra(EXTRA_ERROR, error)
+            if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
+            sendBroadcast(intent)
+            sequence
+        }
         val historyState = when (state) {
             STATE_CONNECTING -> "connecting"
             // A ready TUN is not proof of working internet. MainActivity records
@@ -771,12 +787,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // transition can retry instead of being silently deduplicated.
             if (recorded) lastHistoryState = historyState
         }
-        val intent = Intent(ACTION_STATE).setPackage(packageName)
-            .putExtra(EXTRA_STATE, state)
-            .putExtra(EXTRA_REQUEST_GENERATION, startRequestGeneration.current())
-        if (error != null) intent.putExtra(EXTRA_ERROR, error)
-        if (retryable) intent.putExtra(EXTRA_RETRYABLE, true)
-        sendBroadcast(intent)
+        // eventSequence is allocated, persisted and broadcast under one lock so
+        // concurrent callbacks cannot publish a lower sequence after a newer one.
+        @Suppress("UNUSED_VARIABLE")
+        val publishedSequence = eventSequence
         // Activity broadcasts are not guaranteed to be observed while the app
         // process/UI is absent. Refresh launcher and Quick Settings surfaces here
         // from the same authoritative persisted state.
@@ -824,7 +838,10 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         const val PREF_ERROR = "error"
         const val PREF_UPDATED_AT = "updated_at"
         const val PREF_REQUEST_GENERATION = "request_generation"
+        const val PREF_STATE_EVENT_SEQUENCE = "state_event_sequence"
+        const val EXTRA_STATE_EVENT_SEQUENCE = "com.astra.vpn.extra.STATE_EVENT_SEQUENCE"
         private val processStartRequestGeneration = ServiceStartRequestGeneration()
+        private val processStateEventSequence = ServiceStateEventSequence()
         private const val TAG = "AstraVpnService"
         private const val NOTIFICATION_ID = 1
         private const val TUN_TIMEOUT_MS = 20_000L

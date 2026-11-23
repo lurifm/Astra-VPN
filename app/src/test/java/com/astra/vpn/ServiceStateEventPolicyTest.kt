@@ -7,27 +7,38 @@ import org.junit.Test
 class ServiceStateEventPolicyTest {
     @Test
     fun acceptsFirstValidServiceEvent() {
-        assertTrue(ServiceStateEventPolicy.shouldAccept(1L, null))
+        assertTrue(ServiceStateEventPolicy.shouldAccept(1L, 1L, null, null))
     }
 
     @Test
-    fun acceptsEventsFromCurrentRequest() {
-        assertTrue(ServiceStateEventPolicy.shouldAccept(7L, 7L))
+    fun acceptsLaterEventFromSameRequest() {
+        assertTrue(ServiceStateEventPolicy.shouldAccept(7L, 9L, 7L, 8L))
     }
 
     @Test
-    fun rejectsDelayedTerminalEventFromOlderRequest() {
-        assertFalse(ServiceStateEventPolicy.shouldAccept(4L, 5L))
+    fun rejectsReorderedEarlierEventFromSameRequest() {
+        assertFalse(ServiceStateEventPolicy.shouldAccept(7L, 8L, 7L, 9L))
     }
 
     @Test
-    fun acceptsNewerRequestAndAdvancesHighWaterMark() {
-        assertTrue(ServiceStateEventPolicy.shouldAccept(8L, 7L))
+    fun rejectsDuplicateEventSequence() {
+        assertFalse(ServiceStateEventPolicy.shouldAccept(7L, 9L, 7L, 9L))
     }
 
     @Test
-    fun rejectsMissingOrInvalidGeneration() {
-        assertFalse(ServiceStateEventPolicy.shouldAccept(Long.MIN_VALUE, null))
-        assertFalse(ServiceStateEventPolicy.shouldAccept(-1L, 0L))
+    fun rejectsDelayedEventFromOlderRequestEvenWithLargeSequence() {
+        assertFalse(ServiceStateEventPolicy.shouldAccept(6L, 100L, 7L, 1L))
+    }
+
+    @Test
+    fun acceptsNewRequestEvenWhenItsSequenceRestartsLower() {
+        assertTrue(ServiceStateEventPolicy.shouldAccept(8L, 1L, 7L, 100L))
+    }
+
+    @Test
+    fun rejectsMissingOrInvalidVersion() {
+        assertFalse(ServiceStateEventPolicy.shouldAccept(Long.MIN_VALUE, 1L, null, null))
+        assertFalse(ServiceStateEventPolicy.shouldAccept(1L, Long.MIN_VALUE, null, null))
+        assertFalse(ServiceStateEventPolicy.shouldAccept(-1L, 0L, 0L, 0L))
     }
 }

@@ -193,6 +193,8 @@ class MainActivity : Activity() {
     private var pendingProfile: String? = null
     // High-water mark rejects delayed state broadcasts from superseded service starts.
     private var latestVpnServiceRequestGeneration: Long? = null
+    // Orders state changes within one request generation.
+    private var latestVpnServiceStateSequence: Long? = null
     private var connected = false
     private var connecting = false
     private var disconnecting = false
@@ -475,12 +477,19 @@ class MainActivity : Activity() {
                 AstraVpnService.EXTRA_REQUEST_GENERATION,
                 Long.MIN_VALUE
             )
+            val serviceEventSequence = intent.getLongExtra(
+                AstraVpnService.EXTRA_STATE_EVENT_SEQUENCE,
+                Long.MIN_VALUE
+            )
             if (!ServiceStateEventPolicy.shouldAccept(
                     eventGeneration = serviceRequestGeneration,
-                    latestGeneration = latestVpnServiceRequestGeneration
+                    eventSequence = serviceEventSequence,
+                    latestGeneration = latestVpnServiceRequestGeneration,
+                    latestSequence = latestVpnServiceStateSequence
                 )
             ) return
             latestVpnServiceRequestGeneration = serviceRequestGeneration
+            latestVpnServiceStateSequence = serviceEventSequence
             // CONNECTING/CONNECTED may be delayed broadcasts from a request that
             // was already in flight when the user pressed Disconnect. Only the
             // terminal DISCONNECTED acknowledgement may clear that stop intent.
@@ -590,6 +599,9 @@ class MainActivity : Activity() {
         latestVpnServiceRequestGeneration = getSharedPreferences(
             AstraVpnService.STATE_PREFS, MODE_PRIVATE
         ).getLong(AstraVpnService.PREF_REQUEST_GENERATION, -1L).takeIf { it >= 0L }
+        latestVpnServiceStateSequence = getSharedPreferences(
+            AstraVpnService.STATE_PREFS, MODE_PRIVATE
+        ).getLong(AstraVpnService.PREF_STATE_EVENT_SEQUENCE, -1L).takeIf { it >= 0L }
         profileStore = ProfileStore(this)
         runCatching {
             val filter = IntentFilter().apply {
