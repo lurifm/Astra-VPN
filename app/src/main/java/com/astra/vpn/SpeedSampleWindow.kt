@@ -18,7 +18,11 @@ internal class SpeedSampleWindow(private val capacity: Int = 60) {
     init { require(capacity > 0) }
 
     fun add(downloadMbps: Float, uploadMbps: Float) {
-        samples.addLast(Sample(downloadMbps.coerceAtLeast(0f), uploadMbps.coerceAtLeast(0f)))
+        // A malformed counter conversion must not poison the rolling statistics
+        // with NaN or infinity; keep the window usable and deterministic.
+        val safeDownload = if (downloadMbps.isFinite()) downloadMbps.coerceAtLeast(0f) else 0f
+        val safeUpload = if (uploadMbps.isFinite()) uploadMbps.coerceAtLeast(0f) else 0f
+        samples.addLast(Sample(safeDownload, safeUpload))
         while (samples.size > capacity) samples.removeFirst()
     }
 

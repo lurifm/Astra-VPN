@@ -35,4 +35,25 @@ class SpeedSampleWindowTest {
         assertEquals(0f, stats.averageDownloadMbps, 0.001f)
         assertEquals(0f, stats.peakUploadMbps, 0.001f)
     }
+    @Test fun replacesNonFiniteMeasurementsWithoutPoisoningStatistics() {
+        val window = SpeedSampleWindow(4)
+        window.add(Float.NaN, Float.POSITIVE_INFINITY)
+        window.add(Float.NEGATIVE_INFINITY, 8f)
+
+        val stats = window.stats()
+        assertEquals(0f, stats.averageDownloadMbps, 0.001f)
+        assertEquals(4f, stats.averageUploadMbps, 0.001f)
+        assertEquals(0f, stats.peakDownloadMbps, 0.001f)
+        assertEquals(8f, stats.peakUploadMbps, 0.001f)
+        assertEquals(2, stats.sampleCount)
+    }
+
+    @Test fun finiteMeasurementsRemainUnchanged() {
+        val window = SpeedSampleWindow(2)
+        window.add(12.5f, 3.5f)
+        val stats = window.stats()
+        assertEquals(12.5f, stats.averageDownloadMbps, 0.001f)
+        assertEquals(3.5f, stats.averageUploadMbps, 0.001f)
+    }
+
 }
