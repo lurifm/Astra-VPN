@@ -224,6 +224,60 @@ class SubscriptionRefreshRetryStateTest {
         assertEquals(setOf(SubscriptionSourceFingerprint.of("https://old.example/sub")), known)
     }
 
+
+    @Test fun serializedRefreshDoesNotStartNextOperationBeforePreviousResultIsRecorded() {
+        val firstOperationStarted = java.util.concurrent.CountDownLatch(1)
+        val releaseFirstOperation = java.util.concurrent.CountDownLatch(1)
+        val secondCallerReady = java.util.concurrent.CountDownLatch(1)
+        val secondOperationStarted = java.util.concurrent.CountDownLatch(1)
+        val completed = java.util.concurrent.CountDownLatch(2)
+        val events = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+        val first = Thread {
+            try {
+                SubscriptionRefreshCoordinator.executeSerialized(
+                    operation = {
+                        events += "first-operation"
+                        firstOperationStarted.countDown()
+                        check(releaseFirstOperation.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        "first"
+                    },
+                    onResult = { events += "first-result" }
+                )
+            } finally {
+                completed.countDown()
+            }
+        }
+        val second = Thread {
+            try {
+                check(firstOperationStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                secondCallerReady.countDown()
+                SubscriptionRefreshCoordinator.executeSerialized(
+                    operation = {
+                        events += "second-operation"
+                        secondOperationStarted.countDown()
+                        "second"
+                    },
+                    onResult = { events += "second-result" }
+                )
+            } finally {
+                completed.countDown()
+            }
+        }
+
+        first.start()
+        second.start()
+        assertEquals(true, secondCallerReady.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(false, secondOperationStarted.await(100, java.util.concurrent.TimeUnit.MILLISECONDS))
+        releaseFirstOperation.countDown()
+
+        assertEquals(true, completed.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(
+            listOf("first-operation", "first-result", "second-operation", "second-result"),
+            events.toList()
+        )
+    }
+
     @Test fun concurrentQueueUpdatesDoNotOverwriteEachOther() {
         val pending = linkedSetOf<String>()
         val start = java.util.concurrent.CountDownLatch(1)

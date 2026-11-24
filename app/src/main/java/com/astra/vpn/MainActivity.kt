@@ -1714,23 +1714,34 @@ class MainActivity : Activity() {
             var totalProfiles = 0
             val errors = mutableListOf<String>()
             sources.forEachIndexed { index, source ->
-                SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
                 val result = runCatching {
-                    SubscriptionRefreshCoordinator.refreshExisting(profileStore, source)
+                    SubscriptionRefreshCoordinator.refreshExisting(
+                        profileStore,
+                        source,
+                        onAttempt = { SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source) },
+                        onResult = { refreshResult ->
+                            refreshResult.fold(
+                                onSuccess = { count ->
+                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
+                                    if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                                },
+                                onFailure = {
+                                    SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
+                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
+                                }
+                            )
+                        }
+                    )
                 }
                 result.onSuccess { count ->
-                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
                     if (count != null) {
-                        SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
                         updated++
                         totalProfiles += count
                     }
                 }.onFailure {
-                    SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
                     // Parser/network exceptions may contain the full subscription URL
                     // (including credentials). Keep provider secrets out of dialogs.
-                    errors += "Подписка ${index + 1}: не удалось обновить"
-                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
+                    errors += "Подписка " + (index + 1) + ": не удалось обновить"
                 }
             }
             // Per-source atomic updates preserve failures recorded by concurrent workers.
@@ -2048,19 +2059,27 @@ class MainActivity : Activity() {
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
         importExecutor.execute {
-            SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
             val result = runCatching {
-                // Use the same transaction lock as foreground bulk refresh and
-                // WorkManager so an older response cannot overwrite newer data.
-                SubscriptionRefreshCoordinator.refreshExisting(profileStore, source)
+                // The attempt, profile commit, history and retry state form one
+                // serialized transaction shared with bulk refresh and WorkManager.
+                SubscriptionRefreshCoordinator.refreshExisting(
+                    profileStore,
+                    source,
+                    onAttempt = { SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source) },
+                    onResult = { refreshResult ->
+                        refreshResult.fold(
+                            onSuccess = { count ->
+                                SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
+                                if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                            },
+                            onFailure = {
+                                SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
+                                SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
+                            }
+                        )
+                    }
+                )
             }
-            result.onSuccess { count ->
-                if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
-            }.onFailure { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
-            // Keep single-provider failures in the same durable retry queue as
-            // bulk refresh and WorkManager. Merge rather than replace so failures
-            // from other providers survive; migrate any legacy plaintext entries.
-            SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = result.isSuccess)
             if (result.getOrNull() != null) {
                 settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
