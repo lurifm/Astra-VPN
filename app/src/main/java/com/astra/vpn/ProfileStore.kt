@@ -72,15 +72,8 @@ class ProfileStore(context: Context) {
     }
 
     fun recoveryProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        val encrypted = prefs.getString(RECOVERY_PROFILE_KEY, null) ?: return@synchronized null
-        val link = decryptStored(encrypted)
-        if (link !in all()) {
-            check(prefs.edit().remove(RECOVERY_PROFILE_KEY).commit()) {
-                "Не удалось очистить устаревший профиль восстановления"
-            }
-            return@synchronized null
-        }
-        link
+        resolveStoredProfile(RECOVERY_PROFILE_KEY, "Не удалось очистить устаревший профиль восстановления",
+            "Не удалось обновить профиль восстановления")
     }
 
     /**
@@ -104,13 +97,28 @@ class ProfileStore(context: Context) {
     }
 
     fun activeTunnelProfile(): String? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        val encrypted = prefs.getString(ACTIVE_TUNNEL_PROFILE_KEY, null) ?: return@synchronized null
-        val link = decryptStored(encrypted)
-        if (link !in all()) {
-            check(prefs.edit().remove(ACTIVE_TUNNEL_PROFILE_KEY).commit()) { "Не удалось очистить устаревший активный профиль" }
-            return@synchronized null
+        resolveStoredProfile(ACTIVE_TUNNEL_PROFILE_KEY, "Не удалось очистить устаревший активный профиль",
+            "Не удалось обновить активный профиль VPN")
+    }
+
+    /**
+     * Subscription refreshes can rotate credentials or URI options. Resolve
+     * persisted runtime references with the same ambiguity-safe matcher used
+     * for the user's selection, and commit the replacement before returning it.
+     */
+    private fun resolveStoredProfile(key: String, staleMessage: String, updateMessage: String): String? {
+        val encrypted = prefs.getString(key, null) ?: return null
+        val saved = decryptStored(encrypted)
+        val available = all()
+        val resolved = if (saved in available) saved else ProfileSelectionMatcher.remap(saved, available)
+        if (resolved == null) {
+            check(prefs.edit().remove(key).commit()) { staleMessage }
+            return null
         }
-        link
+        if (resolved != saved) {
+            check(prefs.edit().putString(key, encrypt(resolved)).commit()) { updateMessage }
+        }
+        return resolved
     }
 
     fun setBankPauseSnapshot(profileLink: String?, pausedAtEpochMillis: Long = System.currentTimeMillis()) =
@@ -128,10 +136,11 @@ class ProfileStore(context: Context) {
         }
 
     fun bankPauseSnapshot(): BankPauseSnapshot? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        val encrypted = prefs.getString(BANK_PAUSE_PROFILE_KEY, null) ?: return@synchronized null
-        val link = decryptStored(encrypted)
         val pausedAt = prefs.getLong(BANK_PAUSE_AT_KEY, 0L)
-        if (pausedAt <= 0L || link !in all()) return@synchronized null
+        if (pausedAt <= 0L) return@synchronized null
+        val link = resolveStoredProfile(BANK_PAUSE_PROFILE_KEY,
+            "Не удалось очистить устаревший профиль автоматической паузы",
+            "Не удалось обновить профиль автоматической паузы") ?: return@synchronized null
         BankPauseSnapshot(link, pausedAt)
     }
 
