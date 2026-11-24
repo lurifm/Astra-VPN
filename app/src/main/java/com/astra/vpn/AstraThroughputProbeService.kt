@@ -261,8 +261,12 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
 
     private fun measureUpload(network: Network, port: Int, deadline: Long): Sample {
         val payloadSize = uploadByteLimit.toInt()
-        val random = SecureRandom()
-        val buffer = ByteArray(32 * 1024)
+        // Prepare entropy before starting the timed transfer. Random-number
+        // generation is local CPU work, not upload throughput, and including it
+        // would penalize slower phones rather than measuring the proxy path.
+        val payload = ByteArray(payloadSize)
+        SecureRandom().nextBytes(payload)
+        remainingTimeout(deadline)
         val url = URL(UPLOAD_URL)
         val connection = openConnection(network, url, port)
         try {
@@ -279,9 +283,8 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 while (written < payloadSize) {
                     if (stopped.get()) throw InterruptedException("cancelled")
                     remainingTimeout(deadline)
-                    val count = minOf(buffer.size, payloadSize - written)
-                    random.nextBytes(buffer)
-                    output.write(buffer, 0, count)
+                    val count = minOf(32 * 1024, payloadSize - written)
+                    output.write(payload, written, count)
                     written += count
                 }
                 output.flush()
