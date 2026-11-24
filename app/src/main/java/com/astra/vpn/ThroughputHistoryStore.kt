@@ -2,7 +2,6 @@ package com.astra.vpn
 
 import android.content.Context
 import org.json.JSONObject
-import java.security.MessageDigest
 
 /**
  * Stores non-secret throughput measurements separately from encrypted profile
@@ -30,7 +29,8 @@ internal class ThroughputHistoryStore(context: Context) {
         // background thread; this method is also called from BroadcastReceiver
         // callbacks on the main thread, so commit() would risk a UI stall.
         ensureCacheLoaded(System.currentTimeMillis())
-        val storageKey = key(profile)
+        // Keep a separate fresh sample for each physical underlay.
+        val storageKey = ThroughputHistoryKey.sampleKey(profile, sample.networkHandle)
         sampleCache[storageKey] = sample
         prefs.edit().putString(storageKey, value.toString()).apply()
         prune(System.currentTimeMillis())
@@ -44,15 +44,13 @@ internal class ThroughputHistoryStore(context: Context) {
     ): ThroughputSample? {
         if (expectedNetworkHandle <= 0L) return null
         ensureCacheLoaded(nowEpochMs)
-        val storageKey = key(profile)
+        val storageKey = ThroughputHistoryKey.sampleKey(profile, expectedNetworkHandle)
         val sample = sampleCache[storageKey] ?: return null
-        if (!ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
+        if (!ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs, expectedNetworkHandle)) {
             sampleCache.remove(storageKey)
             prefs.edit().remove(storageKey).apply()
             return null
         }
-        // Preserve another underlay's sample so returning to that network can reuse it.
-        if (sample.networkHandle != expectedNetworkHandle) return null
         return sample
     }
 
@@ -68,9 +66,15 @@ internal class ThroughputHistoryStore(context: Context) {
 
     @Synchronized
     fun remove(profile: String) {
-        val storageKey = key(profile)
-        sampleCache.remove(storageKey)
-        prefs.edit().remove(storageKey).apply()
+        ensureCacheLoaded(System.currentTimeMillis())
+        val legacyKey = ThroughputHistoryKey.legacyKey(profile)
+        val matchingKeys = prefs.all.keys.filter {
+            it == legacyKey || it.startsWith(legacyKey + "_")
+        }
+        matchingKeys.forEach(sampleCache::remove)
+        val editor = prefs.edit()
+        matchingKeys.forEach(editor::remove)
+        editor.apply()
     }
 
     @Synchronized
@@ -97,8 +101,21 @@ internal class ThroughputHistoryStore(context: Context) {
                     )
                 }.getOrNull()
             }
-            if (sample != null && ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs)) {
-                sampleCache[storedKey] = sample
+            val legacyKey = ThroughputHistoryKey.isLegacyKey(storedKey)
+            val validCurrentKey = sample != null &&
+                ThroughputHistoryKey.isSampleKey(storedKey, sample.networkHandle)
+            if (sample != null && ThroughputFreshnessPolicy.isFresh(sample, nowEpochMs) &&
+                (legacyKey || validCurrentKey)
+            ) {
+                if (legacyKey) {
+                    // Migrate the previous single-underlay format in place.
+                    val migratedKey = ThroughputHistoryKey.sampleKeyFromLegacy(storedKey, sample.networkHandle)
+                    sampleCache[migratedKey] = sample
+                    editor.putString(migratedKey, raw as String)
+                    editor.remove(storedKey)
+                } else {
+                    sampleCache[storedKey] = sample
+                }
             } else {
                 editor.remove(storedKey)
             }
@@ -137,11 +154,6 @@ internal class ThroughputHistoryStore(context: Context) {
         // disk I/O is delegated away from the caller/UI thread.
         editor.apply()
     }
-
-    private fun key(profile: String): String =
-        PREFIX + MessageDigest.getInstance("SHA-256")
-            .digest(profile.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
 
     companion object {
         private const val PREFERENCES = "astra_throughput_history"
