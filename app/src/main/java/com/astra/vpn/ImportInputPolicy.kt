@@ -48,9 +48,33 @@ internal object ImportInputPolicy {
 
     fun validateTextSize(value: String) {
         require(value.length <= MAX_TOTAL_BYTES &&
-            value.toByteArray(Charsets.UTF_8).size <= MAX_TOTAL_BYTES) {
+            utf8ByteCountWithinLimit(value, MAX_TOTAL_BYTES)) {
             "Текст импорта слишком большой (максимум 2 МБ)"
         }
+    }
+
+    /** Counts UTF-8 bytes without allocating a second copy of potentially secret import text. */
+    private fun utf8ByteCountWithinLimit(value: String, limit: Int): Boolean {
+        var bytes = 0
+        var index = 0
+        while (index < value.length) {
+            val current = value[index]
+            val charBytes = when {
+                current.code <= 0x7F -> 1
+                current.code <= 0x7FF -> 2
+                current.isHighSurrogate() && index + 1 < value.length &&
+                    value[index + 1].isLowSurrogate() -> {
+                    index++
+                    4
+                }
+                current.isSurrogate() -> 1 // Matches the single-byte replacement used by String UTF-8 encoding.
+                else -> 3
+            }
+            if (bytes > limit - charBytes) return false
+            bytes += charBytes
+            index++
+        }
+        return true
     }
 
     /** Reads at most [maxBytes], failing before writing any bytes beyond the cap. */
@@ -62,7 +86,17 @@ internal object ImportInputPolicy {
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    // Defensive fallback for unusual streams that report no progress
+                    // from a non-empty bulk read. Avoid an infinite import loop.
+                    val singleByte = input.read()
+                    if (singleByte < 0) break
+                    if (output.size() >= maxBytes) {
+                        throw ImportInputLimitException("Общий размер импортируемых файлов превышает 2 МБ")
+                    }
+                    output.write(singleByte)
+                    continue
+                }
                 if (count > maxBytes - output.size()) {
                     throw ImportInputLimitException("Общий размер импортируемых файлов превышает 2 МБ")
                 }

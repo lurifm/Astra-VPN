@@ -81,7 +81,16 @@ class ImportInputPolicyTest {
 
     @Test fun validatesUtf8ByteSizeAndAllowsSmallText() {
         ImportInputPolicy.validateTextSize("vless://example")
+        ImportInputPolicy.validateTextSize("emoji-😀")
         assertTrue(ImportInputPolicy.MAX_TOTAL_BYTES > 0)
+    }
+
+    @Test fun utf8ValidationCountsSupplementaryCharactersAsFourBytes() {
+        val exactLimit = "😀".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 4)
+        ImportInputPolicy.validateTextSize(exactLimit)
+        assertThrows(IllegalArgumentException::class.java) {
+            ImportInputPolicy.validateTextSize(exactLimit + "😀")
+        }
     }
 
     @Test fun rejectsTextWhoseCharacterCountAlreadyExceedsByteLimit() {
@@ -97,6 +106,26 @@ class ImportInputPolicyTest {
         assertThrows(ImportInputLimitException::class.java) {
             ImportInputPolicy.readBytes(ByteArrayInputStream(byteArrayOf(1)), 0)
         }
+    }
+
+    @Test fun streamThatTemporarilyReturnsZeroStillMakesProgress() {
+        val stream = object : java.io.InputStream() {
+            private var firstBulkRead = true
+            private var consumed = false
+            override fun read(): Int {
+                if (consumed) return -1
+                consumed = true
+                return 7
+            }
+            override fun read(target: ByteArray, offset: Int, length: Int): Int {
+                if (firstBulkRead) {
+                    firstBulkRead = false
+                    return 0
+                }
+                return -1
+            }
+        }
+        assertArrayEquals(byteArrayOf(7), ImportInputPolicy.readBytes(stream, 1))
     }
 
     @Test fun readFailureIsPropagatedAfterScratchBuffersAreScheduledForCleanup() {
