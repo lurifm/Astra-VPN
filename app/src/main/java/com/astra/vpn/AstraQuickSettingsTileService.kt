@@ -28,6 +28,7 @@ class AstraQuickSettingsTileService : TileService() {
         syncTile()
     }
 
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val launch = Intent(this, MainActivity::class.java).apply {
