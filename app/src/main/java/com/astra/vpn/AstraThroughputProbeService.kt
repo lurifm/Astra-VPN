@@ -57,6 +57,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private val connectionRegistry = ThroughputConnectionRegistry()
     @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var measurementTimeoutMs: Long = TOTAL_TIMEOUT_MS
+    @Volatile private var measurementDeadlineNanos: Long = 0L
     @Volatile private var downloadByteLimit: Long = DOWNLOAD_BYTES
     @Volatile private var uploadByteLimit: Long = UPLOAD_BYTES
 
@@ -117,6 +118,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             return START_NOT_STICKY
         }
 
+        // Start the monotonic deadline at the same point as the service timeout.
+        // Engine startup time must consume the same budget as the HTTP probes.
+        measurementDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(measurementTimeoutMs)
         mainHandler.postDelayed(timeoutRunnable, measurementTimeoutMs)
         startForeground(
             NOTIFICATION_ID,
@@ -192,8 +196,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     private fun runMeasurement() {
         val network = physicalNetwork ?: return fail("Физическая сеть недоступна")
         val port = listenPort
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(measurementTimeoutMs)
+        val deadline = measurementDeadlineNanos
         try {
+            remainingTimeout(deadline)
             val download = measureDownload(network, port, deadline)
             if (stopped.get()) return
             val upload = measureUpload(network, port, deadline)
@@ -252,26 +257,29 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
     }
 
     private fun measureUpload(network: Network, port: Int, deadline: Long): Sample {
-        val payload = ByteArray(uploadByteLimit.toInt()).also { SecureRandom().nextBytes(it) }
+        val payloadSize = uploadByteLimit.toInt()
+        val random = SecureRandom()
+        val buffer = ByteArray(32 * 1024)
         val url = URL(UPLOAD_URL)
         val connection = openConnection(network, url, port)
         try {
             connection.requestMethod = "POST"
             connection.doOutput = true
-            connection.setFixedLengthStreamingMode(payload.size)
+            connection.setFixedLengthStreamingMode(payloadSize)
             connection.setRequestProperty("Content-Type", "application/octet-stream")
             connection.setRequestProperty("Cache-Control", "no-store, no-cache")
             connection.connectTimeout = remainingTimeout(deadline)
             connection.readTimeout = remainingTimeout(deadline)
             val startedAt = System.nanoTime()
             connection.outputStream.use { output ->
-                var offset = 0
-                while (offset < payload.size) {
+                var written = 0
+                while (written < payloadSize) {
                     if (stopped.get()) throw InterruptedException("cancelled")
                     remainingTimeout(deadline)
-                    val count = minOf(32 * 1024, payload.size - offset)
-                    output.write(payload, offset, count)
-                    offset += count
+                    val count = minOf(buffer.size, payloadSize - written)
+                    random.nextBytes(buffer)
+                    output.write(buffer, 0, count)
+                    written += count
                 }
                 output.flush()
             }
@@ -279,7 +287,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             require(status in 200..299) { "Upload endpoint returned HTTP $status" }
             runCatching { connection.inputStream.close() }
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt).coerceAtLeast(1L)
-            return Sample(payload.size.toLong(), elapsed, payload.size * 8_000.0 / elapsed / 1_000_000.0)
+            return Sample(payloadSize.toLong(), elapsed, payloadSize * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
             connectionRegistry.clear(connection)
