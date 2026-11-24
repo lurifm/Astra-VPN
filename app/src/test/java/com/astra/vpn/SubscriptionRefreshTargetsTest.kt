@@ -210,6 +210,20 @@ class SubscriptionRefreshRetryStateTest {
             SubscriptionRefreshRetryState.pendingAfterStop(emptyList(), 10, setOf(previousFailure))
         )
     }
+    @Test fun knownSourceSnapshotDoesNotErasePendingFailureFromNewSubscription() {
+        val newFailure = SubscriptionSourceFingerprint.of("https://new.example/sub?token=fresh")
+        var pending = setOf(newFailure)
+        var known = emptySet<String>()
+        SubscriptionRefreshRetryState.updateKnownSourcesAtomically(
+            readPending = { pending },
+            writePending = { pending = it },
+            writeKnown = { known = it },
+            currentSources = listOf("https://old.example/sub")
+        )
+        assertEquals(setOf(newFailure), pending)
+        assertEquals(setOf(SubscriptionSourceFingerprint.of("https://old.example/sub")), known)
+    }
+
     @Test fun concurrentQueueUpdatesDoNotOverwriteEachOther() {
         val pending = linkedSetOf<String>()
         val start = java.util.concurrent.CountDownLatch(1)

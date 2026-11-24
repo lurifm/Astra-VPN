@@ -26,7 +26,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val store = ProfileStore(applicationContext)
             val sources = store.subscriptionSources()
             if (sources.isEmpty()) {
-                SubscriptionRefreshRetryState.clear(settings)
+                // An empty snapshot must not clear failures recorded by a concurrent import.
                 return Result.success()
             }
             // Retry only providers that failed previously. Re-downloading successful
@@ -35,7 +35,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // Subscription source URLs contain credentials. Persist only SHA-256
             // fingerprints in preferences, never the original URLs. Normalize legacy
             // entries once so upgrades also remove previously stored plaintext URLs.
-            SubscriptionRefreshRetryState.retainCurrentSources(settings, sources)
+            SubscriptionRefreshRetryState.updateKnownSources(settings, sources)
             val pending = settings.getStringSet("subscription_retry_sources", emptySet())
                 .orEmpty().map { SubscriptionSourceFingerprint.fromStoredValue(it) }.toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
@@ -45,10 +45,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 pending,
                 known
             )
-            if (targets.isEmpty()) {
-                settings.edit().remove("subscription_retry_sources").apply()
-                return Result.success()
-            }
+            if (targets.isEmpty()) return Result.success()
             settings.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
             var updated = 0
             var serverCount = 0
@@ -65,7 +62,11 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 }
                 SubscriptionRefreshHistory.recordAttempt(settings, source)
                 try {
-                    val count = SubscriptionRefreshCoordinator.refresh(store, source)
+                    val count = SubscriptionRefreshCoordinator.refreshExisting(store, source)
+                    if (count == null) {
+                        SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = true)
+                        continue
+                    }
                     SubscriptionRefreshHistory.recordSuccess(settings, source)
                     SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = true)
                     updated++
@@ -146,6 +147,17 @@ internal object SubscriptionRefreshRetryState {
         source: String,
         succeeded: Boolean
     ) = updatePreferences(settings) { pending ->
+        applyResult(pending, source, succeeded)
+    }
+
+    internal fun afterSingleResult(
+        currentPending: Set<String>,
+        source: String,
+        succeeded: Boolean
+    ): Set<String> = currentPending.map(SubscriptionSourceFingerprint::fromStoredValue)
+        .toMutableSet().also { applyResult(it, source, succeeded) }.toSet()
+
+    private fun applyResult(pending: MutableSet<String>, source: String, succeeded: Boolean) {
         val fingerprint = SubscriptionSourceFingerprint.of(source)
         if (succeeded) pending.remove(fingerprint) else pending.add(fingerprint)
     }
@@ -156,24 +168,31 @@ internal object SubscriptionRefreshRetryState {
         additions: Set<String>
     ) = updatePreferences(settings) { it.addAll(additions) }
 
-    /** Prune removed subscriptions and update the known-source snapshot atomically. */
-    fun retainCurrentSources(
+    /** Update known sources without pruning pending failures from newer imports. */
+    fun updateKnownSources(
         settings: android.content.SharedPreferences,
         currentSources: List<String>
-    ) = synchronized(lock) {
-        val current = currentSources.map(SubscriptionSourceFingerprint::of).toSet()
-        val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty()
-            .map(SubscriptionSourceFingerprint::fromStoredValue).filterTo(linkedSetOf()) { it in current }
-        settings.edit().apply {
-            if (pending.isEmpty()) remove("subscription_retry_sources")
-            else putStringSet("subscription_retry_sources", pending)
-            putStringSet("subscription_known_sources", current)
-        }.apply()
-    }
+    ) = updateKnownSourcesAtomically(
+        readPending = { settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty() },
+        writePending = { pending ->
+            settings.edit().apply {
+                if (pending.isEmpty()) remove("subscription_retry_sources")
+                else putStringSet("subscription_retry_sources", pending)
+            }.apply()
+        },
+        writeKnown = { known -> settings.edit().putStringSet("subscription_known_sources", known).apply() },
+        currentSources = currentSources
+    )
 
-    fun clear(settings: android.content.SharedPreferences) = synchronized(lock) {
-        settings.edit().remove("subscription_retry_sources")
-            .remove("subscription_known_sources").apply()
+    internal fun updateKnownSourcesAtomically(
+        readPending: () -> Set<String>,
+        writePending: (Set<String>) -> Unit,
+        writeKnown: (Set<String>) -> Unit,
+        currentSources: List<String>
+    ) = synchronized(lock) {
+        val pending = readPending().map(SubscriptionSourceFingerprint::fromStoredValue).toSet()
+        writePending(pending)
+        writeKnown(currentSources.map(SubscriptionSourceFingerprint::of).toSet())
     }
 
     fun pendingAfterStop(

@@ -1714,13 +1714,15 @@ class MainActivity : Activity() {
             sources.forEachIndexed { index, source ->
                 SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
                 val result = runCatching {
-                    SubscriptionRefreshCoordinator.refresh(profileStore, source)
+                    SubscriptionRefreshCoordinator.refreshExisting(profileStore, source)
                 }
-                result.onSuccess {
-                    SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                result.onSuccess { count ->
                     SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
-                    updated++
-                    totalProfiles += it
+                    if (count != null) {
+                        SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                        updated++
+                        totalProfiles += count
+                    }
                 }.onFailure {
                     SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
                     // Parser/network exceptions may contain the full subscription URL
@@ -2048,15 +2050,16 @@ class MainActivity : Activity() {
             val result = runCatching {
                 // Use the same transaction lock as foreground bulk refresh and
                 // WorkManager so an older response cannot overwrite newer data.
-                SubscriptionRefreshCoordinator.refresh(profileStore, source)
+                SubscriptionRefreshCoordinator.refreshExisting(profileStore, source)
             }
-            result.onSuccess { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) }
-                .onFailure { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
+            result.onSuccess { count ->
+                if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+            }.onFailure { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
             // Keep single-provider failures in the same durable retry queue as
             // bulk refresh and WorkManager. Merge rather than replace so failures
             // from other providers survive; migrate any legacy plaintext entries.
             SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = result.isSuccess)
-            if (result.isSuccess) {
+            if (result.getOrNull() != null) {
                 settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
             runOnUiThread {
@@ -2066,9 +2069,14 @@ class MainActivity : Activity() {
                 renderProfiles()
                 checkAllLatencies()
                 result.onSuccess { count ->
-                    status.text = "Подписка обновлена"
-                    status.setTextColor(GREEN)
-                    Toast.makeText(this, "Получено серверов: $count", Toast.LENGTH_LONG).show()
+                    if (count == null) {
+                        status.text = "Подписка удалена"
+                        status.setTextColor(AMBER)
+                    } else {
+                        status.text = "Подписка обновлена"
+                        status.setTextColor(GREEN)
+                        Toast.makeText(this, "Получено серверов: $count", Toast.LENGTH_LONG).show()
+                    }
                 }.onFailure { error ->
                     status.text = "Ошибка обновления"
                     status.setTextColor(RED)

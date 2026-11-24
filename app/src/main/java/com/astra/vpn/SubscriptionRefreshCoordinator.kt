@@ -15,4 +15,14 @@ object SubscriptionRefreshCoordinator {
         store.replaceSubscription(sourceUrl, parsed.links, parsed.metadata)
         parsed.links.size
     }
+
+    /**
+     * Refresh only if the source still exists at commit time. A null result means
+     * it was removed while the response was being downloaded; it is not a failure.
+     */
+    fun refreshExisting(store: ProfileStore, sourceUrl: String): Int? = synchronized(lock) {
+        val parsed = SubscriptionParser.importDetailed(sourceUrl)
+        if (!store.replaceSubscriptionIfPresent(sourceUrl, parsed.links, parsed.metadata)) null
+        else parsed.links.size
+    }
 }

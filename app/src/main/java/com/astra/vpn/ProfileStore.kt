@@ -200,27 +200,59 @@ class ProfileStore(context: Context) {
         profilesCache = null
     }
 
-    /** Replace only the profiles owned by this HTTPS subscription. */
-    fun replaceSubscription(sourceUrl: String, links: List<String>, metadata: SubscriptionMetadata = SubscriptionMetadata()) =
-        synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+    /** Replace profiles for an imported HTTPS subscription, creating it when new. */
+    fun replaceSubscription(
+        sourceUrl: String,
+        links: List<String>,
+        metadata: SubscriptionMetadata = SubscriptionMetadata()
+    ) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        writeSubscriptionLocked(sourceUrl, links, metadata)
+    }
+
+    /**
+     * Refresh an existing subscription only. The existence check and write share
+     * the same lock as removeSubscription(), so a stale network response cannot
+     * recreate a source that the user deleted while it was downloading.
+     */
+    fun replaceSubscriptionIfPresent(
+        sourceUrl: String,
+        links: List<String>,
+        metadata: SubscriptionMetadata = SubscriptionMetadata()
+    ): Boolean = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         require(sourceUrl.startsWith("https://", ignoreCase = true)) {
             "Источник подписки должен использовать HTTPS"
         }
         require(links.isNotEmpty()) { "Подписка не содержит серверов" }
-        val sourceId = sourceId(sourceUrl)
-        val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + sourceId + "_"
-        val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + sourceId
+        val id = sourceId(sourceUrl)
+        if (!prefs.contains(SUBSCRIPTION_SOURCE_PREFIX + id)) return@synchronized false
+        writeSubscriptionLocked(sourceUrl, links, metadata)
+        true
+    }
+
+    /** Caller must hold SUBSCRIPTION_MUTATION_LOCK. */
+    private fun writeSubscriptionLocked(
+        sourceUrl: String,
+        links: List<String>,
+        metadata: SubscriptionMetadata
+    ) {
+        require(sourceUrl.startsWith("https://", ignoreCase = true)) {
+            "Источник подписки должен использовать HTTPS"
+        }
+        require(links.isNotEmpty()) { "Подписка не содержит серверов" }
+        val id = sourceId(sourceUrl)
+        val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
+        val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
         val editor = prefs.edit()
         prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
         links.distinct().forEachIndexed { index, link ->
-            editor.putString(SubscriptionProfileKey.storageKey(sourceId, index, link), encrypt(link))
+            editor.putString(SubscriptionProfileKey.storageKey(id, index, link), encrypt(link))
         }
         editor.putString(sourceKey, encrypt(sourceUrl))
-        val metadataKey = SUBSCRIPTION_META_PREFIX + sourceId
+        val metadataKey = SUBSCRIPTION_META_PREFIX + id
         editor.putString(metadataKey, SubscriptionMetadataCodec.encode(metadata))
         // Provider metadata and the user's custom label are stored separately.
         // Missing title headers must not erase a name the user chose themselves.
-        metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + sourceId, it.take(120)) }
+        metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, it.take(120)) }
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
         profilesCache = null
         summariesCache = null
