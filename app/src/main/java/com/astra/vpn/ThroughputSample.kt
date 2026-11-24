@@ -9,20 +9,27 @@ import kotlin.math.ln
 internal data class ThroughputSample(
     val downloadMbps: Double,
     val uploadMbps: Double,
-    val measuredAtEpochMs: Long
+    val measuredAtEpochMs: Long,
+    /** Android physical Network handle; throughput is specific to this underlay. */
+    val networkHandle: Long = 1L
 )
 
 internal object ThroughputFreshnessPolicy {
     const val MAX_AGE_MS = 5 * 60 * 1000L
     const val MAX_FUTURE_SKEW_MS = 30_000L
 
-    fun isFresh(sample: ThroughputSample, nowEpochMs: Long): Boolean {
+    fun isFresh(
+        sample: ThroughputSample,
+        nowEpochMs: Long,
+        expectedNetworkHandle: Long? = null
+    ): Boolean {
         if (nowEpochMs <= 0L) return false
         if (!sample.downloadMbps.isUsableSpeed() || !sample.uploadMbps.isUsableSpeed()) return false
-        if (sample.measuredAtEpochMs <= 0L) return false
+        if (sample.measuredAtEpochMs <= 0L || sample.networkHandle <= 0L) return false
         // Both timestamps are positive, so subtraction cannot overflow.
         val age = nowEpochMs - sample.measuredAtEpochMs
-        return age >= -MAX_FUTURE_SKEW_MS && age <= MAX_AGE_MS
+        return age >= -MAX_FUTURE_SKEW_MS && age <= MAX_AGE_MS &&
+            (expectedNetworkHandle == null || sample.networkHandle == expectedNetworkHandle)
     }
 
     /**

@@ -211,6 +211,7 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 .put("uploadBytes", upload.bytes)
                 .put("durationMs", download.durationMs + upload.durationMs)
                 .put("measuredAt", System.currentTimeMillis())
+                .put("networkHandle", network.networkHandle)
             // Recheck immediately before claiming success: the timeout handler
             // may be delayed while the worker is finishing JSON/result handling.
             ensureMeasurementCanComplete(deadline)

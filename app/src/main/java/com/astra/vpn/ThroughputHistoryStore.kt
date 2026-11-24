@@ -18,13 +18,14 @@ internal class ThroughputHistoryStore(context: Context) {
     @Synchronized
     fun put(profile: String, sample: ThroughputSample) {
         require(profile.isNotBlank())
-        require(ThroughputFreshnessPolicy.isFresh(sample, System.currentTimeMillis())) {
+        require(sample.networkHandle > 0L && ThroughputFreshnessPolicy.isFresh(sample, System.currentTimeMillis())) {
             "Некорректный или устаревший результат измерения скорости"
         }
         val value = JSONObject()
             .put("downloadMbps", sample.downloadMbps)
             .put("uploadMbps", sample.uploadMbps)
             .put("measuredAt", sample.measuredAtEpochMs)
+            .put("networkHandle", sample.networkHandle)
         // apply() updates the in-memory cache immediately and persists on a
         // background thread; this method is also called from BroadcastReceiver
         // callbacks on the main thread, so commit() would risk a UI stall.
@@ -36,7 +37,12 @@ internal class ThroughputHistoryStore(context: Context) {
     }
 
     @Synchronized
-    fun get(profile: String, nowEpochMs: Long = System.currentTimeMillis()): ThroughputSample? {
+    fun get(
+        profile: String,
+        expectedNetworkHandle: Long,
+        nowEpochMs: Long = System.currentTimeMillis()
+    ): ThroughputSample? {
+        if (expectedNetworkHandle <= 0L) return null
         ensureCacheLoaded(nowEpochMs)
         val storageKey = key(profile)
         val sample = sampleCache[storageKey] ?: return null
@@ -45,13 +51,19 @@ internal class ThroughputHistoryStore(context: Context) {
             prefs.edit().remove(storageKey).apply()
             return null
         }
+        // Preserve another underlay's sample so returning to that network can reuse it.
+        if (sample.networkHandle != expectedNetworkHandle) return null
         return sample
     }
 
     @Synchronized
-    fun getFresh(profiles: Collection<String>, nowEpochMs: Long = System.currentTimeMillis()): Map<String, ThroughputSample> =
+    fun getFresh(
+        profiles: Collection<String>,
+        expectedNetworkHandle: Long,
+        nowEpochMs: Long = System.currentTimeMillis()
+    ): Map<String, ThroughputSample> =
         profiles.distinct().mapNotNull { profile ->
-            get(profile, nowEpochMs)?.let { profile to it }
+            get(profile, expectedNetworkHandle, nowEpochMs)?.let { profile to it }
         }.toMap()
 
     @Synchronized
@@ -80,7 +92,8 @@ internal class ThroughputHistoryStore(context: Context) {
                     ThroughputSample(
                         json.getDouble("downloadMbps"),
                         json.getDouble("uploadMbps"),
-                        json.getLong("measuredAt")
+                        json.getLong("measuredAt"),
+                        json.getLong("networkHandle")
                     )
                 }.getOrNull()
             }

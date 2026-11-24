@@ -45,6 +45,14 @@ class ThroughputFreshnessPolicyTest {
     }
 
     @Test
+    fun throughputSampleIsBoundToThePhysicalNetworkThatMeasuredIt() {
+        val now = 1_800_000_000_000L
+        val sample = ThroughputSample(80.0, 25.0, now, 123L)
+        assertTrue(ThroughputFreshnessPolicy.isFresh(sample, now, 123L))
+        assertFalse(ThroughputFreshnessPolicy.isFresh(sample, now, 456L))
+    }
+
+    @Test
     fun invalidClockCannotMakeThroughputSampleFresh() {
         assertFalse(ThroughputFreshnessPolicy.isFresh(
             ThroughputSample(100.0, 100.0, 1L), 0L

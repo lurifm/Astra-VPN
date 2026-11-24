@@ -138,10 +138,14 @@ class MainActivity : Activity() {
                     ThroughputSample(
                         json.getDouble("downloadMbps"),
                         json.getDouble("uploadMbps"),
-                        json.getLong("measuredAt")
+                        json.getLong("measuredAt"),
+                        json.getLong("networkHandle")
                     )
                 }.getOrNull()
-                if (parsed != null && runCatching { throughputHistory.put(profile, parsed) }.isSuccess) {
+                val currentNetworkHandle = networkForLatencyProbe()?.networkHandle
+                if (parsed != null && parsed.networkHandle == currentNetworkHandle &&
+                    runCatching { throughputHistory.put(profile, parsed) }.isSuccess
+                ) {
                     throughputSamples[profile] = parsed
                     sampleSaved = true
                 }
@@ -2640,7 +2644,7 @@ class MainActivity : Activity() {
         // Read persisted throughput samples in one batch before constructing rows.
         // The row builder then consumes this immutable snapshot instead of performing
         // synchronized SharedPreferences/JSON work while each individual row is built.
-        val visibleThroughput = throughputHistory.getFresh(displayProfiles)
+        val visibleThroughput = freshThroughputSamples(displayProfiles)
         visibleThroughput.forEach { (profile, sample) -> throughputSamples[profile] = sample }
 
         if (displayProfiles.isEmpty()) {
@@ -3132,6 +3136,12 @@ class MainActivity : Activity() {
      * ordinary app sockets follow the VPN and can loop back into the tunnel;
      * an explicit Android Network socket factory avoids measuring that route.
      */
+    /** Reuse speed measurements only on the physical underlay that produced them. */
+    private fun freshThroughputSamples(profiles: Collection<String>): Map<String, ThroughputSample> {
+        val networkHandle = networkForLatencyProbe()?.networkHandle ?: return emptyMap()
+        return throughputHistory.getFresh(profiles, networkHandle)
+    }
+
     private fun networkForLatencyProbe(): android.net.Network? {
         val manager = getSystemService(ConnectivityManager::class.java)
         val active = manager.activeNetwork
@@ -3278,7 +3288,7 @@ class MainActivity : Activity() {
 
     private fun startThroughputBatchForFastest(profiles: List<String>) {
         fastestSelectionCandidates = profiles
-        val fresh = throughputHistory.getFresh(profiles)
+        val fresh = freshThroughputSamples(profiles)
         throughputSamples.putAll(fresh)
         throughputBatchQueue.clear()
         throughputBatchQueue.addAll(
@@ -3345,7 +3355,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(candidates, historySnapshot, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(candidates),
             reliabilityPenaltyMs = serverReliabilityPenalties(candidates, historySnapshot),
-            throughputSamples = throughputHistory.getFresh(candidates),
+            throughputSamples = freshThroughputSamples(candidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
         if (fastest != null) {
@@ -4684,7 +4694,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(recoveryCandidates, historySnapshot, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(recoveryCandidates),
             reliabilityPenaltyMs = serverReliabilityPenalties(recoveryCandidates, historySnapshot),
-            throughputSamples = throughputHistory.getFresh(recoveryCandidates),
+            throughputSamples = freshThroughputSamples(recoveryCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         )
         if (alternate == null) {
@@ -5116,7 +5126,7 @@ class MainActivity : Activity() {
             recentFailures = recentServerFailureCounts(failoverCandidates, recentHistory, historyNow),
             latencyStabilityPenaltyMs = latencyStabilityPenalties(failoverCandidates),
             reliabilityPenaltyMs = serverReliabilityPenalties(failoverCandidates, recentHistory),
-            throughputSamples = throughputHistory.getFresh(failoverCandidates),
+            throughputSamples = freshThroughputSamples(failoverCandidates),
             lastKnownGoodProfile = activeProfile.takeIf { connected && tunnelInternetOk == true }
         ) ?: run {
             renderProfiles()
