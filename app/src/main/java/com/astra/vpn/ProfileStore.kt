@@ -528,13 +528,7 @@ class ProfileStore(context: Context) {
         } catch (error: Exception) {
             throw ProfileStorageException(storageRecoveryMessage(), error)
         }
-        val hasEncryptedRecords = prefs.all.keys.any {
-            it == RECOVERY_PROFILE_KEY ||
-                it == BANK_PAUSE_PROFILE_KEY ||
-                it.startsWith(PROFILE_PREFIX) ||
-                it.startsWith(SUBSCRIPTION_PROFILE_PREFIX) ||
-                it.startsWith(SUBSCRIPTION_SOURCE_PREFIX)
-        }
+        val hasEncryptedRecords = EncryptedProfileRecordPolicy.hasEncryptedRecords(prefs.all.keys)
         if (hasEncryptedRecords) throw ProfileStorageException(storageRecoveryMessage())
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
         generator.init(
