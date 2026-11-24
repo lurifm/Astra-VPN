@@ -76,4 +76,28 @@ class EncryptedBackupCodecTest {
             EncryptedBackupCodec.encrypt(ByteArray(EncryptedBackupCodec.MAX_PLAINTEXT_BYTES + 1), password)
         }
     }
+    @Test
+    fun backupReaderMakesProgressWhenBulkReadReturnsZero() {
+        val stream = object : java.io.InputStream() {
+            private var firstBulkRead = true
+            private var consumed = false
+
+            override fun read(): Int {
+                if (consumed) return -1
+                consumed = true
+                return 42
+            }
+
+            override fun read(target: ByteArray, offset: Int, length: Int): Int {
+                if (firstBulkRead) {
+                    firstBulkRead = false
+                    return 0
+                }
+                return -1
+            }
+        }
+
+        assertArrayEquals(byteArrayOf(42), EncryptedBackupCodec.readBackup(stream))
+    }
+
 }

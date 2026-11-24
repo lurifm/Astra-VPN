@@ -112,7 +112,15 @@ internal object EncryptedBackupCodec {
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    // Some custom streams may report no progress for a bulk read.
+                    // Fall back to a single-byte read so this loop cannot spin forever.
+                    val singleByte = input.read()
+                    if (singleByte < 0) break
+                    require(output.size() < maxBytes) { "Файл резервной копии слишком большой" }
+                    output.write(singleByte)
+                    continue
+                }
                 require(count <= maxBytes - output.size()) { "Файл резервной копии слишком большой" }
                 output.write(buffer, 0, count)
             }
