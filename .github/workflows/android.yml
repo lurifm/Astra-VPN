@@ -37,7 +37,7 @@ jobs:
 
       - name: Run unit tests and build debug APK
         # One Gradle invocation shares configuration and compiled outputs between tasks.
-        run: gradle testDebugUnitTest assembleDebug
+        run: gradle testDebugUnitTest lintDebug assembleDebug
 
       - name: Verify unsigned debug APK
         run: |
