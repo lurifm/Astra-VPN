@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import android.content.Intent
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.os.Build
@@ -33,7 +34,18 @@ class AstraQuickSettingsTileService : TileService() {
             action = MainActivity.ACTION_TILE_TOGGLE
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        startActivityAndCollapse(launch)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            startActivityAndCollapse(pendingIntent)
+        } else {
+            @Suppress("DEPRECATION")
+            startActivityAndCollapse(launch)
+        }
     }
 
     private fun syncTile() {
@@ -43,7 +55,7 @@ class AstraQuickSettingsTileService : TileService() {
             this.state = if (state == AstraVpnService.STATE_CONNECTED) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             label = "Astra VPN"
             contentDescription = VpnSurfaceStatusPolicy.tileContentDescription(state)
-            if (Build.VERSION.SDK_INT >= 29) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 stateDescription = VpnSurfaceStatusPolicy.tileStateDescription(state)
             }
             updateTile()

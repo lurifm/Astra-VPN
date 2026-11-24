@@ -215,7 +215,7 @@ internal class BankingForegroundMonitorService : Service() {
                 }
                 BankingAutomationCommandRecoveryPolicy.Decision.REPLAY_RESUME -> {
                     if (!settings.edit().putLong(PREF_AUTO_RESUME_LAST_ATTEMPT, now).commit()) return
-                    startForegroundService(Intent(this, AstraVpnService::class.java)
+                    startVpnService(Intent(this, AstraVpnService::class.java)
                         .setAction(AstraVpnService.ACTION_AUTO_RESUME)
                         .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, snapshot!!.profileLink)
                         .putExtra(AstraVpnService.EXTRA_TRANSITION_ID, pending.transitionId))
@@ -308,7 +308,7 @@ internal class BankingForegroundMonitorService : Service() {
                     ) return
                     val command = BankingAutomationCommandRecord(state.transitionId, BankingAutomationCommandRecord.Command.RESUME, foregroundPackage, BankingAutomationCommandRecord.Status.PENDING)
                     if (!ledger.writePending(command)) return
-                    startForegroundService(
+                    startVpnService(
                         Intent(this, AstraVpnService::class.java)
                             .setAction(AstraVpnService.ACTION_AUTO_RESUME)
                             .putExtra(AstraVpnService.EXTRA_PROFILE_LINK, saved)
@@ -324,8 +324,22 @@ internal class BankingForegroundMonitorService : Service() {
         }
     }
 
+    /** Use the foreground-service entry point only on Android O and newer. */
+    private fun startVpnService(intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
     private fun startAsForeground() {
-        val notification = Notification.Builder(this, CHANNEL_ID)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            Notification.Builder(this)
+        }
+        val notification = builder
             .setSmallIcon(R.drawable.ic_vpn)
             .setContentTitle("Astra VPN · защита банковских приложений")
             .setContentText("Мониторинг приложений включён")

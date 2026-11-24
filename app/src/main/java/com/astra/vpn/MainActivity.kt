@@ -615,8 +615,12 @@ class MainActivity : Activity() {
                 addAction(AstraThroughputProbeService.ACTION_RESULT)
                 addAction(AstraThroughputProbeService.ACTION_ERROR)
             }
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(throughputReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else registerReceiver(throughputReceiver, filter)
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                throughputReceiver,
+                filter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             throughputReceiverRegistered = true
         }
         // Restore only the user's selected node. Actual VPN connectivity is
@@ -3882,8 +3886,12 @@ class MainActivity : Activity() {
                 addAction(AstraLatencyTestService.ACTION_RESULTS)
                 addAction(AstraLatencyTestService.ACTION_ERROR)
             }
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                vpnStateReceiver,
+                filter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             receiverRegistered = true
         }
         restorePendingLatencyResult()
