@@ -12,9 +12,10 @@ internal class LibboxTrafficEventTracker {
     @Synchronized
     fun onNew(connectionId: String?, outboundTag: String?) {
         val id = connectionId?.takeIf { it.isNotBlank() } ?: return
-        val tag = outboundTag?.trim()?.takeIf { it.isNotEmpty() } ?: return
-        // Reinsert so a reused connection ID becomes the newest tracked entry.
+        // A new event may reuse an ID whose previous close event was lost.
+        // Clear the previous attribution even when the new event has no usable tag.
         outboundByConnection.remove(id)
+        val tag = outboundTag?.trim()?.takeIf { it.isNotEmpty() } ?: return
         outboundByConnection[id] = tag
         trimConnectionCache()
     }

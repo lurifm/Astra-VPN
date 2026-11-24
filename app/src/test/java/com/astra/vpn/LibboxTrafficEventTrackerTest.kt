@@ -13,6 +13,15 @@ class LibboxTrafficEventTrackerTest {
         assertEquals(LibboxTrafficAccumulator.Totals(130L, 240L), tracker.snapshot()["proxy-a"])
     }
 
+    @Test fun newConnectionWithoutOutboundClearsReusedConnectionId() {
+        val tracker = LibboxTrafficEventTracker()
+        tracker.onNew("reused-id", "proxy-old")
+        tracker.onNew("reused-id", null)
+        tracker.onUpdate("reused-id", null, 100L, 200L)
+
+        assertTrue(tracker.snapshot().isEmpty())
+    }
+
     @Test fun updateCanRefreshOutboundAndClosedConnectionStopsAttribution() {
         val tracker = LibboxTrafficEventTracker()
         tracker.onNew("connection-1", "proxy-a")
