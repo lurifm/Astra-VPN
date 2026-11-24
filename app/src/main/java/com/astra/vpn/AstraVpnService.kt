@@ -37,6 +37,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private var lastHistoryState: String? = null
     // Prevent callbacks from closeService() from re-entering stopTunnel().
     private var stopping = false
+    // Once destroyed, late callbacks must not enqueue work on the shut-down cleanup executor.
+    private var serviceDestroyed = false
     // Shared across service recreation in this app process so generation IDs never go backwards.
     private val startRequestGeneration = processStartRequestGeneration
     // Reject TUN callbacks originating from a CommandServer instance that has been stopped.
@@ -602,13 +604,16 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         // the Activity needs to display after a failed connection attempt.
         // Include the traffic subscription explicitly: it owns a worker thread
         // and a libbox CommandClient independently of the TUN/config fields.
-        if (commandServer != null || tunDescriptor != null || activeConfig != null ||
-            trafficMonitor != null
-        ) {
-            stopTunnel()
+        synchronized(lifecycleLock) {
+            if (commandServer != null || tunDescriptor != null || activeConfig != null ||
+                trafficMonitor != null
+            ) {
+                stopTunnel()
+            }
+            // Serialize executor shutdown with cleanup submission under the same lock.
+            serviceDestroyed = true
+            cleanupExecutor.shutdown()
         }
-        // Let any queued tunnel cleanup finish, but reject future work after service destruction.
-        cleanupExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -648,8 +653,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         }
 
     private fun stopTunnel() {
-        val cleanup = synchronized(lifecycleLock) {
-            if (stopping) return
+        synchronized(lifecycleLock) {
+            if (stopping || serviceDestroyed) return
             stopping = true
             // Invalidate callbacks and detach ownership immediately. A concurrent
             // ACTION_START can now create a fresh lifecycle without inheriting these resources.
@@ -659,7 +664,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             // Invalidate callbacks before clearing the published traffic snapshot.
             trafficMonitorGeneration += 1L
             cancelTunTimeoutLocked()
-            val detached = TunnelCleanupResources(
+            val cleanup = TunnelCleanupResources(
                 server = commandServer,
                 trafficMonitor = trafficMonitor,
                 tunDescriptor = tunDescriptor
@@ -674,34 +679,33 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             activeTunRequestToken = null
             tunReadyRequestToken = null
             publishState(STATE_DISCONNECTED)
-            detached
-        }
 
-        // libbox may synchronously call back into lifecycleLock while a config
-        // operation owns tunOperationLock. Waiting for that lock here would invert
-        // the lock order and deadlock. Teardown runs on a dedicated serial worker.
-        cleanupExecutor.execute {
-            synchronized(tunOperationLock) {
-                cleanup.trafficMonitor?.let { monitor ->
-                    runCatching { monitor.stop() }
-                        .onFailure { Log.w(TAG, "Traffic monitor close failed (" + it.javaClass.simpleName + ")") }
+            // Submit while holding lifecycleLock: onDestroy() takes the same lock
+            // before shutdown(), so cleanup can never be rejected in the detach/submit gap.
+            // Do not wait for tunOperationLock here; libbox callbacks may need lifecycleLock.
+            cleanupExecutor.execute {
+                synchronized(tunOperationLock) {
+                    cleanup.trafficMonitor?.let { monitor ->
+                        runCatching { monitor.stop() }
+                            .onFailure { Log.w(TAG, "Traffic monitor close failed (" + it.javaClass.simpleName + ")") }
+                    }
+                    runCatching { cleanup.tunDescriptor?.close() }
+                        .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
+                    cleanup.server?.let { server ->
+                        runCatching { server.closeService() }
+                            .onFailure { Log.w(TAG, "closeService failed (" + it.javaClass.simpleName + ")") }
+                        runCatching { server.close() }
+                            .onFailure { Log.w(TAG, "CommandServer close failed (" + it.javaClass.simpleName + ")") }
+                    }
                 }
-                runCatching { cleanup.tunDescriptor?.close() }
-                    .onFailure { Log.w(TAG, "TUN descriptor close failed (" + it.javaClass.simpleName + ")") }
-                cleanup.server?.let { server ->
-                    runCatching { server.closeService() }
-                        .onFailure { Log.w(TAG, "closeService failed (" + it.javaClass.simpleName + ")") }
-                    runCatching { server.close() }
-                        .onFailure { Log.w(TAG, "CommandServer close failed (" + it.javaClass.simpleName + ")") }
-                }
-            }
-            mainHandler.post {
-                val shouldFinish = synchronized(lifecycleLock) {
-                    VpnServiceCleanupPolicy.shouldFinish(stopping, commandServer == null)
-                }
-                if (shouldFinish) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                mainHandler.post {
+                    val shouldFinish = synchronized(lifecycleLock) {
+                        VpnServiceCleanupPolicy.shouldFinish(stopping, commandServer == null)
+                    }
+                    if (shouldFinish) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
                 }
             }
         }
