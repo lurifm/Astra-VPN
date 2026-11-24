@@ -607,6 +607,8 @@ class AstraVpnService : VpnService(), CommandServerHandler {
         ) {
             stopTunnel()
         }
+        // Let any queued tunnel cleanup finish, but reject future work after service destruction.
+        cleanupExecutor.shutdown()
         super.onDestroy()
     }
 
