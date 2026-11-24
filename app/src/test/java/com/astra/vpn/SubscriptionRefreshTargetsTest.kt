@@ -210,4 +210,30 @@ class SubscriptionRefreshRetryStateTest {
             SubscriptionRefreshRetryState.pendingAfterStop(emptyList(), 10, setOf(previousFailure))
         )
     }
+    @Test fun concurrentQueueUpdatesDoNotOverwriteEachOther() {
+        val pending = linkedSetOf<String>()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val done = java.util.concurrent.CountDownLatch(2)
+        val first = SubscriptionSourceFingerprint.of("https://one.example/sub")
+        val second = SubscriptionSourceFingerprint.of("https://two.example/sub")
+
+        listOf(first, second).forEach { fingerprint ->
+            Thread {
+                try {
+                    start.await()
+                    SubscriptionRefreshRetryState.updatePendingAtomically(
+                        read = { pending.toSet() },
+                        write = { next -> pending.clear(); pending.addAll(next) },
+                        transform = { it.add(fingerprint) }
+                    )
+                } finally {
+                    done.countDown()
+                }
+            }.start()
+        }
+        start.countDown()
+        assertEquals(true, done.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(setOf(first, second), pending)
+    }
+
 }

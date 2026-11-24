@@ -1711,7 +1711,6 @@ class MainActivity : Activity() {
             var updated = 0
             var totalProfiles = 0
             val errors = mutableListOf<String>()
-            val failedSources = linkedSetOf<String>()
             sources.forEachIndexed { index, source ->
                 SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source)
                 val result = runCatching {
@@ -1719,6 +1718,7 @@ class MainActivity : Activity() {
                 }
                 result.onSuccess {
                     SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
                     updated++
                     totalProfiles += it
                 }.onFailure {
@@ -1726,13 +1726,10 @@ class MainActivity : Activity() {
                     // Parser/network exceptions may contain the full subscription URL
                     // (including credentials). Keep provider secrets out of dialogs.
                     errors += "Подписка ${index + 1}: не удалось обновить"
-                    failedSources += SubscriptionSourceFingerprint.of(source)
+                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
                 }
             }
-            // Keep manual/foreground refresh failures in the same fingerprint-only
-            // retry queue used by WorkManager, so a later background run retries
-            // only failed providers rather than downloading every successful one.
-            SubscriptionRefreshRetryState.persist(settingsPrefs, failedSources, sources)
+            // Per-source atomic updates preserve failures recorded by concurrent workers.
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (updated > 0) {
@@ -2058,15 +2055,7 @@ class MainActivity : Activity() {
             // Keep single-provider failures in the same durable retry queue as
             // bulk refresh and WorkManager. Merge rather than replace so failures
             // from other providers survive; migrate any legacy plaintext entries.
-            val pendingRetries = SubscriptionRefreshRetryState.afterSingleResult(
-                settingsPrefs.getStringSet("subscription_retry_sources", emptySet()).orEmpty(),
-                source,
-                succeeded = result.isSuccess
-            )
-            settingsPrefs.edit().apply {
-                if (pendingRetries.isEmpty()) remove("subscription_retry_sources")
-                else putStringSet("subscription_retry_sources", pendingRetries)
-            }.apply()
+            SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = result.isSuccess)
             if (result.isSuccess) {
                 settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }

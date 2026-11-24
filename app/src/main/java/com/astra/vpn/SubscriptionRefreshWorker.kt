@@ -26,7 +26,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             val store = ProfileStore(applicationContext)
             val sources = store.subscriptionSources()
             if (sources.isEmpty()) {
-                settings.edit().remove("subscription_retry_sources").remove("subscription_known_sources").apply()
+                SubscriptionRefreshRetryState.clear(settings)
                 return Result.success()
             }
             // Retry only providers that failed previously. Re-downloading successful
@@ -35,6 +35,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             // Subscription source URLs contain credentials. Persist only SHA-256
             // fingerprints in preferences, never the original URLs. Normalize legacy
             // entries once so upgrades also remove previously stored plaintext URLs.
+            SubscriptionRefreshRetryState.retainCurrentSources(settings, sources)
             val pending = settings.getStringSet("subscription_retry_sources", emptySet())
                 .orEmpty().map { SubscriptionSourceFingerprint.fromStoredValue(it) }.toSet()
             val known = settings.getStringSet("subscription_known_sources", emptySet())
@@ -59,33 +60,34 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 // reached yet. Persist those fingerprints so the next run resumes them.
                 if (isStopped) {
                     failedSources += SubscriptionRefreshRetryState.pendingAfterStop(targets, index, failedSources)
-                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.mergePending(settings, failedSources)
                     return Result.retry()
                 }
                 SubscriptionRefreshHistory.recordAttempt(settings, source)
                 try {
                     val count = SubscriptionRefreshCoordinator.refresh(store, source)
                     SubscriptionRefreshHistory.recordSuccess(settings, source)
+                    SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = true)
                     updated++
                     serverCount += count
                 } catch (_: InterruptedException) {
                     SubscriptionRefreshHistory.recordFailure(settings, source)
                     Thread.currentThread().interrupt()
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
-                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.mergePending(settings, failedSources)
                     return Result.retry()
                 } catch (_: java.util.concurrent.CancellationException) {
                     SubscriptionRefreshHistory.recordFailure(settings, source)
                     targets.drop(index).forEach { failedSources += SubscriptionSourceFingerprint.of(it) }
-                    SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
+                    SubscriptionRefreshRetryState.mergePending(settings, failedSources)
                     return Result.retry()
                 } catch (_: Exception) {
                     SubscriptionRefreshHistory.recordFailure(settings, source)
                     failures++
                     failedSources += SubscriptionSourceFingerprint.of(source)
+                    SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = false)
                 }
             }
-            SubscriptionRefreshRetryState.persist(settings, failedSources, sources)
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
             }
@@ -111,32 +113,67 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
 
 /** Build the retry set when a worker is stopped before finishing its target list. */
 internal object SubscriptionRefreshRetryState {
-    /**
-     * Merge the result of a one-source foreground refresh into the existing
-     * fingerprint-only retry queue. A successful single refresh must not erase
-     * failures belonging to other subscriptions.
-     */
-    fun afterSingleResult(
-        pending: Set<String>,
+    // WorkManager and foreground refreshes share this process-wide read/modify/write lock.
+    private val lock = Any()
+
+    internal fun updatePendingAtomically(
+        read: () -> Set<String>,
+        write: (Set<String>) -> Unit,
+        transform: (MutableSet<String>) -> Unit
+    ) = synchronized(lock) {
+        val pending = read().map(SubscriptionSourceFingerprint::fromStoredValue).toMutableSet()
+        transform(pending)
+        write(pending.toSet())
+    }
+
+    private fun updatePreferences(
+        settings: android.content.SharedPreferences,
+        transform: (MutableSet<String>) -> Unit
+    ) = updatePendingAtomically(
+        read = { settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty() },
+        write = { pending ->
+            settings.edit().apply {
+                if (pending.isEmpty()) remove("subscription_retry_sources")
+                else putStringSet("subscription_retry_sources", pending)
+            }.apply()
+        },
+        transform = transform
+    )
+
+    /** Update only this provider; preserve every other pending failure. */
+    fun recordResult(
+        settings: android.content.SharedPreferences,
         source: String,
         succeeded: Boolean
-    ): Set<String> = pending.map(SubscriptionSourceFingerprint::fromStoredValue)
-        .toMutableSet()
-        .apply {
-            val fingerprint = SubscriptionSourceFingerprint.of(source)
-            if (succeeded) remove(fingerprint) else add(fingerprint)
-        }
+    ) = updatePreferences(settings) { pending ->
+        val fingerprint = SubscriptionSourceFingerprint.of(source)
+        if (succeeded) pending.remove(fingerprint) else pending.add(fingerprint)
+    }
 
-    fun persist(
+    /** Merge interrupted/unprocessed targets without erasing concurrent failures. */
+    fun mergePending(
         settings: android.content.SharedPreferences,
-        failedSources: Set<String>,
+        additions: Set<String>
+    ) = updatePreferences(settings) { it.addAll(additions) }
+
+    /** Prune removed subscriptions and update the known-source snapshot atomically. */
+    fun retainCurrentSources(
+        settings: android.content.SharedPreferences,
         currentSources: List<String>
-    ) {
+    ) = synchronized(lock) {
+        val current = currentSources.map(SubscriptionSourceFingerprint::of).toSet()
+        val pending = settings.getStringSet("subscription_retry_sources", emptySet()).orEmpty()
+            .map(SubscriptionSourceFingerprint::fromStoredValue).filterTo(linkedSetOf()) { it in current }
         settings.edit().apply {
-            if (failedSources.isEmpty()) remove("subscription_retry_sources")
-            else putStringSet("subscription_retry_sources", failedSources.toSet())
-            putStringSet("subscription_known_sources", currentSources.map(SubscriptionSourceFingerprint::of).toSet())
+            if (pending.isEmpty()) remove("subscription_retry_sources")
+            else putStringSet("subscription_retry_sources", pending)
+            putStringSet("subscription_known_sources", current)
         }.apply()
+    }
+
+    fun clear(settings: android.content.SharedPreferences) = synchronized(lock) {
+        settings.edit().remove("subscription_retry_sources")
+            .remove("subscription_known_sources").apply()
     }
 
     fun pendingAfterStop(
@@ -144,7 +181,7 @@ internal object SubscriptionRefreshRetryState {
         nextIndex: Int,
         alreadyFailed: Set<String>
     ): Set<String> = buildSet {
-        addAll(alreadyFailed)
+        addAll(alreadyFailed.map(SubscriptionSourceFingerprint::fromStoredValue))
         targets.drop(nextIndex.coerceIn(0, targets.size))
             .mapTo(this, SubscriptionSourceFingerprint::of)
     }
