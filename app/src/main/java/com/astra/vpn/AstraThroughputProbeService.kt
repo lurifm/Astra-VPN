@@ -235,9 +235,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             connection.setRequestProperty("Cache-Control", "no-store, no-cache")
             connection.connectTimeout = remainingTimeout(deadline)
             connection.readTimeout = remainingTimeout(deadline)
-            val startedAt = System.nanoTime()
             val status = connection.responseCode
             require(status in 200..299) { "Download endpoint returned HTTP $status" }
+            // Connection setup, TLS and response headers are not payload transfer.
+            // Start timing only once the successful response is ready to be read.
+            val startedAt = System.nanoTime()
             var total = 0L
             val buffer = ByteArray(32 * 1024)
             connection.inputStream.use { input ->
@@ -277,8 +279,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             connection.setRequestProperty("Cache-Control", "no-store, no-cache")
             connection.connectTimeout = remainingTimeout(deadline)
             connection.readTimeout = remainingTimeout(deadline)
-            val startedAt = System.nanoTime()
+            var startedAt = 0L
             connection.outputStream.use { output ->
+                // Opening outputStream establishes the connection and completes
+                // TLS setup. Exclude that fixed overhead from payload throughput.
+                startedAt = System.nanoTime()
                 var written = 0
                 while (written < payloadSize) {
                     if (stopped.get()) throw InterruptedException("cancelled")
@@ -289,9 +294,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 }
                 output.flush()
             }
-            // Stop the upload timer as soon as the request body has been sent.
-            // Waiting for Cloudflare's HTTP response measures server processing
-            // and round-trip latency, not the client's upload throughput.
+            // Stop the upload timer after the request body is flushed and closed.
+            // Connection/TLS setup and the later HTTP response are excluded: neither
+            // represents the rate at which the payload is transferred.
             val transferFinishedAt = System.nanoTime()
             val elapsed = TimeUnit.NANOSECONDS.toMillis(transferFinishedAt - startedAt).coerceAtLeast(1L)
             val status = connection.responseCode
