@@ -39,6 +39,26 @@ jobs:
         # One Gradle invocation shares configuration and compiled outputs between tasks.
         run: gradle testDebugUnitTest lintDebug assembleDebug
 
+      - name: Print Android Lint report
+        if: always()
+        run: |
+          REPORT=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if [ -f "$REPORT" ]; then
+            cat "$REPORT"
+          else
+            echo "Android Lint text report was not generated."
+          fi
+
+      - name: Upload Android Lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraVPN-lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if-no-files-found: ignore
+
       - name: Verify unsigned debug APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk

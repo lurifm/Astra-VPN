@@ -243,6 +243,7 @@ class AstraPlatform(
         builder.addRoute(route.address(), route.prefix())
     }
 
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.TIRAMISU)
     private fun toIpPrefix(route: RoutePrefix): android.net.IpPrefix {
         return android.net.IpPrefix(
             java.net.InetAddress.getByName(route.address()),
