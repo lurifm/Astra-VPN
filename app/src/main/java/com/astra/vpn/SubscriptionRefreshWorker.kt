@@ -111,6 +111,22 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
 
 /** Build the retry set when a worker is stopped before finishing its target list. */
 internal object SubscriptionRefreshRetryState {
+    /**
+     * Merge the result of a one-source foreground refresh into the existing
+     * fingerprint-only retry queue. A successful single refresh must not erase
+     * failures belonging to other subscriptions.
+     */
+    fun afterSingleResult(
+        pending: Set<String>,
+        source: String,
+        succeeded: Boolean
+    ): Set<String> = pending.map(SubscriptionSourceFingerprint::fromStoredValue)
+        .toMutableSet()
+        .apply {
+            val fingerprint = SubscriptionSourceFingerprint.of(source)
+            if (succeeded) remove(fingerprint) else add(fingerprint)
+        }
+
     fun persist(
         settings: android.content.SharedPreferences,
         failedSources: Set<String>,

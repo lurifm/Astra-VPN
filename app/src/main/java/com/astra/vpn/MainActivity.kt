@@ -2055,6 +2055,21 @@ class MainActivity : Activity() {
             }
             result.onSuccess { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) }
                 .onFailure { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
+            // Keep single-provider failures in the same durable retry queue as
+            // bulk refresh and WorkManager. Merge rather than replace so failures
+            // from other providers survive; migrate any legacy plaintext entries.
+            val pendingRetries = SubscriptionRefreshRetryState.afterSingleResult(
+                settingsPrefs.getStringSet("subscription_retry_sources", emptySet()).orEmpty(),
+                source,
+                succeeded = result.isSuccess
+            )
+            settingsPrefs.edit().apply {
+                if (pendingRetries.isEmpty()) remove("subscription_retry_sources")
+                else putStringSet("subscription_retry_sources", pendingRetries)
+            }.apply()
+            if (result.isSuccess) {
+                settingsPrefs.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()
+            }
             runOnUiThread {
                 refreshingSubscriptions = false
                 if (isFinishing || isDestroyed) return@runOnUiThread

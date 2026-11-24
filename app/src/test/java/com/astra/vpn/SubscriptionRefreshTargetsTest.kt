@@ -142,6 +142,51 @@ class SubscriptionRefreshIntervalTest {
 }
 
 class SubscriptionRefreshRetryStateTest {
+    @Test fun singleFailureIsAddedWithoutDiscardingOtherFailures() {
+        val source = "https://provider.example/sub?token=current"
+        val otherFailure = SubscriptionSourceFingerprint.of("https://other.example/sub?token=old")
+        val legacyFailure = "https://legacy.example/sub?token=legacy"
+
+        assertEquals(
+            setOf(
+                otherFailure,
+                SubscriptionSourceFingerprint.of(legacyFailure),
+                SubscriptionSourceFingerprint.of(source)
+            ),
+            SubscriptionRefreshRetryState.afterSingleResult(
+                setOf(otherFailure, legacyFailure),
+                source,
+                succeeded = false
+            )
+        )
+    }
+
+    @Test fun singleSuccessRemovesOnlyItsOwnFailure() {
+        val source = "https://provider.example/sub?token=current"
+        val otherFailure = SubscriptionSourceFingerprint.of("https://other.example/sub?token=old")
+
+        assertEquals(
+            setOf(otherFailure),
+            SubscriptionRefreshRetryState.afterSingleResult(
+                setOf(otherFailure, SubscriptionSourceFingerprint.of(source)),
+                source,
+                succeeded = true
+            )
+        )
+    }
+
+    @Test fun singleSuccessMigratesLegacyEntriesAndKeepsThem() {
+        val legacyFailure = "https://legacy.example/sub?token=legacy"
+        assertEquals(
+            setOf(SubscriptionSourceFingerprint.of(legacyFailure)),
+            SubscriptionRefreshRetryState.afterSingleResult(
+                setOf(legacyFailure),
+                "https://success.example/sub",
+                succeeded = true
+            )
+        )
+    }
+
     @Test fun stoppedWorkerKeepsEarlierFailuresAndAllUnprocessedTargets() {
         val first = "https://one.example/sub?token=one"
         val second = "https://two.example/sub?token=two"
