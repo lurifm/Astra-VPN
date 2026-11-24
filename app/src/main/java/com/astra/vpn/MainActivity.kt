@@ -190,8 +190,9 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "Операция отменена: приложение завершает работу", Toast.LENGTH_LONG).show()
             }
         },
+        onCancelled: () -> Unit = {},
         task: () -> Unit
-    ): Boolean = ImportTaskSubmission.submit(importExecutor, task, onRejected)
+    ): Boolean = ImportTaskSubmission.submit(importExecutor, task, onRejected, onCancelled)
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
     private val autoSelectExecutor = Executors.newFixedThreadPool(3)
@@ -3911,7 +3912,7 @@ class MainActivity : Activity() {
             if (!isFinishing && !isDestroyed) {
                 Toast.makeText(this, "Не удалось сохранить резервную копию", Toast.LENGTH_LONG).show()
             }
-        }) {
+        }, onCancelled = { bytes.fill(0) }) {
             val result = runCatching {
                 contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
                     ?: error("Не удалось открыть файл для записи")
@@ -4017,7 +4018,7 @@ class MainActivity : Activity() {
                                 if (!isFinishing && !isDestroyed) {
                                     Toast.makeText(this, "Не удалось запустить создание резервной копии", Toast.LENGTH_LONG).show()
                                 }
-                            }) {
+                            }, onCancelled = { passwordChars.fill('\u0000') }) {
                                 var encryptedResult: ByteArray? = null
                                 val result = try {
                                     runCatching {
@@ -4072,6 +4073,9 @@ class MainActivity : Activity() {
                                 if (!isFinishing && !isDestroyed) {
                                     Toast.makeText(this, "Не удалось запустить восстановление резервной копии", Toast.LENGTH_LONG).show()
                                 }
+                            }, onCancelled = {
+                                passwordChars.fill('\u0000')
+                                encrypted.fill(0)
                             }) {
                                 val result = try {
                                     runCatching {
@@ -7811,7 +7815,7 @@ class MainActivity : Activity() {
             receiverRegistered = false
         }
         monitorExecutor.shutdownNow()
-        importExecutor.shutdownNow()
+        ImportTaskSubmission.shutdownNow(importExecutor)
         latencyPreparationTask?.cancel(true)
         latencyPreparationTask = null
         pingExecutor.shutdownNow()
