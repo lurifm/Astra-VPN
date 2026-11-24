@@ -21,14 +21,15 @@ class ThroughputConnectionRegistryTest {
     }
 
     @Test
-    fun clearingOldConnectionDoesNotClearReplacement() {
+    fun concurrentSecondConnectionIsRejectedWithoutReplacingFirst() {
         val registry = ThroughputConnectionRegistry()
         val first = FakeConnection()
         val second = FakeConnection()
         assertTrue(registry.register(first))
-        assertTrue(registry.register(second))
-        registry.clear(first)
-        assertSame(second, registry.close())
+        assertFalse(registry.register(second))
+        assertTrue(second.disconnected.get())
+        assertSame(first, registry.close())
+        assertFalse(first.disconnected.get())
     }
 
     @Test

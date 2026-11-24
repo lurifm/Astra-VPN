@@ -14,11 +14,14 @@ internal class ThroughputConnectionRegistry {
 
     fun register(connection: HttpURLConnection): Boolean {
         val accepted = synchronized(lock) {
-            if (closed) false else {
+            if (closed || active != null) false else {
                 active = connection
                 true
             }
         }
+        // A second simultaneous registration is a programming error for this
+        // single-flight registry; reject it rather than orphaning the first
+        // connection when close() later detaches the active one.
         if (!accepted) runCatching { connection.disconnect() }
         return accepted
     }
