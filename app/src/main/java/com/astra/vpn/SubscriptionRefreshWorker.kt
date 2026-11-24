@@ -66,15 +66,13 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                         source,
                         onAttempt = { SubscriptionRefreshHistory.recordAttempt(settings, source) },
                         onResult = { refreshResult ->
-                            refreshResult.fold(
-                                onSuccess = { refreshedCount ->
-                                    SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = true)
-                                    if (refreshedCount != null) SubscriptionRefreshHistory.recordSuccess(settings, source)
+                            SubscriptionRefreshBookkeeping.recordResult(
+                                refreshResult,
+                                recordRetryResult = { succeeded ->
+                                    SubscriptionRefreshRetryState.recordResult(settings, source, succeeded)
                                 },
-                                onFailure = {
-                                    SubscriptionRefreshHistory.recordFailure(settings, source)
-                                    SubscriptionRefreshRetryState.recordResult(settings, source, succeeded = false)
-                                }
+                                recordHistorySuccess = { SubscriptionRefreshHistory.recordSuccess(settings, source) },
+                                recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settings, source) }
                             )
                         }
                     )
@@ -94,6 +92,11 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                     failures++
                     failedSources += SubscriptionSourceFingerprint.of(source)
                 }
+            }
+            // Merge ordinary failures too; the early-return paths above already
+            // persist their pending set before WorkManager retries.
+            if (failedSources.isNotEmpty()) {
+                SubscriptionRefreshRetryState.mergePending(settings, failedSources)
             }
             if (updated > 0) {
                 settings.edit().putLong("last_subscription_update", System.currentTimeMillis()).apply()

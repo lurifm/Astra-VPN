@@ -23,7 +23,15 @@ object SubscriptionRefreshCoordinator {
     ): T = synchronized(lock) {
         onAttempt()
         val result = runCatching(operation)
-        onResult(result)
+        val bookkeepingFailure = runCatching { onResult(result) }.exceptionOrNull()
+        val operationFailure = result.exceptionOrNull()
+        if (operationFailure != null) {
+            if (bookkeepingFailure != null && bookkeepingFailure !== operationFailure) {
+                operationFailure.addSuppressed(bookkeepingFailure)
+            }
+            throw operationFailure
+        }
+        if (bookkeepingFailure != null) throw bookkeepingFailure
         result.getOrThrow()
     }
 
@@ -52,4 +60,48 @@ object SubscriptionRefreshCoordinator {
         },
         onResult = onResult
     )
+}
+
+/**
+ * Persists refresh history and retry state independently so one failed write
+ * cannot prevent the other from being attempted. A bookkeeping failure is
+ * surfaced to the caller; successful profile data is never silently reported
+ * as fully complete when its retry/history state could not be committed.
+ */
+internal object SubscriptionRefreshBookkeeping {
+    fun recordResult(
+        result: Result<Int?>,
+        recordRetryResult: (succeeded: Boolean) -> Unit,
+        recordHistorySuccess: () -> Unit,
+        recordHistoryFailure: () -> Unit
+    ) {
+        if (result.isSuccess) {
+            val count = result.getOrNull()
+            val historyFailure = if (count != null) {
+                runCatching(recordHistorySuccess).exceptionOrNull()
+            } else null
+
+            if (historyFailure != null) {
+                val retryFailure = runCatching { recordRetryResult(false) }.exceptionOrNull()
+                if (retryFailure != null && retryFailure !== historyFailure) {
+                    historyFailure.addSuppressed(retryFailure)
+                }
+                throw historyFailure
+            }
+
+            recordRetryResult(true)
+            return
+        }
+
+        val failures = mutableListOf<Throwable>()
+        runCatching(recordHistoryFailure).exceptionOrNull()?.let(failures::add)
+        runCatching { recordRetryResult(false) }.exceptionOrNull()?.let(failures::add)
+        if (failures.isNotEmpty()) {
+            val primary = failures.first()
+            failures.drop(1).forEach { secondary ->
+                if (secondary !== primary) primary.addSuppressed(secondary)
+            }
+            throw primary
+        }
+    }
 }

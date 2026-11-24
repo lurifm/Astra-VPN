@@ -1720,15 +1720,13 @@ class MainActivity : Activity() {
                         source,
                         onAttempt = { SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source) },
                         onResult = { refreshResult ->
-                            refreshResult.fold(
-                                onSuccess = { count ->
-                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
-                                    if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
+                            SubscriptionRefreshBookkeeping.recordResult(
+                                refreshResult,
+                                recordRetryResult = { succeeded ->
+                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded)
                                 },
-                                onFailure = {
-                                    SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
-                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
-                                }
+                                recordHistorySuccess = { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) },
+                                recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
                             )
                         }
                     )
@@ -2067,16 +2065,14 @@ class MainActivity : Activity() {
                     source,
                     onAttempt = { SubscriptionRefreshHistory.recordAttempt(settingsPrefs, source) },
                     onResult = { refreshResult ->
-                        refreshResult.fold(
-                            onSuccess = { count ->
-                                SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = true)
-                                if (count != null) SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source)
-                            },
-                            onFailure = {
-                                SubscriptionRefreshHistory.recordFailure(settingsPrefs, source)
-                                SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded = false)
-                            }
-                        )
+                        SubscriptionRefreshBookkeeping.recordResult(
+                                refreshResult,
+                                recordRetryResult = { succeeded ->
+                                    SubscriptionRefreshRetryState.recordResult(settingsPrefs, source, succeeded)
+                                },
+                                recordHistorySuccess = { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) },
+                                recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
+                            )
                     }
                 )
             }

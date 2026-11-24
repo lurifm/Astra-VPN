@@ -1,6 +1,7 @@
 package com.astra.vpn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class SubscriptionRefreshTargetsTest {
@@ -304,4 +305,72 @@ class SubscriptionRefreshRetryStateTest {
         assertEquals(setOf(first, second), pending)
     }
 
+}
+
+
+class SubscriptionRefreshBookkeepingTest {
+    @Test fun successfulRefreshRecordsHistoryBeforeClearingRetry() {
+        val events = mutableListOf<String>()
+        SubscriptionRefreshBookkeeping.recordResult(
+            Result.success(12),
+            recordRetryResult = { events += "retry:$it" },
+            recordHistorySuccess = { events += "history:success" },
+            recordHistoryFailure = { events += "history:failure" }
+        )
+        assertEquals(listOf("history:success", "retry:true"), events)
+    }
+
+    @Test fun failedHistoryWriteStillQueuesSuccessfulRefreshForRetry() {
+        val historyError = IllegalStateException("history unavailable")
+        val retryResults = mutableListOf<Boolean>()
+        val thrown = runCatching {
+            SubscriptionRefreshBookkeeping.recordResult(
+                Result.success(4),
+                recordRetryResult = { retryResults += it },
+                recordHistorySuccess = { throw historyError },
+                recordHistoryFailure = { error("failure history must not be written") }
+            )
+        }.exceptionOrNull()
+        assertSame(historyError, thrown)
+        assertEquals(listOf(false), retryResults)
+    }
+
+    @Test fun failedRefreshAttemptsBothFailureBookkeepingWrites() {
+        val historyError = IllegalStateException("history write failed")
+        val events = mutableListOf<String>()
+        val thrown = runCatching {
+            SubscriptionRefreshBookkeeping.recordResult(
+                Result.failure(IllegalArgumentException("network failed")),
+                recordRetryResult = { events += "retry:$it" },
+                recordHistorySuccess = { error("success history must not be written") },
+                recordHistoryFailure = { events += "history:failure"; throw historyError }
+            )
+        }.exceptionOrNull()
+        assertSame(historyError, thrown)
+        assertEquals(listOf("history:failure", "retry:false"), events)
+    }
+
+    @Test fun removedSubscriptionClearsRetryWithoutWritingSuccessHistory() {
+        val events = mutableListOf<String>()
+        SubscriptionRefreshBookkeeping.recordResult(
+            Result.success(null),
+            recordRetryResult = { events += "retry:$it" },
+            recordHistorySuccess = { events += "history:success" },
+            recordHistoryFailure = { events += "history:failure" }
+        )
+        assertEquals(listOf("retry:true"), events)
+    }
+
+    @Test fun operationFailureRemainsPrimaryWhenResultBookkeepingAlsoFails() {
+        val operationError = IllegalArgumentException("download failed")
+        val bookkeepingError = IllegalStateException("preference write failed")
+        val thrown = runCatching {
+            SubscriptionRefreshCoordinator.executeSerialized(
+                operation = { throw operationError },
+                onResult = { throw bookkeepingError }
+            )
+        }.exceptionOrNull()
+        assertSame(operationError, thrown)
+        assertEquals(listOf(bookkeepingError), thrown?.suppressed?.toList())
+    }
 }
