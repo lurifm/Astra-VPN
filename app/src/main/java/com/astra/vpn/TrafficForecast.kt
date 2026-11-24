@@ -10,8 +10,7 @@ internal object TrafficForecast {
             .take(6)
         if (completed.size < 2) return null
         val totals = completed.map {
-            (it.totals.downloadedBytes.coerceAtLeast(0L) +
-                it.totals.uploadedBytes.coerceAtLeast(0L)).coerceAtLeast(0L)
+            TrafficCounterMath.add(it.totals.downloadedBytes, it.totals.uploadedBytes)
         }
         val average = totals.sumOf { it / totals.size } +
             (totals.sumOf { it % totals.size } / totals.size)
