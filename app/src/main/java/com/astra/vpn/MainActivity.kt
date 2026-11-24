@@ -1326,22 +1326,23 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Импортируем данные из буфера…", Toast.LENGTH_SHORT).show()
         importExecutor.execute {
             val result = runCatching {
-                val parsed = SubscriptionParser.importDetailed(value)
-                val links = parsed.links
-                require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
                 if (value.trimStart().startsWith("https://", true)) {
-                    profileStore.replaceSubscription(value.trim(), links, parsed.metadata)
+                    val count = SubscriptionRefreshCoordinator.refresh(profileStore, value.trim())
+                    require(count > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
+                    count
                 } else {
+                    val links = SubscriptionParser.importDetailed(value).links
+                    require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
                     profileStore.addAll(links)
+                    links.size
                 }
-                links
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 result.onSuccess { links ->
                     renderProfiles()
                     checkAllLatencies()
-                    Toast.makeText(this, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Добавлено серверов: $links", Toast.LENGTH_LONG).show()
                 }.onFailure { error ->
                     MaterialAlertDialogBuilder(this)
                         .setTitle("Не удалось импортировать")
@@ -1650,14 +1651,15 @@ class MainActivity : Activity() {
             status.text = "Импортируем серверы…"
             importExecutor.execute {
                 val result = runCatching {
-                    val parsed = SubscriptionParser.importDetailed(value)
-                    val links = parsed.links
                     if (value.startsWith("https://", ignoreCase = true)) {
-                        profileStore.replaceSubscription(value, links, parsed.metadata)
+                        val count = SubscriptionRefreshCoordinator.refresh(profileStore, value)
+                        require(count > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
+                        count
                     } else {
+                        val links = SubscriptionParser.importDetailed(value).links
                         profileStore.addAll(links)
+                        links.size
                     }
-                    links
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1665,7 +1667,7 @@ class MainActivity : Activity() {
                     result.onSuccess { links ->
                         renderProfiles()
                         checkAllLatencies()
-                        Toast.makeText(this@MainActivity, "Добавлено серверов: ${links.size}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Добавлено серверов: $links", Toast.LENGTH_LONG).show()
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)
