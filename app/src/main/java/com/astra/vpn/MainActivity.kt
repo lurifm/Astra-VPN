@@ -1308,33 +1308,7 @@ class MainActivity : Activity() {
                 val sharedUri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                     ?: incoming.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
                 if (ImportInputPolicy.hasNonBlankText(sharedText)) {
-                    val lengthCheck = runCatching {
-                        ImportInputPolicy.requireTextLength(sharedText!!)
-                    }
-                    if (lengthCheck.isFailure) {
-                        Toast.makeText(
-                            this,
-                            lengthCheck.exceptionOrNull()?.message ?: "Текст импорта слишком большой",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        return
-                    }
-                    importExecutor.execute {
-                        val result = runCatching {
-                            sharedText!!.toString().also(ImportInputPolicy::validateTextSize)
-                        }
-                        runOnUiThread {
-                            if (isFinishing || isDestroyed) return@runOnUiThread
-                            result.onSuccess { showImportDialog(it) }
-                                .onFailure {
-                                    Toast.makeText(
-                                        this,
-                                        it.message ?: "Не удалось прочитать переданный текст",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                        }
-                    }
+                    importSharedText(sharedText!!)
                 } else if (sharedUri != null) {
                     importSharedFiles(listOf(sharedUri))
                 }
@@ -1343,10 +1317,15 @@ class MainActivity : Activity() {
                 val uris = ArrayList<Uri>(ImportInputPolicy.MAX_FILES)
                 var tooManyFiles = false
                 val sharedUris = incoming.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                sharedUris?.forEach { uri ->
-                    if (uri !in uris) {
-                        if (uris.size >= ImportInputPolicy.MAX_FILES) tooManyFiles = true
-                        else uris.add(uri)
+                if (sharedUris != null) {
+                    for (uri in sharedUris) {
+                        if (uri !in uris) {
+                            if (uris.size >= ImportInputPolicy.MAX_FILES) {
+                                tooManyFiles = true
+                                break
+                            }
+                            uris.add(uri)
+                        }
                     }
                 }
                 incoming.clipData?.let { clip ->
@@ -1372,9 +1351,37 @@ class MainActivity : Activity() {
                 } else {
                     val sharedText = incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)
                     if (ImportInputPolicy.hasNonBlankText(sharedText)) {
-                        showImportDialog(sharedText.toString())
+                        importSharedText(sharedText!!)
                     }
                 }
+            }
+        }
+    }
+
+    /** Validates shared text off the UI thread before opening the import editor. */
+    private fun importSharedText(sharedText: CharSequence) {
+        val value = sharedText.toString()
+        val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(value) }
+        if (lengthCheck.isFailure) {
+            Toast.makeText(
+                this,
+                lengthCheck.exceptionOrNull()?.message ?: "Текст импорта слишком большой",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        importExecutor.execute {
+            val result = runCatching { value.also(ImportInputPolicy::validateTextSize) }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { showImportDialog(it) }
+                    .onFailure {
+                        Toast.makeText(
+                            this,
+                            it.message ?: "Не удалось прочитать переданный текст",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
             }
         }
     }

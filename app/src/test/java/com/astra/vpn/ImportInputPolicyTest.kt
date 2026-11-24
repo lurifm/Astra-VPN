@@ -63,6 +63,14 @@ class ImportInputPolicyTest {
         }
     }
 
+    @Test fun utf8ByteLimitRejectsMultibyteTextBeyondTheSharedImportBudget() {
+        val exactLimit = "я".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 2)
+        ImportInputPolicy.validateTextSize(exactLimit)
+        assertThrows(IllegalArgumentException::class.java) {
+            ImportInputPolicy.validateTextSize(exactLimit + "я")
+        }
+    }
+
     @Test fun validatesUtf8ByteSizeAndAllowsSmallText() {
         ImportInputPolicy.validateTextSize("vless://example")
         assertTrue(ImportInputPolicy.MAX_TOTAL_BYTES > 0)
