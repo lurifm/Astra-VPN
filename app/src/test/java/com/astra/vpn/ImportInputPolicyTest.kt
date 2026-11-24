@@ -21,17 +21,18 @@ class ImportInputPolicyTest {
         }
     }
 
-    @Test fun storedProfileLimitIncludesExistingProfiles() {
-        ImportInputPolicy.requireStoredProfileCount(900, 100)
+    @Test fun profileBatchLimitAppliesPerImportRatherThanToExistingStorage() {
+        ImportInputPolicy.requireProfileCount(ImportInputPolicy.MAX_PROFILES)
         assertThrows(IllegalArgumentException::class.java) {
-            ImportInputPolicy.requireStoredProfileCount(900, 101)
+            ImportInputPolicy.requireProfileCount(ImportInputPolicy.MAX_PROFILES + 1)
         }
     }
 
-    @Test fun rejectsOversizedCharSequenceBeforeStringConversion() {
+    @Test fun cheapCharSequenceGuardRejectsOversizedInputWithoutUtf8Conversion() {
         assertThrows(IllegalArgumentException::class.java) {
-            ImportInputPolicy.validateTextSize("x".repeat(ImportInputPolicy.MAX_TOTAL_BYTES + 1) as CharSequence)
+            ImportInputPolicy.requireTextLength("x".repeat(ImportInputPolicy.MAX_TOTAL_BYTES + 1))
         }
+        ImportInputPolicy.requireTextLength("vless://example")
     }
 
     @Test fun readsBytesUpToTheExactLimit() {

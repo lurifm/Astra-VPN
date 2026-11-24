@@ -22,18 +22,11 @@ internal object ImportInputPolicy {
         }
     }
 
-    fun requireStoredProfileCount(existingCount: Int, additionalCount: Int) {
-        require(existingCount >= 0 && additionalCount >= 0 &&
-            additionalCount <= MAX_PROFILES - existingCount) {
-            "В хранилище можно сохранить не более $MAX_PROFILES серверов"
-        }
-    }
-
-    fun validateTextSize(value: CharSequence) {
+    /** Cheap UI-thread guard; UTF-8 byte validation must run on a worker. */
+    fun requireTextLength(value: CharSequence) {
         require(value.length <= MAX_TOTAL_BYTES) {
             "Текст импорта слишком большой (максимум 2 МБ)"
         }
-        validateTextSize(value.toString())
     }
 
     fun validateTextSize(value: String) {

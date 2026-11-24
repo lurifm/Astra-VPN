@@ -1277,11 +1277,16 @@ class MainActivity : Activity() {
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
             val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)
             val sharedUri = sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
-            if (!sharedText.isNullOrBlank()) {
+            if (sharedText != null && sharedText.isNotEmpty()) {
+                val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(sharedText) }
+                if (lengthCheck.isFailure) {
+                    Toast.makeText(this, lengthCheck.exceptionOrNull()?.message ?: "Файл слишком большой", Toast.LENGTH_LONG).show()
+                    return@let
+                }
                 importExecutor.execute {
                     val result = runCatching {
-                        ImportInputPolicy.validateTextSize(sharedText)
                         sharedText.toString().also(ImportInputPolicy::validateTextSize)
+                            .takeIf { it.isNotBlank() } ?: error("Переданный текст пуст")
                     }
                     runOnUiThread {
                         if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1335,31 +1340,34 @@ class MainActivity : Activity() {
      */
     private fun importClipboardInOneTap(): Boolean {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val value = runCatching {
+        val clipboardText = runCatching {
             if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
-                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)?.let { text ->
-                    ImportInputPolicy.validateTextSize(text)
-                    text.toString().also(ImportInputPolicy::validateTextSize).trim()
-                }
+                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)
             } else null
         }.getOrElse {
-            Toast.makeText(this, it.message ?: "Текст в буфере слишком большой", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, it.message ?: "Не удалось прочитать буфер обмена", Toast.LENGTH_LONG).show()
             return true
-        }?.takeIf { it.isNotBlank() } ?: return false
-
-        val looksLikeVpnInput = value.lineSequence().any { line ->
-            val item = line.trim()
-            item.startsWith("vless://", true) ||
-                item.startsWith("hysteria2://", true) ||
-                item.startsWith("hy2://", true) ||
-                item.startsWith("tuic://", true) ||
-                item.startsWith("https://", true)
+        } ?: return false
+        val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(clipboardText) }
+        if (lengthCheck.isFailure) {
+            Toast.makeText(this, lengthCheck.exceptionOrNull()?.message ?: "Текст в буфере слишком большой", Toast.LENGTH_LONG).show()
+            return true
         }
-        if (!looksLikeVpnInput) return false
 
-        Toast.makeText(this, "Импортируем данные из буфера…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Проверяем буфер обмена…", Toast.LENGTH_SHORT).show()
         importExecutor.execute {
             val result = runCatching {
+                val value = clipboardText.toString().also(ImportInputPolicy::validateTextSize).trim()
+                require(value.isNotEmpty()) { "Буфер обмена пуст" }
+                val looksLikeVpnInput = value.lineSequence().any { line ->
+                    val item = line.trim()
+                    item.startsWith("vless://", true) ||
+                        item.startsWith("hysteria2://", true) ||
+                        item.startsWith("hy2://", true) ||
+                        item.startsWith("tuic://", true) ||
+                        item.startsWith("https://", true)
+                }
+                require(looksLikeVpnInput) { "В буфере не найдены поддерживаемые ссылки" }
                 if (value.trimStart().startsWith("https://", true)) {
                     val count = SubscriptionRefreshCoordinator.refresh(profileStore, value.trim())
                     require(count > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
@@ -1401,15 +1409,24 @@ class MainActivity : Activity() {
                 .startScan()
                 .addOnSuccessListener { barcode ->
                     if (isFinishing || isDestroyed) return@addOnSuccessListener
-                    val value = barcode.rawValue?.trim().orEmpty()
-                    if (value.isEmpty()) {
+                    val rawValue = barcode.rawValue.orEmpty()
+                    if (rawValue.isEmpty()) {
                         Toast.makeText(this, "В QR-коде не найден текст", Toast.LENGTH_SHORT).show()
+                    } else if (rawValue.length > ImportInputPolicy.MAX_TOTAL_BYTES) {
+                        Toast.makeText(this, "Текст QR-кода слишком большой", Toast.LENGTH_LONG).show()
                     } else {
-                        runCatching { ImportInputPolicy.validateTextSize(value) }
-                            .onSuccess { showImportDialog(value) }
-                            .onFailure {
-                                Toast.makeText(this, it.message ?: "Текст QR-кода слишком большой", Toast.LENGTH_LONG).show()
+                        importExecutor.execute {
+                            val result = runCatching {
+                                rawValue.trim().also(ImportInputPolicy::validateTextSize)
                             }
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
+                                result.onSuccess { showImportDialog(it) }
+                                    .onFailure {
+                                        Toast.makeText(this, it.message ?: "Текст QR-кода слишком большой", Toast.LENGTH_LONG).show()
+                                    }
+                            }
+                        }
                     }
                 }
                 .addOnCanceledListener {
@@ -1439,7 +1456,7 @@ class MainActivity : Activity() {
 
     private fun showImportDialog(initialText: String? = null) {
         if (initialText != null) {
-            val validation = runCatching { ImportInputPolicy.validateTextSize(initialText) }
+            val validation = runCatching { ImportInputPolicy.requireTextLength(initialText) }
             if (validation.isFailure) {
                 Toast.makeText(this, validation.exceptionOrNull()?.message ?: "Текст импорта слишком большой", Toast.LENGTH_LONG).show()
                 return
@@ -1590,24 +1607,42 @@ class MainActivity : Activity() {
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
                 val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val clipResult = runCatching {
+                val clipText = runCatching {
                     if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
-                        clipboard.primaryClip!!.getItemAt(0).coerceToText(this@MainActivity)?.let { text ->
-                            ImportInputPolicy.validateTextSize(text)
-                            text.toString().also(ImportInputPolicy::validateTextSize)
-                        }
+                        clipboard.primaryClip!!.getItemAt(0).coerceToText(this@MainActivity)
                     } else null
+                }.getOrElse {
+                    Toast.makeText(this@MainActivity, "Не удалось прочитать буфер обмена", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
                 }
-                val clipText = clipResult.getOrNull()?.trim().orEmpty()
-                if (clipResult.isFailure) {
-                    Toast.makeText(this@MainActivity,
-                        clipResult.exceptionOrNull()?.message ?: "Текст в буфере слишком большой",
-                        Toast.LENGTH_LONG).show()
-                } else if (clipText.isNotEmpty()) {
-                    input.setText(clipText)
-                    input.setSelection(input.text.length)
-                } else {
+                if (clipText == null || clipText.isEmpty()) {
                     Toast.makeText(this@MainActivity, "В буфере обмена нет текста", Toast.LENGTH_SHORT).show()
+                } else {
+                    val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(clipText) }
+                    if (lengthCheck.isFailure) {
+                        Toast.makeText(this@MainActivity,
+                            lengthCheck.exceptionOrNull()?.message ?: "Текст в буфере слишком большой",
+                            Toast.LENGTH_LONG).show()
+                    } else {
+                        isEnabled = false
+                        importExecutor.execute {
+                            val result = runCatching {
+                                clipText.toString().also(ImportInputPolicy::validateTextSize).trim()
+                            }
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed || !dialog.isShowing) return@runOnUiThread
+                                isEnabled = true
+                                result.onSuccess { value ->
+                                    input.setText(value)
+                                    input.setSelection(input.text.length)
+                                }.onFailure {
+                                    Toast.makeText(this@MainActivity,
+                                        it.message ?: "Текст в буфере слишком большой",
+                                        Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1696,12 +1731,13 @@ class MainActivity : Activity() {
             }
         }
         importButton.setOnClickListener {
-            val value = input.text.toString().trim()
-            val inputValidation = runCatching { ImportInputPolicy.validateTextSize(value) }
-            if (inputValidation.isFailure) {
-                input.error = inputValidation.exceptionOrNull()?.message ?: "Текст слишком большой"
+            val editable = input.text
+            val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(editable) }
+            if (lengthCheck.isFailure) {
+                input.error = lengthCheck.exceptionOrNull()?.message ?: "Текст слишком большой"
                 return@setOnClickListener
             }
+            val value = editable.toString().trim()
             if (value.isEmpty()) {
                 input.error = "Вставь ссылку"
                 return@setOnClickListener
@@ -1714,6 +1750,7 @@ class MainActivity : Activity() {
             status.text = "Импортируем серверы…"
             importExecutor.execute {
                 val result = runCatching {
+                    ImportInputPolicy.validateTextSize(value)
                     if (value.startsWith("https://", ignoreCase = true)) {
                         val count = SubscriptionRefreshCoordinator.refresh(profileStore, value)
                         require(count > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
@@ -3941,17 +3978,33 @@ class MainActivity : Activity() {
         } else if (requestCode == REQUEST_IMPORT_BACKUP && resultCode == RESULT_OK) {
             handleBackupImportFile(data?.data)
         } else if (requestCode == REQUEST_IMPORT_FILE && resultCode == RESULT_OK) {
-            val uris = buildList {
-                data?.clipData?.let { clip ->
-                    for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(::add)
+            val uris = ArrayList<android.net.Uri>(ImportInputPolicy.MAX_FILES)
+            var tooManyFiles = false
+            data?.clipData?.let { clip ->
+                for (index in 0 until clip.itemCount) {
+                    val uri = clip.getItemAt(index).uri ?: continue
+                    if (uri !in uris) {
+                        if (uris.size == ImportInputPolicy.MAX_FILES) {
+                            tooManyFiles = true
+                            break
+                        }
+                        uris.add(uri)
+                    }
                 }
-                data?.data?.let { if (none { existing -> existing == it }) add(it) }
             }
-            if (uris.isEmpty()) return
-            if (runCatching { ImportInputPolicy.requireFileCount(uris.size) }.isFailure) {
+            if (!tooManyFiles) {
+                data?.data?.let { uri ->
+                    if (uri !in uris) {
+                        if (uris.size == ImportInputPolicy.MAX_FILES) tooManyFiles = true
+                        else uris.add(uri)
+                    }
+                }
+            }
+            if (tooManyFiles) {
                 Toast.makeText(this, "Можно выбрать не более ${ImportInputPolicy.MAX_FILES} файлов за один раз", Toast.LENGTH_LONG).show()
                 return
             }
+            if (uris.isEmpty()) return
             importExecutor.execute {
                 val imported = mutableListOf<String>()
                 val failures = mutableListOf<String>()

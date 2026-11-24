@@ -183,7 +183,6 @@ class ProfileStore(context: Context) {
     }
 
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        ImportInputPolicy.requireStoredProfileCount(all().size, 1)
         val id = java.util.UUID.randomUUID().toString()
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
             "Не удалось сохранить сервер"
@@ -194,7 +193,7 @@ class ProfileStore(context: Context) {
     fun addAll(links: List<String>) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val existing = all().toSet()
         val additions = links.distinct().filterNot { it in existing }
-        ImportInputPolicy.requireStoredProfileCount(existing.size, additions.size)
+        if (additions.isNotEmpty()) ImportInputPolicy.requireProfileCount(additions.size)
         val editor = prefs.edit()
         additions.forEach { link ->
             editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
@@ -242,12 +241,14 @@ class ProfileStore(context: Context) {
             "Источник подписки должен использовать HTTPS"
         }
         require(links.isNotEmpty()) { "Подписка не содержит серверов" }
+        val uniqueLinks = links.distinct()
+        ImportInputPolicy.requireProfileCount(uniqueLinks.size)
         val id = sourceId(sourceUrl)
         val profilePrefix = SUBSCRIPTION_PROFILE_PREFIX + id + "_"
         val sourceKey = SUBSCRIPTION_SOURCE_PREFIX + id
         val editor = prefs.edit()
         prefs.all.keys.filter { it.startsWith(profilePrefix) }.forEach(editor::remove)
-        links.distinct().forEachIndexed { index, link ->
+        uniqueLinks.forEachIndexed { index, link ->
             editor.putString(SubscriptionProfileKey.storageKey(id, index, link), encrypt(link))
         }
         editor.putString(sourceKey, encrypt(sourceUrl))
