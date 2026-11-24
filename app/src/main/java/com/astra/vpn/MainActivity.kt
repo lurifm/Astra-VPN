@@ -1272,17 +1272,41 @@ class MainActivity : Activity() {
         if (!settingsPrefs.getBoolean("onboarding_completed", false)) {
             root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding() }
         }
-        // Accept server links shared from browsers, messengers and file viewers.
-        // The user still confirms the import explicitly in Astra's own sheet.
+        // Shared text and files are untrusted input. Read streams off the UI thread
+        // and enforce the same hard byte limit used by the document importer.
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
             val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
-                ?: sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.let { uri ->
-                    runCatching {
-                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                    }.getOrNull()
+            val sharedUri = sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+            if (!sharedText.isNullOrBlank()) {
+                importExecutor.execute {
+                    val result = runCatching {
+                        ImportInputPolicy.validateTextSize(sharedText)
+                        sharedText
+                    }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        result.onSuccess { showImportDialog(it) }
+                            .onFailure {
+                                Toast.makeText(this, it.message ?: "Файл слишком большой", Toast.LENGTH_LONG).show()
+                            }
+                    }
                 }
-            sharedText?.takeIf { it.isNotBlank() }?.let { text ->
-                root.post { if (!isFinishing && !isDestroyed) showImportDialog(text) }
+            } else if (sharedUri != null) {
+                importExecutor.execute {
+                    val result = runCatching {
+                        val bytes = contentResolver.openInputStream(sharedUri)?.use {
+                            ImportInputPolicy.readBytes(it, ImportInputPolicy.MAX_TOTAL_BYTES)
+                        } ?: error("Не удалось открыть переданный файл")
+                        String(bytes, Charsets.UTF_8).also(ImportInputPolicy::validateTextSize)
+                    }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        result.onSuccess { showImportDialog(it) }
+                            .onFailure {
+                                Toast.makeText(this, it.message ?: "Не удалось прочитать переданный файл", Toast.LENGTH_LONG).show()
+                            }
+                    }
+                }
             }
         }
         requestNotificationPermissionIfNeeded()
@@ -3889,34 +3913,44 @@ class MainActivity : Activity() {
                 data?.data?.let { if (none { existing -> existing == it }) add(it) }
             }
             if (uris.isEmpty()) return
+            if (runCatching { ImportInputPolicy.requireFileCount(uris.size) }.isFailure) {
+                Toast.makeText(this, "Можно выбрать не более ${ImportInputPolicy.MAX_FILES} файлов за один раз", Toast.LENGTH_LONG).show()
+                return
+            }
             importExecutor.execute {
                 val imported = mutableListOf<String>()
                 val failures = mutableListOf<String>()
-                uris.forEachIndexed { index, uri ->
-                    runCatching {
+                var totalBytes = 0
+                var totalLimitExceeded = false
+                for ((index, uri) in uris.withIndex()) {
+                    val fileResult = runCatching {
                         val bytes = contentResolver.openInputStream(uri)?.use { input ->
-                            val output = java.io.ByteArrayOutputStream()
-                            val buffer = ByteArray(8192)
-                            var total = 0
-                            while (true) {
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                total += count
-                                require(total <= 2 * 1024 * 1024) { "Файл больше 2 МБ" }
-                                output.write(buffer, 0, count)
-                            }
-                            output.toByteArray()
+                            ImportInputPolicy.readBytes(
+                                input,
+                                ImportInputPolicy.MAX_TOTAL_BYTES - totalBytes
+                            )
                         } ?: error("Не удалось открыть файл")
+                        totalBytes += bytes.size
                         SubscriptionParser.importDetailed(String(bytes, Charsets.UTF_8)).links
-                    }.onSuccess { imported.addAll(it) }
-                     .onFailure { failures.add("Файл ${index + 1}: ${it.message ?: "не удалось прочитать"}") }
+                    }
+                    fileResult.onSuccess { imported.addAll(it) }
+                        .onFailure { error ->
+                            failures.add("Файл ${index + 1}: ${error.message ?: "не удалось прочитать"}")
+                            if (error is ImportInputLimitException) totalLimitExceeded = true
+                        }
+                    if (totalLimitExceeded) break
                 }
                 val result = runCatching {
-                    require(imported.isNotEmpty()) {
+                    require(!totalLimitExceeded) {
+                        "Общий размер выбранных файлов превышает 2 МБ"
+                    }
+                    val uniqueProfiles = imported.distinct()
+                    require(uniqueProfiles.isNotEmpty()) {
                         failures.firstOrNull() ?: "В выбранных файлах не найдены поддерживаемые серверы"
                     }
-                    profileStore.addAll(imported.distinct())
-                    imported.distinct()
+                    ImportInputPolicy.requireProfileCount(uniqueProfiles.size)
+                    profileStore.addAll(uniqueProfiles)
+                    uniqueProfiles
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
