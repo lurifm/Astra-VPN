@@ -289,10 +289,14 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 }
                 output.flush()
             }
+            // Stop the upload timer as soon as the request body has been sent.
+            // Waiting for Cloudflare's HTTP response measures server processing
+            // and round-trip latency, not the client's upload throughput.
+            val transferFinishedAt = System.nanoTime()
+            val elapsed = TimeUnit.NANOSECONDS.toMillis(transferFinishedAt - startedAt).coerceAtLeast(1L)
             val status = connection.responseCode
             require(status in 200..299) { "Upload endpoint returned HTTP $status" }
             runCatching { connection.inputStream.close() }
-            val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt).coerceAtLeast(1L)
             return Sample(payloadSize.toLong(), elapsed, payloadSize * 8_000.0 / elapsed / 1_000_000.0)
         } finally {
             connection.disconnect()
