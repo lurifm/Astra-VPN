@@ -200,9 +200,9 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         try {
             remainingTimeout(deadline)
             val download = measureDownload(network, port, deadline)
-            if (stopped.get()) return
+            ensureMeasurementCanComplete(deadline)
             val upload = measureUpload(network, port, deadline)
-            if (stopped.get()) return
+            ensureMeasurementCanComplete(deadline)
             val result = JSONObject()
                 .put("profileId", profileId)
                 .put("downloadMbps", download.mbps)
@@ -211,7 +211,10 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
                 .put("uploadBytes", upload.bytes)
                 .put("durationMs", download.durationMs + upload.durationMs)
                 .put("measuredAt", System.currentTimeMillis())
-            if (stopped.get() || !terminalState.claimSuccess()) return
+            // Recheck immediately before claiming success: the timeout handler
+            // may be delayed while the worker is finishing JSON/result handling.
+            ensureMeasurementCanComplete(deadline)
+            if (!terminalState.claimSuccess()) return
             sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName)
                 .putExtra(EXTRA_RESULT, result.toString())
                 .putExtra(EXTRA_SESSION, sessionId))
@@ -311,6 +314,18 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         val remaining = ThroughputTimeoutPolicy.remainingMillis(deadline, System.nanoTime())
         if (remaining <= 0) throw java.net.SocketTimeoutException("probe deadline")
         return remaining
+    }
+
+    private fun ensureMeasurementCanComplete(deadline: Long) {
+        if (stopped.get()) throw InterruptedException("cancelled")
+        if (!ThroughputTimeoutPolicy.canPublishResult(
+                stopped = false,
+                deadlineNanos = deadline,
+                nowNanos = System.nanoTime()
+            )
+        ) {
+            throw java.net.SocketTimeoutException("probe deadline")
+        }
     }
 
     private data class Sample(val bytes: Long, val durationMs: Long, val mbps: Double)

@@ -50,4 +50,36 @@ class ThroughputTimeoutPolicyTest {
         assertEquals(2, ThroughputTimeoutPolicy.remainingMillis(2_000_001L, 1_000_000L))
         assertEquals(Int.MAX_VALUE, ThroughputTimeoutPolicy.remainingMillis(Long.MAX_VALUE, 0L))
     }
+
+    @Test
+    fun resultCannotBePublishedAfterDeadline() {
+        assertEquals(true, ThroughputTimeoutPolicy.canPublishResult(false, 101L, 100L))
+        assertEquals(false, ThroughputTimeoutPolicy.canPublishResult(false, 100L, 100L))
+        assertEquals(false, ThroughputTimeoutPolicy.canPublishResult(false, 99L, 100L))
+    }
+
+    @Test
+    fun cancelledMeasurementCannotPublishEvenBeforeDeadline() {
+        assertEquals(false, ThroughputTimeoutPolicy.canPublishResult(true, 200L, 100L))
+    }
+
+    @Test
+    fun resultDeadlinePolicyHandlesNanoTimeWraparound() {
+        assertEquals(
+            true,
+            ThroughputTimeoutPolicy.canPublishResult(
+                false,
+                Long.MIN_VALUE + 499_999L,
+                Long.MAX_VALUE - 500_000L
+            )
+        )
+        assertEquals(
+            false,
+            ThroughputTimeoutPolicy.canPublishResult(
+                false,
+                Long.MAX_VALUE - 499_999L,
+                Long.MIN_VALUE + 500_000L
+            )
+        )
+    }
 }
