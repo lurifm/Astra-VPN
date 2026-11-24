@@ -1,8 +1,8 @@
 package com.astra.vpn
 
 /**
- * Guards Android's special empty allow-list behavior: without at least one
- * successfully applied allowed package, Android routes every app by default.
+ * Guards Android's special empty allow-list behavior and prevents an incomplete
+ * include-list from silently routing an unselected app outside the VPN.
  */
 internal object AppRoutingPolicy {
     fun validate(mode: String, selectedCount: Int, appliedCount: Int) {
@@ -16,8 +16,8 @@ internal object AppRoutingPolicy {
         require(selectedCount > 0) {
             "Режим «Только выбранные приложения» включён, но список пуст"
         }
-        require(appliedCount > 0) {
-            "Не удалось применить ни одно приложение из списка VPN"
+        require(appliedCount == selectedCount) {
+            "Не удалось применить все выбранные приложения. VPN не будет запущен, чтобы избежать обхода туннеля."
         }
     }
 }
