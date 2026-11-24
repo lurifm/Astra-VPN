@@ -2035,7 +2035,7 @@ class MainActivity : Activity() {
                             stopTunnel()
                         }
                         if (removesActiveProfile) activeProfile = null
-                        if (selectedProfile?.let { it in removed } == true) selectedProfile = null
+                        cleanupRemovedProfiles(removed)
                         renderProfiles()
                         checkAllLatencies()
                         Toast.makeText(this, "Подписка удалена", Toast.LENGTH_SHORT).show()
@@ -2049,6 +2049,48 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("Отмена", null)
             .show()
+    }
+
+    private fun cleanupRemovedProfiles(removed: Collection<String>) {
+        val removedProfiles = removed.filter(String::isNotBlank).toHashSet()
+        if (removedProfiles.isEmpty()) return
+
+        // A throughput session or fastest-server batch may still reference a
+        // profile that no longer exists. Cancel the whole batch rather than let
+        // its completion select a server from a stale candidate snapshot.
+        val throughputTouchesRemovedProfile =
+            activeThroughputProfile?.let { it in removedProfiles } == true ||
+                (throughputBatchActive && (
+                    fastestSelectionCandidates.any { it in removedProfiles } ||
+                        throughputBatchQueue.any { it in removedProfiles }
+                    ))
+        if (throughputTouchesRemovedProfile) {
+            cancelThroughputProbe(showToast = false, refreshUi = false)
+        }
+
+        // URL-test results are cumulative and keyed by outbound tag. If any
+        // mapped profile disappears, invalidate the session so late partial or
+        // final broadcasts cannot repopulate caches for deleted servers.
+        val latencyTouchesRemovedProfile = urlTestProfileMap.values.any { it in removedProfiles }
+        if (latencyTouchesRemovedProfile && (latencyTestInFlight || selectingFastest)) {
+            cancelLatencyCheck()
+        }
+
+        if (pendingProfile?.let { it in removedProfiles } == true && pendingConfig != null) {
+            cancelPendingConnect()
+        }
+
+        removedProfiles.forEach { profile ->
+            pingInfo.remove(profile)
+            latencyMs.remove(profile)
+            latencyMeasuredAt.remove(profile)
+            throughputSamples.remove(profile)
+            runCatching { latencyHistory.remove(profile) }
+            runCatching { throughputHistory.remove(profile) }
+        }
+        if (selectedProfile?.let { it in removedProfiles } == true) selectedProfile = null
+        fastestSelectionCandidates = fastestSelectionCandidates.filterNot { it in removedProfiles }
+        urlTestProfileMap = urlTestProfileMap.filterValues { it !in removedProfiles }
     }
 
     private fun refreshSingleSubscription(source: String) {
@@ -2801,11 +2843,7 @@ class MainActivity : Activity() {
                                     showStorageError(error)
                                     return@setPositiveButton
                                 }
-                                pingInfo.remove(link)
-                                latencyMs.remove(link)
-                                throughputSamples.remove(link)
-                                runCatching { throughputHistory.remove(link) }
-                                if (selectedProfile == link) selectedProfile = null
+                                cleanupRemovedProfiles(listOf(link))
                                 renderProfiles()
                                 Toast.makeText(this@MainActivity, "Сервер удалён", Toast.LENGTH_SHORT).show()
                             }

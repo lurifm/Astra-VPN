@@ -37,6 +37,11 @@ internal class LatencyHistoryStore(context: Context) {
         return read(storageKey(profile), now)
     }
 
+    fun remove(profile: String) {
+        if (profile.isBlank()) return
+        prefs.edit().remove(storageKey(profile)).apply()
+    }
+
     private fun read(key: String, now: Long): List<LatencyStabilityScorer.Sample> {
         val raw = prefs.getString(key, null) ?: return emptyList()
         val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
