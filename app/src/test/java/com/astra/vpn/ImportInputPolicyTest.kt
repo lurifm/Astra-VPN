@@ -46,7 +46,7 @@ class ImportInputPolicyTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             ImportInputPolicy.requireFileProfiles(2, emptyList())
         }
-        assertTrue(error.message!!.contains("Файл 2"))
+        assertTrue(error.message!!.contains("файле 2"))
     }
 
     @Test fun cheapCharSequenceGuardRejectsOversizedInputWithoutUtf8Conversion() {

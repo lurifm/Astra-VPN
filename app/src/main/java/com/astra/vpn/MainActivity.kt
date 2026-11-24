@@ -1401,6 +1401,7 @@ class MainActivity : Activity() {
         importExecutor.execute {
             val result = runCatching {
                 val imported = ArrayList<String>()
+                val downloadBudget = SubscriptionDownloadBudget()
                 var totalBytes = 0
                 uris.forEachIndexed { index, uri ->
                     val bytes = contentResolver.openInputStream(uri)?.use { stream ->
@@ -1416,7 +1417,7 @@ class MainActivity : Activity() {
                         bytes.fill(0)
                     }
                     ImportInputPolicy.validateTextSize(text)
-                    val links = SubscriptionParser.importDetailed(text).links
+                    val links = SubscriptionParser.importDetailed(text, downloadBudget).links
                     require(links.isNotEmpty()) {
                         "В файле ${index + 1} не найдены поддерживаемые серверы"
                     }
@@ -4121,6 +4122,7 @@ class MainActivity : Activity() {
             importExecutor.execute {
                 val result = runCatching {
                     val imported = mutableListOf<String>()
+                    val downloadBudget = SubscriptionDownloadBudget()
                     var totalBytes = 0
                     uris.forEachIndexed { index, uri ->
                         val bytes = contentResolver.openInputStream(uri)?.use { input ->
@@ -4136,7 +4138,7 @@ class MainActivity : Activity() {
                             bytes.fill(0)
                         }
                         ImportInputPolicy.validateTextSize(text)
-                        val links = SubscriptionParser.importDetailed(text).links
+                        val links = SubscriptionParser.importDetailed(text, downloadBudget).links
                         ImportInputPolicy.requireFileProfiles(index + 1, links)
                         imported.addAll(links)
                     }

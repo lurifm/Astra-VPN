@@ -22,12 +22,19 @@ object SubscriptionParser {
 
     fun importText(input: String): List<String> = importDetailed(input).links
 
-    fun importDetailed(input: String): ParsedSubscription {
+    fun importDetailed(input: String): ParsedSubscription = importDetailed(input, null)
+
+    internal fun importDetailed(
+        input: String,
+        downloadBudget: SubscriptionDownloadBudget?
+    ): ParsedSubscription {
         validateInputSize(input)
         val text = input.trim()
         require(text.isNotEmpty()) { "Пустая ссылка или подписка" }
 
-        val downloaded = if (text.startsWith("https://", ignoreCase = true)) download(text) else null
+        val downloaded = if (text.startsWith("https://", ignoreCase = true)) {
+            download(text, downloadBudget)
+        } else null
         val content = downloaded?.content ?: text
         val decoded = decodeIfBase64(content)
         val candidates = decoded
@@ -114,15 +121,18 @@ object SubscriptionParser {
         return url
     }
 
-    private fun download(address: String): DownloadResult {
+    private fun download(
+        address: String,
+        budget: SubscriptionDownloadBudget?
+    ): DownloadResult {
         var current = validateSubscriptionUrl(address)
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
             require(current.protocol.equals("https", ignoreCase = true)) {
                 "Подписки разрешено загружать только по HTTPS"
             }
             val connection = current.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 20_000
+            connection.connectTimeout = budget?.remainingTimeoutMillis(15_000) ?: 15_000
+            connection.readTimeout = budget?.remainingTimeoutMillis(20_000) ?: 20_000
             connection.requestMethod = "GET"
             connection.setRequestProperty("User-Agent", "AstraVPN/1.0 Android")
             connection.instanceFollowRedirects = false
@@ -138,23 +148,35 @@ object SubscriptionParser {
                 }
                 require(code in 200..299) { "Сервер подписки ответил: HTTP $code" }
                 val bytes = connection.inputStream.use { input ->
-                    val output = java.io.ByteArrayOutputStream()
+                    val output = WipingByteArrayOutputStream()
                     val buffer = ByteArray(8192)
                     var total = 0
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        require(total <= MAX_RESPONSE_BYTES) { "Подписка слишком большая" }
-                        output.write(buffer, 0, count)
+                    try {
+                        while (true) {
+                            connection.readTimeout = budget?.remainingTimeoutMillis(20_000) ?: 20_000
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= MAX_RESPONSE_BYTES) { "Подписка слишком большая" }
+                            budget?.consume(count)
+                            output.write(buffer, 0, count)
+                        }
+                        output.toByteArray()
+                    } finally {
+                        buffer.fill(0)
+                        output.wipe()
                     }
-                    output.toByteArray()
                 }
                 val headers = mutableMapOf<String, String>()
                 listOf("subscription-userinfo", "profile-title", "profile-update-interval").forEach { name ->
                     connection.getHeaderField(name)?.let { headers[name] = it }
                 }
-                return DownloadResult(String(bytes, Charset.forName("UTF-8")), headers)
+                val content = try {
+                    String(bytes, Charset.forName("UTF-8"))
+                } finally {
+                    bytes.fill(0)
+                }
+                return DownloadResult(content, headers)
             } finally {
                 connection.disconnect()
             }
@@ -173,8 +195,20 @@ object SubscriptionParser {
             Base64.DEFAULT
         }
         return runCatching {
-            String(Base64.decode(compact, flags), Charset.forName("UTF-8"))
+            val decoded = Base64.decode(compact, flags)
+            try {
+                String(decoded, Charset.forName("UTF-8"))
+            } finally {
+                decoded.fill(0)
+            }
         }.getOrDefault(value)
+    }
+
+    private class WipingByteArrayOutputStream : java.io.ByteArrayOutputStream() {
+        fun wipe() {
+            buf.fill(0)
+            reset()
+        }
     }
 
     private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L // 9999-12-31T23:59:59Z
