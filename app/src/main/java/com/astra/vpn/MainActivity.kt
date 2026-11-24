@@ -182,6 +182,16 @@ class MainActivity : Activity() {
     private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
+
+    /** Submits background work without allowing executor shutdown to strand UI state. */
+    private fun executeImportTask(
+        onRejected: () -> Unit = {
+            if (!isFinishing && !isDestroyed) {
+                Toast.makeText(this, "Операция отменена: приложение завершает работу", Toast.LENGTH_LONG).show()
+            }
+        },
+        task: () -> Unit
+    ): Boolean = ImportTaskSubmission.submit(importExecutor, task, onRejected)
     private val pingExecutor = Executors.newFixedThreadPool(3)
     // Keep auto-selection probes isolated from background list refresh probes.
     private val autoSelectExecutor = Executors.newFixedThreadPool(3)
@@ -1371,7 +1381,7 @@ class MainActivity : Activity() {
             return
         }
         val value = sharedText.toString()
-        importExecutor.execute {
+        executeImportTask {
             val result = runCatching { value.also(ImportInputPolicy::validateTextSize) }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1398,7 +1408,7 @@ class MainActivity : Activity() {
             ).show()
             return
         }
-        importExecutor.execute {
+        executeImportTask {
             val result = runCatching {
                 val imported = ArrayList<String>()
                 val downloadBudget = SubscriptionDownloadBudget()
@@ -1470,7 +1480,7 @@ class MainActivity : Activity() {
         }
 
         Toast.makeText(this, "Проверяем буфер обмена…", Toast.LENGTH_SHORT).show()
-        importExecutor.execute {
+        executeImportTask {
             val result = runCatching {
                 val value = clipboardText.toString().also(ImportInputPolicy::validateTextSize).trim()
                 if (!ImportInputPolicy.looksLikeSupportedInput(value)) {
@@ -1529,7 +1539,7 @@ class MainActivity : Activity() {
                     } else if (rawValue.length > ImportInputPolicy.MAX_TOTAL_BYTES) {
                         Toast.makeText(this, "Текст QR-кода слишком большой", Toast.LENGTH_LONG).show()
                     } else {
-                        importExecutor.execute {
+                        executeImportTask {
                             val result = runCatching {
                                 rawValue.trim().also(ImportInputPolicy::validateTextSize)
                             }
@@ -1739,7 +1749,9 @@ class MainActivity : Activity() {
                             Toast.LENGTH_LONG).show()
                     } else {
                         isEnabled = false
-                        importExecutor.execute {
+                        executeImportTask(onRejected = {
+                            if (dialog.isShowing && !isFinishing && !isDestroyed) isEnabled = true
+                        }) {
                             val result = runCatching {
                                 clipText.toString().also(ImportInputPolicy::validateTextSize).trim()
                             }
@@ -1862,7 +1874,12 @@ class MainActivity : Activity() {
             pasteButton.isEnabled = false
             importButton.text = "Импортируем…"
             status.text = "Импортируем серверы…"
-            importExecutor.execute {
+            executeImportTask(onRejected = {
+                if (!isFinishing && !isDestroyed) {
+                    dialog.dismiss()
+                    Toast.makeText(this@MainActivity, "Не удалось запустить импорт", Toast.LENGTH_LONG).show()
+                }
+            }) {
                 val result = runCatching {
                     ImportInputPolicy.validateTextSize(value)
                     if (value.startsWith("https://", ignoreCase = true)) {
@@ -1923,7 +1940,14 @@ class MainActivity : Activity() {
         settingsPrefs.edit().putLong("last_subscription_attempt", System.currentTimeMillis()).apply()
         status.text = "Обновляем подписки…"
         status.setTextColor(AMBER)
-        importExecutor.execute {
+        executeImportTask(onRejected = {
+            refreshingSubscriptions = false
+            if (!isFinishing && !isDestroyed) {
+                status.text = "Не удалось запустить обновление подписок"
+                status.setTextColor(RED)
+                Toast.makeText(this, "Не удалось запустить обновление подписок", Toast.LENGTH_LONG).show()
+            }
+        }) {
             var updated = 0
             var totalProfiles = 0
             val errors = mutableListOf<String>()
@@ -2312,7 +2336,14 @@ class MainActivity : Activity() {
         refreshingSubscriptions = true
         status.text = "Обновляем подписку…"
         status.setTextColor(AMBER)
-        importExecutor.execute {
+        executeImportTask(onRejected = {
+            refreshingSubscriptions = false
+            if (!isFinishing && !isDestroyed) {
+                status.text = "Не удалось запустить обновление подписки"
+                status.setTextColor(RED)
+                Toast.makeText(this, "Не удалось запустить обновление подписки", Toast.LENGTH_LONG).show()
+            }
+        }) {
             val result = runCatching {
                 // The attempt, profile commit, history and retry state form one
                 // serialized transaction shared with bulk refresh and WorkManager.
@@ -3875,7 +3906,12 @@ class MainActivity : Activity() {
             bytes?.fill(0)
             return
         }
-        importExecutor.execute {
+        executeImportTask(onRejected = {
+            bytes.fill(0)
+            if (!isFinishing && !isDestroyed) {
+                Toast.makeText(this, "Не удалось сохранить резервную копию", Toast.LENGTH_LONG).show()
+            }
+        }) {
             val result = runCatching {
                 contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
                     ?: error("Не удалось открыть файл для записи")
@@ -3897,7 +3933,11 @@ class MainActivity : Activity() {
 
     private fun handleBackupImportFile(uri: Uri?) {
         if (uri == null) return
-        importExecutor.execute {
+        executeImportTask(onRejected = {
+            if (!isFinishing && !isDestroyed) {
+                Toast.makeText(this, "Не удалось прочитать резервную копию", Toast.LENGTH_LONG).show()
+            }
+        }) {
             val result = runCatching {
                 contentResolver.openInputStream(uri)?.use { input ->
                     EncryptedBackupCodec.readBackup(input)
@@ -3972,7 +4012,12 @@ class MainActivity : Activity() {
                     dialog.dismiss()
                     if (forExport) {
                         try {
-                            importExecutor.execute {
+                            executeImportTask(onRejected = {
+                                passwordChars.fill('\u0000')
+                                if (!isFinishing && !isDestroyed) {
+                                    Toast.makeText(this, "Не удалось запустить создание резервной копии", Toast.LENGTH_LONG).show()
+                                }
+                            }) {
                                 var encryptedResult: ByteArray? = null
                                 val result = try {
                                     runCatching {
@@ -4021,7 +4066,13 @@ class MainActivity : Activity() {
                         val encrypted = backupBytes ?: return@setOnClickListener
                         backupBytesTransferred = true
                         try {
-                            importExecutor.execute {
+                            executeImportTask(onRejected = {
+                                passwordChars.fill('\u0000')
+                                encrypted.fill(0)
+                                if (!isFinishing && !isDestroyed) {
+                                    Toast.makeText(this, "Не удалось запустить восстановление резервной копии", Toast.LENGTH_LONG).show()
+                                }
+                            }) {
                                 val result = try {
                                     runCatching {
                                         val payload = EncryptedBackupCodec.decrypt(encrypted, passwordChars)
@@ -4126,7 +4177,7 @@ class MainActivity : Activity() {
                 return
             }
             if (uris.isEmpty()) return
-            importExecutor.execute {
+            executeImportTask {
                 val result = runCatching {
                     val imported = mutableListOf<String>()
                     val downloadBudget = SubscriptionDownloadBudget()
