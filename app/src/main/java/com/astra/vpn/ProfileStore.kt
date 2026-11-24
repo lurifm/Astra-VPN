@@ -453,6 +453,7 @@ class ProfileStore(context: Context) {
             val providerTitle = item.optString("providerTitle").takeIf { it.isNotBlank() }?.take(120)
             Triple(source, links, Triple(metadata, customTitle, providerTitle))
         }
+        BackupSubscriptionPolicy.requireUniqueSources(subscriptions.map { it.first })
         val totalLinks = manualLinks.size + subscriptions.sumOf { it.second.size }
         require(totalLinks in 1..MAX_BACKUP_PROFILES) { "Резервная копия не содержит серверов или слишком велика" }
         subscriptions.forEach { (_, _, titles) -> SubscriptionMetadataCodec.decode(titles.first) }
