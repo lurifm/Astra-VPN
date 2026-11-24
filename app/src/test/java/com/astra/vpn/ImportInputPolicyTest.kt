@@ -14,6 +14,19 @@ class ImportInputPolicyTest {
         }
     }
 
+    @Test fun blankSharedTextFallsBackToFileAndNonBlankTextTakesPriority() {
+        assertTrue(!ImportInputPolicy.hasNonBlankText(null))
+        assertTrue(!ImportInputPolicy.hasNonBlankText("  \n  "))
+        assertTrue(ImportInputPolicy.hasNonBlankText("vless://node"))
+    }
+
+    @Test fun recognizesSupportedImportSchemesButNotOrdinaryClipboardText() {
+        assertTrue(ImportInputPolicy.looksLikeSupportedInput("vless://node"))
+        assertTrue(ImportInputPolicy.looksLikeSupportedInput("prefix\nhysteria2://node"))
+        assertTrue(ImportInputPolicy.looksLikeSupportedInput("https://example.com/sub"))
+        assertTrue(!ImportInputPolicy.looksLikeSupportedInput("hello world"))
+    }
+
     @Test fun acceptsTheMaximumProfileCountAndRejectsMore() {
         ImportInputPolicy.requireProfileCount(ImportInputPolicy.MAX_PROFILES)
         assertThrows(IllegalArgumentException::class.java) {

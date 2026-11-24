@@ -1272,48 +1272,7 @@ class MainActivity : Activity() {
         if (!settingsPrefs.getBoolean("onboarding_completed", false)) {
             root.post { if (!isFinishing && !isDestroyed) showFirstRunOnboarding() }
         }
-        // Shared text and files are untrusted input. Read streams off the UI thread
-        // and enforce the same hard byte limit used by the document importer.
-        intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
-            val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)
-            val sharedUri = sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
-            if (sharedText != null && sharedText.isNotEmpty()) {
-                val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(sharedText) }
-                if (lengthCheck.isFailure) {
-                    Toast.makeText(this, lengthCheck.exceptionOrNull()?.message ?: "Файл слишком большой", Toast.LENGTH_LONG).show()
-                    return@let
-                }
-                importExecutor.execute {
-                    val result = runCatching {
-                        sharedText.toString().also(ImportInputPolicy::validateTextSize)
-                            .takeIf { it.isNotBlank() } ?: error("Переданный текст пуст")
-                    }
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        result.onSuccess { showImportDialog(it) }
-                            .onFailure {
-                                Toast.makeText(this, it.message ?: "Файл слишком большой", Toast.LENGTH_LONG).show()
-                            }
-                    }
-                }
-            } else if (sharedUri != null) {
-                importExecutor.execute {
-                    val result = runCatching {
-                        val bytes = contentResolver.openInputStream(sharedUri)?.use {
-                            ImportInputPolicy.readBytes(it, ImportInputPolicy.MAX_TOTAL_BYTES)
-                        } ?: error("Не удалось открыть переданный файл")
-                        String(bytes, Charsets.UTF_8).also(ImportInputPolicy::validateTextSize)
-                    }
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        result.onSuccess { showImportDialog(it) }
-                            .onFailure {
-                                Toast.makeText(this, it.message ?: "Не удалось прочитать переданный файл", Toast.LENGTH_LONG).show()
-                            }
-                    }
-                }
-            }
-        }
+        handleIncomingImportIntent(intent)
         requestNotificationPermissionIfNeeded()
         // Phone-state permission is requested lazily when the optional network
         // monitor is expanded, keeping first launch focused on connecting.
@@ -1338,6 +1297,153 @@ class MainActivity : Activity() {
      * Imports a recognized VPN link or HTTPS subscription directly from the clipboard.
      * If the clipboard does not look like supported input, fall back to the import sheet.
      */
+    /**
+     * Handles shared text/files both on cold start and when this singleTop Activity
+     * is already visible. All stream reads and parsing stay off the UI thread.
+     */
+    private fun handleIncomingImportIntent(incoming: Intent?) {
+        when (incoming?.action) {
+            Intent.ACTION_SEND -> {
+                val sharedText = incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)
+                val sharedUri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    ?: incoming.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                if (ImportInputPolicy.hasNonBlankText(sharedText)) {
+                    val lengthCheck = runCatching {
+                        ImportInputPolicy.requireTextLength(sharedText!!)
+                    }
+                    if (lengthCheck.isFailure) {
+                        Toast.makeText(
+                            this,
+                            lengthCheck.exceptionOrNull()?.message ?: "Текст импорта слишком большой",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return
+                    }
+                    importExecutor.execute {
+                        val result = runCatching {
+                            sharedText!!.toString().also(ImportInputPolicy::validateTextSize)
+                        }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            result.onSuccess { showImportDialog(it) }
+                                .onFailure {
+                                    Toast.makeText(
+                                        this,
+                                        it.message ?: "Не удалось прочитать переданный текст",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                        }
+                    }
+                } else if (sharedUri != null) {
+                    importSharedFiles(listOf(sharedUri))
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = ArrayList<Uri>(ImportInputPolicy.MAX_FILES)
+                var tooManyFiles = false
+                val sharedUris = incoming.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                sharedUris?.forEach { uri ->
+                    if (uri !in uris) {
+                        if (uris.size >= ImportInputPolicy.MAX_FILES) tooManyFiles = true
+                        else uris.add(uri)
+                    }
+                }
+                incoming.clipData?.let { clip ->
+                    for (index in 0 until clip.itemCount) {
+                        val uri = clip.getItemAt(index).uri ?: continue
+                        if (uri !in uris) {
+                            if (uris.size >= ImportInputPolicy.MAX_FILES) {
+                                tooManyFiles = true
+                                break
+                            }
+                            uris.add(uri)
+                        }
+                    }
+                }
+                if (tooManyFiles) {
+                    Toast.makeText(
+                        this,
+                        "Можно передать не более ${ImportInputPolicy.MAX_FILES} файлов за один раз",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else if (uris.isNotEmpty()) {
+                    importSharedFiles(uris)
+                } else {
+                    val sharedText = incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)
+                    if (ImportInputPolicy.hasNonBlankText(sharedText)) {
+                        showImportDialog(sharedText.toString())
+                    }
+                }
+            }
+        }
+    }
+
+    /** Imports a complete shared-file batch atomically under one total byte budget. */
+    private fun importSharedFiles(uris: List<Uri>) {
+        val countCheck = runCatching { ImportInputPolicy.requireFileCount(uris.size) }
+        if (countCheck.isFailure) {
+            Toast.makeText(
+                this,
+                countCheck.exceptionOrNull()?.message ?: "Некорректное количество файлов",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        importExecutor.execute {
+            val result = runCatching {
+                val imported = ArrayList<String>()
+                var totalBytes = 0
+                uris.forEachIndexed { index, uri ->
+                    val bytes = contentResolver.openInputStream(uri)?.use { stream ->
+                        ImportInputPolicy.readBytes(
+                            stream,
+                            ImportInputPolicy.MAX_TOTAL_BYTES - totalBytes
+                        )
+                    } ?: error("Не удалось открыть файл ${index + 1}")
+                    totalBytes += bytes.size
+                    val text = try {
+                        String(bytes, Charsets.UTF_8)
+                    } finally {
+                        bytes.fill(0)
+                    }
+                    ImportInputPolicy.validateTextSize(text)
+                    val links = SubscriptionParser.importDetailed(text).links
+                    require(links.isNotEmpty()) {
+                        "В файле ${index + 1} не найдены поддерживаемые серверы"
+                    }
+                    imported.addAll(links)
+                }
+                val uniqueProfiles = imported.distinct()
+                ImportInputPolicy.requireProfileCount(uniqueProfiles.size)
+                profileStore.addAll(uniqueProfiles)
+                uniqueProfiles.size
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { importedCount ->
+                    renderProfiles()
+                    checkAllLatencies()
+                    status.text = "Импортировано: $importedCount"
+                    status.setTextColor(GREEN)
+                    Toast.makeText(
+                        this,
+                        "Добавлено серверов: $importedCount",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }.onFailure { error ->
+                    status.text = "Ошибка импорта"
+                    status.setTextColor(RED)
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Не удалось импортировать файлы")
+                        .setMessage(error.message ?: "Проверь формат выбранных файлов.")
+                        .setPositiveButton("ОК", null)
+                        .show()
+                }
+            }
+        }
+    }
+
     private fun importClipboardInOneTap(): Boolean {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clipboardText = runCatching {
@@ -1358,33 +1464,32 @@ class MainActivity : Activity() {
         importExecutor.execute {
             val result = runCatching {
                 val value = clipboardText.toString().also(ImportInputPolicy::validateTextSize).trim()
-                require(value.isNotEmpty()) { "Буфер обмена пуст" }
-                val looksLikeVpnInput = value.lineSequence().any { line ->
-                    val item = line.trim()
-                    item.startsWith("vless://", true) ||
-                        item.startsWith("hysteria2://", true) ||
-                        item.startsWith("hy2://", true) ||
-                        item.startsWith("tuic://", true) ||
-                        item.startsWith("https://", true)
-                }
-                require(looksLikeVpnInput) { "В буфере не найдены поддерживаемые ссылки" }
-                if (value.trimStart().startsWith("https://", true)) {
-                    val count = SubscriptionRefreshCoordinator.refresh(profileStore, value.trim())
-                    require(count > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
-                    count
+                if (!ImportInputPolicy.looksLikeSupportedInput(value)) {
+                    value to null
                 } else {
-                    val links = SubscriptionParser.importDetailed(value).links
-                    require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
-                    profileStore.addAll(links)
-                    links.size
+                    val count = if (value.startsWith("https://", true)) {
+                        val refreshed = SubscriptionRefreshCoordinator.refresh(profileStore, value)
+                        require(refreshed > 0) { "В подписке не найдено ни одного поддерживаемого сервера." }
+                        refreshed
+                    } else {
+                        val links = SubscriptionParser.importDetailed(value).links
+                        require(links.isNotEmpty()) { "В буфере не найдено ни одного поддерживаемого сервера." }
+                        profileStore.addAll(links)
+                        links.size
+                    }
+                    value to count
                 }
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                result.onSuccess { links ->
-                    renderProfiles()
-                    checkAllLatencies()
-                    Toast.makeText(this, "Добавлено серверов: $links", Toast.LENGTH_LONG).show()
+                result.onSuccess { (value, importedCount) ->
+                    if (importedCount == null) {
+                        showImportDialog(value)
+                    } else {
+                        renderProfiles()
+                        checkAllLatencies()
+                        Toast.makeText(this, "Добавлено серверов: $importedCount", Toast.LENGTH_LONG).show()
+                    }
                 }.onFailure { error ->
                     MaterialAlertDialogBuilder(this)
                         .setTitle("Не удалось импортировать")
@@ -4122,6 +4227,8 @@ class MainActivity : Activity() {
         if (intent.action == ACTION_TILE_TOGGLE) {
             intent.action = null
             handleQuickTileToggle()
+        } else {
+            handleIncomingImportIntent(intent)
         }
     }
 

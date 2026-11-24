@@ -10,6 +10,17 @@ internal object ImportInputPolicy {
     const val MAX_PROFILES = SubscriptionImportPolicy.MAX_PROFILES
     const val MAX_PREVIEW_CHARS = 64 * 1024
 
+    fun hasNonBlankText(value: CharSequence?): Boolean = !value.isNullOrBlank()
+
+    fun looksLikeSupportedInput(value: String): Boolean = value.lineSequence().any { line ->
+        val item = line.trim()
+        item.startsWith("vless://", true) ||
+            item.startsWith("hysteria2://", true) ||
+            item.startsWith("hy2://", true) ||
+            item.startsWith("tuic://", true) ||
+            item.startsWith("https://", true)
+    }
+
     fun requireFileCount(count: Int) {
         require(count in 1..MAX_FILES) {
             "Можно выбрать от 1 до $MAX_FILES файлов за один раз"
