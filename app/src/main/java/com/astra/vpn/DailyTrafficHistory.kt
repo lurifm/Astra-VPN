@@ -15,20 +15,18 @@ internal class DailyTrafficHistory private constructor(
     constructor() : this(linkedMapOf())
 
     fun record(dayKey: Int, downloadedBytes: Long, uploadedBytes: Long) {
-        // Keep the same strict calendar-date validation for live writes as for restored data.
         if (!isValidDayKey(dayKey)) return
         days[dayKey] = Totals(downloadedBytes.coerceAtLeast(0L), uploadedBytes.coerceAtLeast(0L))
         val keep = days.keys.sortedDescending().take(MAX_DAYS).toSet()
         days.keys.filter { it !in keep }.toList().forEach(days::remove)
     }
 
-    fun entries(): List<Entry> = days.entries
-        .sortedByDescending { it.key }
+    fun entries(): List<Entry> = days.entries.sortedByDescending { it.key }
         .map { Entry(it.key, it.value) }
 
     fun total(): Totals = Totals(
-        days.values.sumOf { it.downloadedBytes },
-        days.values.sumOf { it.uploadedBytes }
+        days.values.fold(0L) { total, day -> TrafficCounterMath.add(total, day.downloadedBytes) },
+        days.values.fold(0L) { total, day -> TrafficCounterMath.add(total, day.uploadedBytes) }
     )
 
     fun encode(): String = entries().joinToString(";") {
@@ -57,8 +55,7 @@ internal class DailyTrafficHistory private constructor(
                     val day = fields[0].toIntOrNull()
                     val rx = fields[1].toLongOrNull()
                     val tx = fields[2].toLongOrNull()
-                    if (day != null && isValidDayKey(day) && rx != null && tx != null &&
-                        rx >= 0L && tx >= 0L) {
+                    if (day != null && isValidDayKey(day) && rx != null && tx != null && rx >= 0L && tx >= 0L) {
                         parsed[day] = Totals(rx, tx)
                     }
                 }

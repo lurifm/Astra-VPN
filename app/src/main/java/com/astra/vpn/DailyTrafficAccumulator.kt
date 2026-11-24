@@ -22,8 +22,8 @@ internal class DailyTrafficAccumulator(
             lastTx = txBytes
             return snapshot()
         }
-        downloaded += (rxBytes - lastRx).coerceAtLeast(0L)
-        uploaded += (txBytes - lastTx).coerceAtLeast(0L)
+        downloaded = TrafficCounterMath.add(downloaded, (rxBytes - lastRx).coerceAtLeast(0L))
+        uploaded = TrafficCounterMath.add(uploaded, (txBytes - lastTx).coerceAtLeast(0L))
         lastRx = rxBytes
         lastTx = txBytes
         return snapshot()
