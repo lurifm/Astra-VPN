@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.security.GeneralSecurityException
+import java.io.ByteArrayInputStream
 
 class EncryptedBackupCodecTest {
     private val password = "Astra-Backup-2026!".toCharArray()
@@ -50,6 +51,16 @@ class EncryptedBackupCodecTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             EncryptedBackupCodec.decrypt(encrypted.copyOf(12), password)
+        }
+    }
+
+    @Test
+    fun boundedBackupReaderAcceptsValidBytesAndRejectsOversize() {
+        val payload = ByteArray(128) { it.toByte() }
+        assertArrayEquals(payload, EncryptedBackupCodec.readBackup(ByteArrayInputStream(payload)))
+        val oversized = ByteArray(EncryptedBackupCodec.MAX_PLAINTEXT_BYTES + 1024)
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedBackupCodec.readBackup(ByteArrayInputStream(oversized))
         }
     }
 

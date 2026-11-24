@@ -3899,23 +3899,9 @@ class MainActivity : Activity() {
         if (uri == null) return
         importExecutor.execute {
             val result = runCatching {
-                val bytes = contentResolver.openInputStream(uri)?.use { input ->
-                    val output = java.io.ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    var total = 0
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        require(total <= EncryptedBackupCodec.MAX_PLAINTEXT_BYTES + 128) {
-                            "Файл резервной копии слишком большой"
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                    output.toByteArray()
+                contentResolver.openInputStream(uri)?.use { input ->
+                    EncryptedBackupCodec.readBackup(input)
                 } ?: error("Не удалось открыть файл резервной копии")
-                require(bytes.isNotEmpty()) { "Файл резервной копии пуст" }
-                bytes
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) {

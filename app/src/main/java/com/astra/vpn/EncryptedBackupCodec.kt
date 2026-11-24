@@ -1,5 +1,7 @@
 package com.astra.vpn
 
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
@@ -40,21 +42,23 @@ internal object EncryptedBackupCodec {
 
         val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
         val iv = ByteArray(IV_BYTES).also(random::nextBytes)
-        val header = ByteBuffer.allocate(HEADER_BYTES)
-            .put(MAGIC)
-            .put(FORMAT_VERSION)
-            .put(salt)
-            .put(iv)
-            .array()
-
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, deriveKey(password, salt), GCMParameterSpec(TAG_BITS, iv))
-        cipher.updateAAD(header)
-        val encrypted = cipher.doFinal(plaintext)
-        return ByteBuffer.allocate(header.size + encrypted.size)
-            .put(header)
-            .put(encrypted)
-            .array()
+        var header: ByteArray? = null
+        var encrypted: ByteArray? = null
+        try {
+            header = ByteBuffer.allocate(HEADER_BYTES)
+                .put(MAGIC).put(FORMAT_VERSION).put(salt).put(iv).array()
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, deriveKey(password, salt), GCMParameterSpec(TAG_BITS, iv))
+            cipher.updateAAD(header)
+            encrypted = cipher.doFinal(plaintext)
+            return ByteBuffer.allocate(header.size + encrypted.size)
+                .put(header).put(encrypted).array()
+        } finally {
+            salt.fill(0)
+            iv.fill(0)
+            header?.fill(0)
+            encrypted?.fill(0)
+        }
     }
 
     @Throws(GeneralSecurityException::class)
@@ -66,25 +70,64 @@ internal object EncryptedBackupCodec {
 
         val input = ByteBuffer.wrap(backup)
         val magic = ByteArray(MAGIC.size).also(input::get)
-        require(magic.contentEquals(MAGIC)) { "Это не файл резервной копии Astra" }
-        val version = input.get()
-        require(version == FORMAT_VERSION) { "Версия резервной копии не поддерживается" }
-        val salt = ByteArray(SALT_BYTES).also(input::get)
-        val iv = ByteArray(IV_BYTES).also(input::get)
-        val header = backup.copyOfRange(0, HEADER_BYTES)
-        val encrypted = ByteArray(input.remaining()).also(input::get)
-
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, deriveKey(password, salt), GCMParameterSpec(TAG_BITS, iv))
-        cipher.updateAAD(header)
-        return try {
-            cipher.doFinal(encrypted).also { plaintext ->
-                require(plaintext.isNotEmpty() && plaintext.size <= MAX_PLAINTEXT_BYTES) {
-                    "Недопустимый размер содержимого резервной копии"
+        var salt: ByteArray? = null
+        var iv: ByteArray? = null
+        var header: ByteArray? = null
+        var encrypted: ByteArray? = null
+        try {
+            require(magic.contentEquals(MAGIC)) { "Это не файл резервной копии Astra" }
+            require(input.get() == FORMAT_VERSION) { "Версия резервной копии не поддерживается" }
+            salt = ByteArray(SALT_BYTES).also(input::get)
+            iv = ByteArray(IV_BYTES).also(input::get)
+            header = backup.copyOfRange(0, HEADER_BYTES)
+            encrypted = ByteArray(input.remaining()).also(input::get)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, deriveKey(password, salt), GCMParameterSpec(TAG_BITS, iv))
+            cipher.updateAAD(header)
+            return try {
+                cipher.doFinal(encrypted).also { plaintext ->
+                    require(plaintext.isNotEmpty() && plaintext.size <= MAX_PLAINTEXT_BYTES) {
+                        "Недопустимый размер содержимого резервной копии"
+                    }
                 }
+            } catch (failure: AEADBadTagException) {
+                throw GeneralSecurityException("Неверный пароль или файл повреждён", failure)
             }
-        } catch (failure: AEADBadTagException) {
-            throw GeneralSecurityException("Неверный пароль или файл повреждён", failure)
+        } finally {
+            magic.fill(0)
+            salt?.fill(0)
+            iv?.fill(0)
+            header?.fill(0)
+            encrypted?.fill(0)
+        }
+    }
+
+    /** Reads a complete encrypted backup while bounding memory use and wiping scratch buffers. */
+    fun readBackup(input: InputStream): ByteArray {
+        val maxBytes = HEADER_BYTES + MAX_PLAINTEXT_BYTES + GCM_TAG_BYTES
+        val output = WipingBackupBuffer()
+        val buffer = ByteArray(8192)
+        try {
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                require(count <= maxBytes - output.size()) { "Файл резервной копии слишком большой" }
+                output.write(buffer, 0, count)
+            }
+            return output.toByteArray().also {
+                require(it.isNotEmpty()) { "Файл резервной копии пуст" }
+            }
+        } finally {
+            buffer.fill(0)
+            output.wipe()
+        }
+    }
+
+    private class WipingBackupBuffer : ByteArrayOutputStream() {
+        fun wipe() {
+            buf.fill(0)
+            reset()
         }
     }
 
@@ -99,7 +142,11 @@ internal object EncryptedBackupCodec {
         return try {
             val key = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
                 .generateSecret(spec).encoded
-            SecretKeySpec(key, "AES")
+            try {
+                SecretKeySpec(key, "AES")
+            } finally {
+                key.fill(0)
+            }
         } finally {
             spec.clearPassword()
         }
