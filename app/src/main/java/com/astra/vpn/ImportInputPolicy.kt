@@ -56,18 +56,30 @@ internal object ImportInputPolicy {
     /** Reads at most [maxBytes], failing before writing any bytes beyond the cap. */
     fun readBytes(input: InputStream, maxBytes: Int = MAX_TOTAL_BYTES): ByteArray {
         require(maxBytes in 0..MAX_TOTAL_BYTES)
-        val output = ByteArrayOutputStream(minOf(maxBytes, 8192))
+        val output = WipingImportBuffer(minOf(maxBytes, 8192))
         val buffer = ByteArray(8192)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            if (count == 0) continue
-            if (count > maxBytes - output.size()) {
-                throw ImportInputLimitException("Общий размер импортируемых файлов превышает 2 МБ")
+        try {
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                if (count > maxBytes - output.size()) {
+                    throw ImportInputLimitException("Общий размер импортируемых файлов превышает 2 МБ")
+                }
+                output.write(buffer, 0, count)
             }
-            output.write(buffer, 0, count)
+            return output.toByteArray()
+        } finally {
+            buffer.fill(0)
+            output.wipe()
         }
-        return output.toByteArray()
+    }
+
+    private class WipingImportBuffer(initialSize: Int) : ByteArrayOutputStream(initialSize) {
+        fun wipe() {
+            buf.fill(0)
+            reset()
+        }
     }
 }
 

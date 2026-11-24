@@ -84,15 +84,16 @@ internal object EncryptedBackupCodec {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, deriveKey(password, salt), GCMParameterSpec(TAG_BITS, iv))
             cipher.updateAAD(header)
-            return try {
-                cipher.doFinal(encrypted).also { plaintext ->
-                    require(plaintext.isNotEmpty() && plaintext.size <= MAX_PLAINTEXT_BYTES) {
-                        "Недопустимый размер содержимого резервной копии"
-                    }
-                }
+            val plaintext = try {
+                cipher.doFinal(encrypted)
             } catch (failure: AEADBadTagException) {
                 throw GeneralSecurityException("Неверный пароль или файл повреждён", failure)
             }
+            if (plaintext.isEmpty() || plaintext.size > MAX_PLAINTEXT_BYTES) {
+                plaintext.fill(0)
+                throw IllegalArgumentException("Недопустимый размер содержимого резервной копии")
+            }
+            return plaintext
         } finally {
             magic.fill(0)
             salt?.fill(0)
@@ -115,9 +116,12 @@ internal object EncryptedBackupCodec {
                 require(count <= maxBytes - output.size()) { "Файл резервной копии слишком большой" }
                 output.write(buffer, 0, count)
             }
-            return output.toByteArray().also {
-                require(it.isNotEmpty()) { "Файл резервной копии пуст" }
+            val result = output.toByteArray()
+            if (result.isEmpty()) {
+                result.fill(0)
+                throw IllegalArgumentException("Файл резервной копии пуст")
             }
+            return result
         } finally {
             buffer.fill(0)
             output.wipe()

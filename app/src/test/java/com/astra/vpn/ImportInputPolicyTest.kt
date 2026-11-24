@@ -89,4 +89,23 @@ class ImportInputPolicyTest {
             ImportInputPolicy.validateTextSize("a".repeat(ImportInputPolicy.MAX_TOTAL_BYTES + 1))
         }
     }
+    @Test fun zeroByteBudgetAcceptsOnlyAnEmptyStream() {
+        assertArrayEquals(
+            byteArrayOf(),
+            ImportInputPolicy.readBytes(ByteArrayInputStream(byteArrayOf()), 0)
+        )
+        assertThrows(ImportInputLimitException::class.java) {
+            ImportInputPolicy.readBytes(ByteArrayInputStream(byteArrayOf(1)), 0)
+        }
+    }
+
+    @Test fun readFailureIsPropagatedAfterScratchBuffersAreScheduledForCleanup() {
+        val broken = object : java.io.InputStream() {
+            override fun read(): Int = throw java.io.IOException("simulated read failure")
+        }
+        assertThrows(java.io.IOException::class.java) {
+            ImportInputPolicy.readBytes(broken, 16)
+        }
+    }
+
 }

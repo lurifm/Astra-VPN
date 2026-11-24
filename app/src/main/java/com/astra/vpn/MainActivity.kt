@@ -3971,67 +3971,88 @@ class MainActivity : Activity() {
                     confirmationInput?.text?.clear()
                     dialog.dismiss()
                     if (forExport) {
-                        importExecutor.execute {
-                            val result = runCatching {
-                                val payload = profileStore.exportBackupPayload()
-                                try {
-                                    EncryptedBackupCodec.encrypt(payload, passwordChars)
-                                } finally {
-                                    payload.fill(0)
-                                }
-                            }
-                            passwordChars.fill('\u0000')
-                            runOnUiThread {
-                                if (isFinishing || isDestroyed) return@runOnUiThread
-                                result.onSuccess { encrypted ->
-                                    pendingBackupBytes?.fill(0)
-                                    pendingBackupBytes = encrypted
-                                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                        addCategory(Intent.CATEGORY_OPENABLE)
-                                        type = "application/octet-stream"
-                                        putExtra(Intent.EXTRA_TITLE, "Astra-VPN-backup.astrabak")
-                                    }
-                                    runCatching { startActivityForResult(intent, REQUEST_EXPORT_BACKUP) }
-                                        .onFailure {
-                                            pendingBackupBytes?.fill(0)
-                                            pendingBackupBytes = null
-                                            Toast.makeText(this, "Не удалось открыть сохранение файла", Toast.LENGTH_LONG).show()
+                        try {
+                            importExecutor.execute {
+                                var encryptedResult: ByteArray? = null
+                                val result = try {
+                                    runCatching {
+                                        val payload = profileStore.exportBackupPayload()
+                                        try {
+                                            EncryptedBackupCodec.encrypt(payload, passwordChars)
+                                        } finally {
+                                            payload.fill(0)
                                         }
-                                }.onFailure { error ->
-                                    MaterialAlertDialogBuilder(this)
-                                        .setTitle("Не удалось создать копию")
-                                        .setMessage(error.message ?: "Проверь сохранённые профили.")
-                                        .setPositiveButton("ОК", null).show()
+                                    }.also { encryptedResult = it.getOrNull() }
+                                } finally {
+                                    passwordChars.fill('\\u0000')
+                                }
+                                runOnUiThread {
+                                    if (isFinishing || isDestroyed) {
+                                        encryptedResult?.fill(0)
+                                        return@runOnUiThread
+                                    }
+                                    result.onSuccess { encrypted ->
+                                        pendingBackupBytes?.fill(0)
+                                        pendingBackupBytes = encrypted
+                                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "application/octet-stream"
+                                            putExtra(Intent.EXTRA_TITLE, "Astra-VPN-backup.astrabak")
+                                        }
+                                        runCatching { startActivityForResult(intent, REQUEST_EXPORT_BACKUP) }
+                                            .onFailure {
+                                                pendingBackupBytes?.fill(0)
+                                                pendingBackupBytes = null
+                                                Toast.makeText(this, "Не удалось открыть сохранение файла", Toast.LENGTH_LONG).show()
+                                            }
+                                    }.onFailure { error ->
+                                        MaterialAlertDialogBuilder(this)
+                                            .setTitle("Не удалось создать копию")
+                                            .setMessage(error.message ?: "Проверь сохранённые профили.")
+                                            .setPositiveButton("ОК", null).show()
+                                    }
                                 }
                             }
+                        } catch (failure: RuntimeException) {
+                            passwordChars.fill('\\u0000')
+                            Toast.makeText(this, "Не удалось запустить создание резервной копии", Toast.LENGTH_LONG).show()
                         }
                     } else {
                         val encrypted = backupBytes ?: return@setOnClickListener
                         backupBytesTransferred = true
-                        importExecutor.execute {
-                            val result = runCatching {
-                                val payload = EncryptedBackupCodec.decrypt(encrypted, passwordChars)
-                                try {
-                                    profileStore.restoreBackupPayload(payload)
+                        try {
+                            importExecutor.execute {
+                                val result = try {
+                                    runCatching {
+                                        val payload = EncryptedBackupCodec.decrypt(encrypted, passwordChars)
+                                        try {
+                                            profileStore.restoreBackupPayload(payload)
+                                        } finally {
+                                            payload.fill(0)
+                                        }
+                                    }
                                 } finally {
-                                    payload.fill(0)
+                                    passwordChars.fill('\\u0000')
+                                    encrypted.fill(0)
+                                }
+                                runOnUiThread {
+                                    if (isFinishing || isDestroyed) return@runOnUiThread
+                                    result.onSuccess { count ->
+                                        renderProfiles()
+                                        checkAllLatencies()
+                                        Toast.makeText(this, "Восстановлено серверов: $count", Toast.LENGTH_LONG).show()
+                                    }.onFailure { error ->
+                                        MaterialAlertDialogBuilder(this)
+                                            .setTitle("Не удалось восстановить копию")
+                                            .setMessage(error.message ?: "Неверный пароль или повреждённый файл.")
+                                            .setPositiveButton("ОК", null).show()
+                                    }
                                 }
                             }
-                            passwordChars.fill('\u0000')
+                        } catch (failure: RuntimeException) {
+                            passwordChars.fill('\\u0000')
                             encrypted.fill(0)
-                            runOnUiThread {
-                                if (isFinishing || isDestroyed) return@runOnUiThread
-                                result.onSuccess { count ->
-                                    renderProfiles()
-                                    checkAllLatencies()
-                                    Toast.makeText(this, "Восстановлено серверов: $count", Toast.LENGTH_LONG).show()
-                                }.onFailure { error ->
-                                    MaterialAlertDialogBuilder(this)
-                                        .setTitle("Не удалось восстановить копию")
-                                        .setMessage(error.message ?: "Неверный пароль или повреждённый файл.")
-                                        .setPositiveButton("ОК", null).show()
-                                }
-                            }
+                            Toast.makeText(this, "Не удалось запустить восстановление резервной копии", Toast.LENGTH_LONG).show()
                         }
                     }
                 }
