@@ -12,6 +12,10 @@ class AppRoutingPolicyTest {
         AppRoutingPolicy.validate("exclude", selectedCount = 0, appliedCount = 0)
     }
 
+    @Test fun allowsExcludeModeWhenEveryPackageWasApplied() {
+        AppRoutingPolicy.validate("exclude", selectedCount = 2, appliedCount = 2)
+    }
+
     @Test fun rejectsEmptyIncludeList() {
         assertThrows(IllegalArgumentException::class.java) {
             AppRoutingPolicy.validate("include", selectedCount = 0, appliedCount = 0)
@@ -27,6 +31,18 @@ class AppRoutingPolicyTest {
     @Test fun rejectsPartiallyAppliedIncludeListToPreventUnexpectedBypass() {
         assertThrows(IllegalArgumentException::class.java) {
             AppRoutingPolicy.validate("include", selectedCount = 3, appliedCount = 2)
+        }
+    }
+
+    @Test fun rejectsExcludeListWhenNoPackageCouldBeApplied() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("exclude", selectedCount = 3, appliedCount = 0)
+        }
+    }
+
+    @Test fun rejectsPartiallyAppliedExcludeListToPreventUnexpectedRouting() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("exclude", selectedCount = 3, appliedCount = 2)
         }
     }
 
