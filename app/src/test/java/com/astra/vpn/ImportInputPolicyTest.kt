@@ -21,6 +21,19 @@ class ImportInputPolicyTest {
         }
     }
 
+    @Test fun storedProfileLimitIncludesExistingProfiles() {
+        ImportInputPolicy.requireStoredProfileCount(900, 100)
+        assertThrows(IllegalArgumentException::class.java) {
+            ImportInputPolicy.requireStoredProfileCount(900, 101)
+        }
+    }
+
+    @Test fun rejectsOversizedCharSequenceBeforeStringConversion() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ImportInputPolicy.validateTextSize("x".repeat(ImportInputPolicy.MAX_TOTAL_BYTES + 1) as CharSequence)
+        }
+    }
+
     @Test fun readsBytesUpToTheExactLimit() {
         val bytes = byteArrayOf(1, 2, 3, 4)
         assertArrayEquals(

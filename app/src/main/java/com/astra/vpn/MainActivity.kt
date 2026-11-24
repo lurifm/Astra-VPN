@@ -1275,13 +1275,13 @@ class MainActivity : Activity() {
         // Shared text and files are untrusted input. Read streams off the UI thread
         // and enforce the same hard byte limit used by the document importer.
         intent?.takeIf { it.action == Intent.ACTION_SEND }?.let { sharedIntent ->
-            val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+            val sharedText = sharedIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)
             val sharedUri = sharedIntent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
             if (!sharedText.isNullOrBlank()) {
                 importExecutor.execute {
                     val result = runCatching {
                         ImportInputPolicy.validateTextSize(sharedText)
-                        sharedText
+                        sharedText.toString().also(ImportInputPolicy::validateTextSize)
                     }
                     runOnUiThread {
                         if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1337,9 +1337,15 @@ class MainActivity : Activity() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val value = runCatching {
             if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
-                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)?.toString()?.trim()
+                clipboard.primaryClip!!.getItemAt(0).coerceToText(this)?.let { text ->
+                    ImportInputPolicy.validateTextSize(text)
+                    text.toString().also(ImportInputPolicy::validateTextSize).trim()
+                }
             } else null
-        }.getOrNull()?.takeIf { it.isNotBlank() } ?: return false
+        }.getOrElse {
+            Toast.makeText(this, it.message ?: "Текст в буфере слишком большой", Toast.LENGTH_LONG).show()
+            return true
+        }?.takeIf { it.isNotBlank() } ?: return false
 
         val looksLikeVpnInput = value.lineSequence().any { line ->
             val item = line.trim()
@@ -1399,7 +1405,11 @@ class MainActivity : Activity() {
                     if (value.isEmpty()) {
                         Toast.makeText(this, "В QR-коде не найден текст", Toast.LENGTH_SHORT).show()
                     } else {
-                        showImportDialog(value)
+                        runCatching { ImportInputPolicy.validateTextSize(value) }
+                            .onSuccess { showImportDialog(value) }
+                            .onFailure {
+                                Toast.makeText(this, it.message ?: "Текст QR-кода слишком большой", Toast.LENGTH_LONG).show()
+                            }
                     }
                 }
                 .addOnCanceledListener {
@@ -1428,6 +1438,13 @@ class MainActivity : Activity() {
     }
 
     private fun showImportDialog(initialText: String? = null) {
+        if (initialText != null) {
+            val validation = runCatching { ImportInputPolicy.validateTextSize(initialText) }
+            if (validation.isFailure) {
+                Toast.makeText(this, validation.exceptionOrNull()?.message ?: "Текст импорта слишком большой", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1509,6 +1526,7 @@ class MainActivity : Activity() {
             maxLines = 4
             gravity = Gravity.TOP or Gravity.START
             setPadding(dp(14), dp(13), dp(14), dp(13))
+            filters = arrayOf(android.text.InputFilter.LengthFilter(ImportInputPolicy.MAX_TOTAL_BYTES))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(0xFF1A2942.toInt(), 0xFF121C2E.toInt())
@@ -1531,8 +1549,12 @@ class MainActivity : Activity() {
             setPadding(dp(2), 0, dp(2), dp(10))
             contentDescription = "Предварительное количество ссылок серверов"
         }
-        fun refreshImportPreview(value: String) {
-            val trimmed = value.trim()
+        fun refreshImportPreview(value: CharSequence) {
+            if (value.length > ImportInputPolicy.MAX_PREVIEW_CHARS) {
+                importPreview.text = "Предпросмотр ограничен · проверка размера при импорте"
+                return
+            }
+            val trimmed = value.toString().trim()
             val isSubscription = trimmed.startsWith("https://", true)
             val count = trimmed.lineSequence()
                 .map { it.trim() }
@@ -1553,7 +1575,7 @@ class MainActivity : Activity() {
         input.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                refreshImportPreview(s?.toString().orEmpty())
+                refreshImportPreview(s ?: "")
             }
             override fun afterTextChanged(s: android.text.Editable?) = Unit
         })
@@ -1568,12 +1590,20 @@ class MainActivity : Activity() {
             setTextColor(LIGHT_ACCENT)
             setOnClickListener {
                 val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val clipText = runCatching {
+                val clipResult = runCatching {
                     if (clipboard.hasPrimaryClip() && clipboard.primaryClip!!.itemCount > 0) {
-                        clipboard.primaryClip!!.getItemAt(0).coerceToText(this@MainActivity)?.toString()
+                        clipboard.primaryClip!!.getItemAt(0).coerceToText(this@MainActivity)?.let { text ->
+                            ImportInputPolicy.validateTextSize(text)
+                            text.toString().also(ImportInputPolicy::validateTextSize)
+                        }
                     } else null
-                }.getOrNull()?.trim().orEmpty()
-                if (clipText.isNotEmpty()) {
+                }
+                val clipText = clipResult.getOrNull()?.trim().orEmpty()
+                if (clipResult.isFailure) {
+                    Toast.makeText(this@MainActivity,
+                        clipResult.exceptionOrNull()?.message ?: "Текст в буфере слишком большой",
+                        Toast.LENGTH_LONG).show()
+                } else if (clipText.isNotEmpty()) {
                     input.setText(clipText)
                     input.setSelection(input.text.length)
                 } else {
@@ -1667,6 +1697,11 @@ class MainActivity : Activity() {
         }
         importButton.setOnClickListener {
             val value = input.text.toString().trim()
+            val inputValidation = runCatching { ImportInputPolicy.validateTextSize(value) }
+            if (inputValidation.isFailure) {
+                input.error = inputValidation.exceptionOrNull()?.message ?: "Текст слишком большой"
+                return@setOnClickListener
+            }
             if (value.isEmpty()) {
                 input.error = "Вставь ссылку"
                 return@setOnClickListener

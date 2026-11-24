@@ -8,6 +8,7 @@ internal object ImportInputPolicy {
     const val MAX_TOTAL_BYTES = 2 * 1024 * 1024
     const val MAX_FILES = 20
     const val MAX_PROFILES = SubscriptionImportPolicy.MAX_PROFILES
+    const val MAX_PREVIEW_CHARS = 64 * 1024
 
     fun requireFileCount(count: Int) {
         require(count in 1..MAX_FILES) {
@@ -21,11 +22,23 @@ internal object ImportInputPolicy {
         }
     }
 
-    fun validateTextSize(value: String) {
+    fun requireStoredProfileCount(existingCount: Int, additionalCount: Int) {
+        require(existingCount >= 0 && additionalCount >= 0 &&
+            additionalCount <= MAX_PROFILES - existingCount) {
+            "В хранилище можно сохранить не более $MAX_PROFILES серверов"
+        }
+    }
+
+    fun validateTextSize(value: CharSequence) {
         require(value.length <= MAX_TOTAL_BYTES) {
             "Текст импорта слишком большой (максимум 2 МБ)"
         }
-        require(value.toByteArray(Charsets.UTF_8).size <= MAX_TOTAL_BYTES) {
+        validateTextSize(value.toString())
+    }
+
+    fun validateTextSize(value: String) {
+        require(value.length <= MAX_TOTAL_BYTES &&
+            value.toByteArray(Charsets.UTF_8).size <= MAX_TOTAL_BYTES) {
             "Текст импорта слишком большой (максимум 2 МБ)"
         }
     }

@@ -183,6 +183,7 @@ class ProfileStore(context: Context) {
     }
 
     fun add(link: String) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        ImportInputPolicy.requireStoredProfileCount(all().size, 1)
         val id = java.util.UUID.randomUUID().toString()
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
             "Не удалось сохранить сервер"
@@ -192,8 +193,10 @@ class ProfileStore(context: Context) {
 
     fun addAll(links: List<String>) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val existing = all().toSet()
+        val additions = links.distinct().filterNot { it in existing }
+        ImportInputPolicy.requireStoredProfileCount(existing.size, additions.size)
         val editor = prefs.edit()
-        links.distinct().filterNot { it in existing }.forEach { link ->
+        additions.forEach { link ->
             editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
         }
         check(editor.commit()) { "Не удалось сохранить список серверов" }
