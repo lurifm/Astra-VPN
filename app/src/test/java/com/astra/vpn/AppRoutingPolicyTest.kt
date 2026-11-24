@@ -29,4 +29,25 @@ class AppRoutingPolicyTest {
             AppRoutingPolicy.validate("include", selectedCount = 3, appliedCount = 2)
         }
     }
+
+    @Test fun rejectsUnknownRoutingMode() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("unexpected", selectedCount = 1, appliedCount = 1)
+        }
+    }
+
+    @Test fun rejectsNegativeRuleCounts() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("exclude", selectedCount = -1, appliedCount = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("exclude", selectedCount = 1, appliedCount = -1)
+        }
+    }
+
+    @Test fun rejectsAppliedCountGreaterThanSelection() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRoutingPolicy.validate("exclude", selectedCount = 1, appliedCount = 2)
+        }
+    }
 }
