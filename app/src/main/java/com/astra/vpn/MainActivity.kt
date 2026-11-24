@@ -3984,7 +3984,7 @@ class MainActivity : Activity() {
                                         }
                                     }.also { encryptedResult = it.getOrNull() }
                                 } finally {
-                                    passwordChars.fill('\\u0000')
+                                    passwordChars.fill('\u0000')
                                 }
                                 runOnUiThread {
                                     if (isFinishing || isDestroyed) {
@@ -4014,7 +4014,7 @@ class MainActivity : Activity() {
                                 }
                             }
                         } catch (failure: RuntimeException) {
-                            passwordChars.fill('\\u0000')
+                            passwordChars.fill('\u0000')
                             Toast.makeText(this, "Не удалось запустить создание резервной копии", Toast.LENGTH_LONG).show()
                         }
                     } else {
@@ -4032,7 +4032,7 @@ class MainActivity : Activity() {
                                         }
                                     }
                                 } finally {
-                                    passwordChars.fill('\\u0000')
+                                    passwordChars.fill('\u0000')
                                     encrypted.fill(0)
                                 }
                                 runOnUiThread {
@@ -4050,7 +4050,7 @@ class MainActivity : Activity() {
                                 }
                             }
                         } catch (failure: RuntimeException) {
-                            passwordChars.fill('\\u0000')
+                            passwordChars.fill('\u0000')
                             encrypted.fill(0)
                             Toast.makeText(this, "Не удалось запустить восстановление резервной копии", Toast.LENGTH_LONG).show()
                         }
