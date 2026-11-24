@@ -5,6 +5,10 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.net.InetAddress
+import java.net.SocketAddress
+import java.io.IOException
+import javax.net.SocketFactory
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
@@ -117,6 +121,40 @@ class TcpLatencyProbeTest {
         assertThrows(IllegalArgumentException::class.java) {
             TcpLatencyProbe.runBounded<Int>(1_000L) { throw IllegalArgumentException("bad endpoint") }
         }
+    }
+
+    @Test
+    fun socketFactoryFailureDoesNotPreventNextTcpAttempt() {
+        var createCalls = 0
+        val socketFactory = object : SocketFactory() {
+            override fun createSocket(): Socket {
+                createCalls++
+                if (createCalls == 1) throw IOException("temporary socket creation failure")
+                return object : Socket() {
+                    override fun connect(endpoint: SocketAddress?, timeout: Int) = Unit
+                }
+            }
+
+            override fun createSocket(host: String, port: Int): Socket = error("unused")
+            override fun createSocket(host: String, port: Int, localHost: java.net.InetAddress, localPort: Int): Socket = error("unused")
+            override fun createSocket(host: InetAddress, port: Int): Socket = error("unused")
+            override fun createSocket(address: InetAddress, port: Int, localAddress: InetAddress, localPort: Int): Socket = error("unused")
+        }
+        val activeSocket = AtomicReference<Socket?>(null)
+        val timedOut = AtomicBoolean(false)
+        val address = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+
+        val failedSample = TcpLatencyProbe.connectSample(
+            socketFactory, address, 443, 1_000, activeSocket, timedOut
+        )
+        val successfulSample = TcpLatencyProbe.connectSample(
+            socketFactory, address, 443, 1_000, activeSocket, timedOut
+        )
+
+        assertEquals(null, failedSample)
+        assertTrue("The next TCP attempt should succeed", successfulSample != null)
+        assertEquals(2, createCalls)
+        assertEquals(null, activeSocket.get())
     }
 
     @Test

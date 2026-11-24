@@ -61,23 +61,14 @@ object TcpLatencyProbe {
                 repeat(SAMPLE_COUNT) {
                     val remainingMs = remainingMillis(deadlineNanos)
                     if (remainingMs <= 0L) throw SocketTimeoutException("TCP latency probe timed out")
-                    val started = System.nanoTime()
-                    val socket = socketFactory.createSocket()
-                    registerActiveSocket(activeSocket, timedOut, socket)
-                    val connected = try {
-                        socket.use {
-                            it.connect(
-                                InetSocketAddress(address, port),
-                                minOf(CONNECT_TIMEOUT_MS.toLong(), remainingMs).toInt().coerceAtLeast(1)
-                            )
-                        }
-                        true
-                    } catch (_: Exception) {
-                        false
-                    } finally {
-                        activeSocket.compareAndSet(socket, null)
-                    }
-                    if (connected) samples += elapsedMillis(started)
+                    connectSample(
+                        socketFactory = socketFactory,
+                        address = address,
+                        port = port,
+                        timeoutMs = minOf(CONNECT_TIMEOUT_MS.toLong(), remainingMs).toInt().coerceAtLeast(1),
+                        activeSocket = activeSocket,
+                        timedOut = timedOut
+                    )?.let(samples::add)
                 }
                 if (samples.isNotEmpty()) return@runBounded Result(dnsMs, median(samples), samples.size)
             }
@@ -86,6 +77,38 @@ object TcpLatencyProbe {
             }
             throw IllegalStateException("TCP endpoint is unreachable")
         }
+    }
+
+    /**
+     * Performs one TCP attempt. Socket creation is part of the attempt too:
+     * a factory failure must not abort the remaining samples or resolved addresses.
+     */
+    internal fun connectSample(
+        socketFactory: SocketFactory,
+        address: InetAddress,
+        port: Int,
+        timeoutMs: Int,
+        activeSocket: AtomicReference<Socket?>,
+        timedOut: java.util.concurrent.atomic.AtomicBoolean
+    ): Long? {
+        val started = System.nanoTime()
+        val socket = try {
+            socketFactory.createSocket()
+        } catch (_: Exception) {
+            return null
+        }
+        registerActiveSocket(activeSocket, timedOut, socket)
+        val connected = try {
+            socket.use {
+                it.connect(InetSocketAddress(address, port), timeoutMs)
+            }
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            activeSocket.compareAndSet(socket, null)
+        }
+        return if (connected) elapsedMillis(started) else null
     }
 
     internal fun <T> runBounded(
