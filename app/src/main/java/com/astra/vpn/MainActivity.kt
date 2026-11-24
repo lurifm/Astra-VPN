@@ -1360,8 +1360,8 @@ class MainActivity : Activity() {
 
     /** Validates shared text off the UI thread before opening the import editor. */
     private fun importSharedText(sharedText: CharSequence) {
-        val value = sharedText.toString()
-        val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(value) }
+        // Check the cheap character bound before allocating a String copy on the UI thread.
+        val lengthCheck = runCatching { ImportInputPolicy.requireTextLength(sharedText) }
         if (lengthCheck.isFailure) {
             Toast.makeText(
                 this,
@@ -1370,6 +1370,7 @@ class MainActivity : Activity() {
             ).show()
             return
         }
+        val value = sharedText.toString()
         importExecutor.execute {
             val result = runCatching { value.also(ImportInputPolicy::validateTextSize) }
             runOnUiThread {
@@ -1790,7 +1791,7 @@ class MainActivity : Activity() {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
                     putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                        "text/plain", "application/octet-stream", "application/x-yaml"
+                        "text/plain", "application/octet-stream", "application/x-yaml", "application/yaml", "text/yaml"
                     ))
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 }
@@ -4118,37 +4119,30 @@ class MainActivity : Activity() {
             }
             if (uris.isEmpty()) return
             importExecutor.execute {
-                val imported = mutableListOf<String>()
-                val failures = mutableListOf<String>()
-                var totalBytes = 0
-                var totalLimitExceeded = false
-                for ((index, uri) in uris.withIndex()) {
-                    val fileResult = runCatching {
+                val result = runCatching {
+                    val imported = mutableListOf<String>()
+                    var totalBytes = 0
+                    uris.forEachIndexed { index, uri ->
                         val bytes = contentResolver.openInputStream(uri)?.use { input ->
                             ImportInputPolicy.readBytes(
                                 input,
                                 ImportInputPolicy.MAX_TOTAL_BYTES - totalBytes
                             )
-                        } ?: error("Не удалось открыть файл")
+                        } ?: error("Файл ${index + 1}: не удалось открыть")
                         totalBytes += bytes.size
-                        SubscriptionParser.importDetailed(String(bytes, Charsets.UTF_8)).links
-                    }
-                    fileResult.onSuccess { imported.addAll(it) }
-                        .onFailure { error ->
-                            failures.add("Файл ${index + 1}: ${error.message ?: "не удалось прочитать"}")
-                            if (error is ImportInputLimitException) totalLimitExceeded = true
+                        val text = try {
+                            String(bytes, Charsets.UTF_8)
+                        } finally {
+                            bytes.fill(0)
                         }
-                    if (totalLimitExceeded) break
-                }
-                val result = runCatching {
-                    require(!totalLimitExceeded) {
-                        "Общий размер выбранных файлов превышает 2 МБ"
+                        ImportInputPolicy.validateTextSize(text)
+                        val links = SubscriptionParser.importDetailed(text).links
+                        ImportInputPolicy.requireFileProfiles(index + 1, links)
+                        imported.addAll(links)
                     }
                     val uniqueProfiles = imported.distinct()
-                    require(uniqueProfiles.isNotEmpty()) {
-                        failures.firstOrNull() ?: "В выбранных файлах не найдены поддерживаемые серверы"
-                    }
                     ImportInputPolicy.requireProfileCount(uniqueProfiles.size)
+                    // Persist only after every selected file has been read and validated.
                     profileStore.addAll(uniqueProfiles)
                     uniqueProfiles
                 }
@@ -4159,17 +4153,11 @@ class MainActivity : Activity() {
                         checkAllLatencies()
                         status.text = "Импортировано: ${links.size}"
                         status.setTextColor(GREEN)
-                        val summary = buildString {
-                            append("Добавлено серверов: ${links.size}")
-                            if (failures.isNotEmpty()) append("\nНе удалось обработать файлов: ${failures.size}")
-                        }
-                        Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
-                        if (failures.isNotEmpty()) {
-                            MaterialAlertDialogBuilder(this)
-                                .setTitle("Частичный импорт")
-                                .setMessage(failures.take(5).joinToString("\n"))
-                                .setPositiveButton("ОК", null).show()
-                        }
+                        Toast.makeText(
+                            this,
+                            "Добавлено серверов: ${links.size}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }.onFailure { error ->
                         status.text = "Ошибка импорта"
                         status.setTextColor(RED)

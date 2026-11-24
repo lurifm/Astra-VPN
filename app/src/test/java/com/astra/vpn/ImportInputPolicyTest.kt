@@ -41,6 +41,14 @@ class ImportInputPolicyTest {
         }
     }
 
+    @Test fun everyFileInAnAtomicBatchMustContainAtLeastOneSupportedProfile() {
+        ImportInputPolicy.requireFileProfiles(1, listOf("vless://node"))
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            ImportInputPolicy.requireFileProfiles(2, emptyList())
+        }
+        assertTrue(error.message!!.contains("Файл 2"))
+    }
+
     @Test fun cheapCharSequenceGuardRejectsOversizedInputWithoutUtf8Conversion() {
         assertThrows(IllegalArgumentException::class.java) {
             ImportInputPolicy.requireTextLength("x".repeat(ImportInputPolicy.MAX_TOTAL_BYTES + 1))

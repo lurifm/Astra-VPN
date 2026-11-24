@@ -33,6 +33,12 @@ internal object ImportInputPolicy {
         }
     }
 
+    fun requireFileProfiles(fileNumber: Int, profiles: List<String>) {
+        require(profiles.isNotEmpty()) {
+            "В файле $fileNumber не найдены поддерживаемые серверы"
+        }
+    }
+
     /** Cheap UI-thread guard; UTF-8 byte validation must run on a worker. */
     fun requireTextLength(value: CharSequence) {
         require(value.length <= MAX_TOTAL_BYTES) {
