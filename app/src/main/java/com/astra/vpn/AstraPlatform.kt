@@ -154,7 +154,12 @@ class AstraPlatform(
                 }
                 appliedPackageRules++
             }.onFailure { error ->
-                Log.w(TAG, "Не удалось применить правило для приложения $packageName", error)
+                // Package names reveal the user's selected-app set; never write them to logcat.
+                Log.w(
+                    TAG,
+                    "Не удалось применить одно из правил маршрутизации приложений (" +
+                        error.javaClass.simpleName + ")"
+                )
             }
         }
         // Validate after applying rules: if every saved package is missing,
