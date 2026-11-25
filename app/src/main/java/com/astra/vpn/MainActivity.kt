@@ -3848,7 +3848,7 @@ class MainActivity : Activity() {
         // A deliberate new connection/profile selection supersedes any pending
         // banking auto-resume, including a stale snapshot from a prior process.
         applyManualBankingOverride(connecting = true)
-        val config = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+        val config = runCatching { SingBoxConfigBuilder.build(link, currentAdvancedNetworkOptions()) }.getOrElse {
             rollbackPendingFailoverSelection()
             // Config/parser diagnostics may include the original proxy URI and credentials.
             // Keep the user-facing error actionable without exposing the imported profile.
