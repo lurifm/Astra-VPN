@@ -37,6 +37,12 @@ class ProfileSelectionMatcherTest {
         assertNull(ProfileSelectionMatcher.remap(old, candidates))
     }
 
+    @Test fun refusesNameFallbackEvenWhenDisplayNameIsUnique() {
+        val old = "vless://old@old.example:443#Alpha"
+        val candidate = "vless://new@new.example:443#Alpha"
+        assertNull(ProfileSelectionMatcher.remap(old, listOf(candidate)))
+    }
+
     @Test fun refusesAmbiguousNameFallback() {
         val old = "vless://old@old.example:443#Alpha"
         val candidates = listOf(

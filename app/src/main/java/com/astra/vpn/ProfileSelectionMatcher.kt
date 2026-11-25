@@ -17,7 +17,6 @@ object ProfileSelectionMatcher {
         val name: String
     ) {
         fun endpointKey() = "$protocol|$host|$port"
-        fun namedKey() = "$protocol|$name"
     }
 
     fun remap(previousLink: String?, candidates: List<String>): String? {
@@ -27,12 +26,9 @@ object ProfileSelectionMatcher {
         val parsed = candidates.mapNotNull { link -> identity(link)?.let { link to it } }
         val endpointMatches = parsed.filter { it.second.endpointKey() == previous.endpointKey() }
         if (endpointMatches.size == 1) return endpointMatches.single().first
-        if (endpointMatches.size > 1) return null
-
-        // A name-only fallback is safe only when unique in both old and new identities.
-        if (previous.name.isBlank()) return null
-        val namedMatches = parsed.filter { it.second.namedKey() == previous.namedKey() }
-        return namedMatches.singleOrNull()?.first
+        // Display names are user-controlled and may be reused by unrelated servers.
+        // Never remap persisted runtime state when the endpoint itself changed.
+        return null
     }
 
     /** True only for the same protocol endpoint; unlike remap(), never falls back to a display name. */
