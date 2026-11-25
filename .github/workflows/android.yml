@@ -35,9 +35,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Run unit tests and build debug APK
+      - name: Run unit tests, lint, and build debug and release APKs
         # One Gradle invocation shares configuration and compiled outputs between tasks.
-        run: gradle testDebugUnitTest lintDebug assembleDebug
+        run: gradle testDebugUnitTest lintDebug assembleDebug assembleRelease
 
       - name: Print Android Lint report
         if: always()
@@ -64,9 +64,21 @@ jobs:
           test -s app/build/outputs/apk/debug/app-debug.apk
           unzip -t app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK
+      - name: Verify unsigned release APK
+        run: |
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -t app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: AstraVPN-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraVPN-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error

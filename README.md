@@ -15,7 +15,7 @@ Android VPN client на Kotlin, использующий sing-box / libbox.
 - Настройки маршрутизации приложений, избранное, фильтр и поиск серверов.
 - Зашифрованное хранение профилей с Android Keystore.
 - Экспериментальная автопауза VPN для выбранных банковских приложений с Usage Access; сценарии восстановления требуют проверки на конкретном устройстве.
-- CI: unit tests, debug APK build и публикация APK как GitHub Actions artifact.
+- CI: unit tests, Android Lint, debug APK и unsigned release APK; оба APK проверяются и публикуются как GitHub Actions artifacts.
 
 ## Важно о показателе задержки
 
@@ -27,7 +27,7 @@ URL-test — это время HTTP-проверки через соответс
 
 GitHub Actions workflow: `.github/workflows/android.yml`
 
-После успешной сборки APK доступен в разделе Actions → Android CI → Artifacts → AstraVPN-debug.
+После успешной сборки debug APK доступен в Actions → Android CI → Artifacts → AstraVPN-debug. Дополнительно собирается и проверяется unsigned release APK в артефакте AstraVPN-release-unsigned. Он не предназначен для установки как финальный релиз: перед распространением APK необходимо подписать release-ключом.
 
 ## Текущий статус
 
