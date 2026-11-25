@@ -676,7 +676,9 @@ class MainActivity : Activity() {
         profileStore = ProfileStore(this)
         if (lastNonConfigurationInstance == null) {
             val restored = runCatching { profileStore.throughputSession() }.getOrNull()
-            if (restored != null && System.currentTimeMillis() - restored.startedAtMillis in 0L..120_000L) {
+            if (restored != null && ThroughputSessionRestorePolicy.canRecover(
+                    restored.startedAtMillis, System.currentTimeMillis()
+                )) {
                 activeThroughputSessionId = restored.sessionId
                 activeThroughputProfile = restored.profile
                 throughputPreparationPending = true
