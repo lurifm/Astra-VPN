@@ -1,7 +1,7 @@
 package com.astra.vpn
 
 /**
- * Advanced per-profile sing-box tuning.
+ * Advanced sing-box tuning loaded from app-wide preferences for each connection.
  *
  * Direct routing is opt-in because it intentionally bypasses the VPN for matching
  * Russian domains. Multiplexing is only emitted for VLESS; other supported
