@@ -298,6 +298,8 @@ class MainActivity : Activity() {
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
     private val speedTestExecutor = Executors.newSingleThreadExecutor()
+    private val speedTestDeadlineExecutor = Executors.newSingleThreadScheduledExecutor()
+    private var speedTestDeadlineFuture: java.util.concurrent.ScheduledFuture<*>? = null
     private val speedTestGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val speedTestCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
     private val speedTestConnection =
@@ -7598,6 +7600,8 @@ class MainActivity : Activity() {
         speedTestCancelled.set(true)
         speedTestFuture?.cancel(true)
         speedTestFuture = null
+        speedTestDeadlineFuture?.cancel(false)
+        speedTestDeadlineFuture = null
         speedTestConnection.getAndSet(null)?.disconnect()
     }
 
@@ -7622,7 +7626,12 @@ class MainActivity : Activity() {
                 speedTestConnection.getAndSet(null)?.disconnect()
             }
         }
-        monitorHandler.postDelayed(deadlineDisconnect, 30_000L)
+        val deadlineFuture = speedTestDeadlineExecutor.schedule(
+            deadlineDisconnect,
+            30,
+            java.util.concurrent.TimeUnit.SECONDS
+        )
+        speedTestDeadlineFuture = deadlineFuture
 
         speedTestFuture = speedTestExecutor.submit {
             var report: String? = null
@@ -7736,7 +7745,12 @@ class MainActivity : Activity() {
                     }
                 }
             } finally {
-                monitorHandler.removeCallbacks(deadlineDisconnect)
+                deadlineFuture.cancel(false)
+                if (generation == speedTestGeneration.get() &&
+                    speedTestDeadlineFuture === deadlineFuture
+                ) {
+                    speedTestDeadlineFuture = null
+                }
                 speedTestConnection.getAndSet(null)?.disconnect()
             }
 
@@ -8160,6 +8174,7 @@ class MainActivity : Activity() {
         diagnosticsExecutor.shutdownNow()
         cancelSpeedTest()
         speedTestExecutor.shutdownNow()
+        speedTestDeadlineExecutor.shutdownNow()
         appTrafficStatsGeneration.incrementAndGet()
         appTrafficStatsFuture?.cancel(true)
         appTrafficStatsFuture = null
