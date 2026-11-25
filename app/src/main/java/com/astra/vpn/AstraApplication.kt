@@ -115,6 +115,8 @@ class AstraApplication : Application() {
 internal data class ThroughputRetainedState(
     val sessionId: String?,
     val profile: String?,
+    val preparationPending: Boolean,
+    val preparationFastMode: Boolean,
     val inFlight: Boolean,
     val batchActive: Boolean,
     val batchQueue: List<String>,

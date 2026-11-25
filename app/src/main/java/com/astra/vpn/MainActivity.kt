@@ -113,6 +113,10 @@ class MainActivity : Activity() {
     @Volatile private var throughputProbeInFlight = false
     @Volatile private var activeThroughputSessionId: String? = null
     @Volatile private var activeThroughputProfile: String? = null
+    // True until this Activity has successfully handed the prepared probe to the service.
+    private var throughputPreparationPending = false
+    private var throughputPreparationFastMode = false
+    @Volatile private var throughputPreparationRunning = false
     private var throughputReceiverRegistered = false
     private val throughputBatchQueue = java.util.ArrayDeque<String>()
     private val throughputBatchHandler = Handler(Looper.getMainLooper())
@@ -132,6 +136,8 @@ class MainActivity : Activity() {
             val profile = activeThroughputProfile
             activeThroughputSessionId = null
             activeThroughputProfile = null
+            throughputPreparationPending = false
+            throughputPreparationRunning = false
             var sampleSaved = false
             if (intent.action == AstraThroughputProbeService.ACTION_RESULT && profile != null) {
                 val parsed = runCatching {
@@ -638,6 +644,8 @@ class MainActivity : Activity() {
         (lastNonConfigurationInstance as? ThroughputRetainedState)?.let { retained ->
             activeThroughputSessionId = retained.sessionId
             activeThroughputProfile = retained.profile
+            throughputPreparationPending = retained.preparationPending
+            throughputPreparationFastMode = retained.preparationFastMode
             throughputProbeInFlight = retained.inFlight
             throughputBatchActive = retained.batchActive
             throughputBatchQueue.addAll(retained.batchQueue)
@@ -3610,30 +3618,54 @@ class MainActivity : Activity() {
         val session = java.util.UUID.randomUUID().toString()
         activeThroughputSessionId = session
         activeThroughputProfile = profile
+        throughputPreparationPending = true
+        throughputPreparationFastMode = fastMode
         throughputProbeInFlight = true
         renderProfiles()
-        pingExecutor.execute {
-            val prepared = runCatching {
-                val network = networkForLatencyProbe()
-                    ?: error("Физическая сеть недоступна")
-                val port = java.net.ServerSocket(0).use { it.localPort }
-                val config = SingBoxThroughputTestConfig.build(profile, port).json
-                Triple(network, port, config)
-            }
-            runOnUiThread {
-                if (isFinishing || isDestroyed || activeThroughputSessionId != session) return@runOnUiThread
-                prepared.onSuccess { (network, port, config) ->
-                    runCatching {
-                        AstraThroughputProbeService.start(
-                            this, config, network, profile, port, session, fastMode = fastMode
-                        )
+        prepareThroughputProbe(profile, session, fastMode)
+    }
+
+    /**
+     * Prepare a probe for an existing session. Keeping this separate from session
+     * creation lets a replacement Activity resume work cancelled with the old
+     * Activity's executor without creating a second service session.
+     */
+    private fun prepareThroughputProbe(profile: String, session: String, fastMode: Boolean) {
+        if (!throughputPreparationPending || throughputPreparationRunning ||
+            activeThroughputSessionId != session || isFinishing || isDestroyed
+        ) return
+        throughputPreparationRunning = true
+        val submitted = runCatching {
+            pingExecutor.execute {
+                val prepared = runCatching {
+                    val network = networkForLatencyProbe()
+                        ?: error("Физическая сеть недоступна")
+                    val port = java.net.ServerSocket(0).use { it.localPort }
+                    val config = SingBoxThroughputTestConfig.build(profile, port).json
+                    Triple(network, port, config)
+                }
+                runOnUiThread {
+                    throughputPreparationRunning = false
+                    if (isFinishing || isDestroyed || activeThroughputSessionId != session) return@runOnUiThread
+                    prepared.onSuccess { (network, port, config) ->
+                        runCatching {
+                            AstraThroughputProbeService.start(
+                                this, config, network, profile, port, session, fastMode = fastMode
+                            )
+                        }.onSuccess {
+                            throughputPreparationPending = false
+                        }.onFailure {
+                            handleThroughputProbeStartFailure(session)
+                        }
                     }.onFailure {
                         handleThroughputProbeStartFailure(session)
                     }
-                }.onFailure {
-                    handleThroughputProbeStartFailure(session)
                 }
             }
+        }
+        if (submitted.isFailure) {
+            throughputPreparationRunning = false
+            handleThroughputProbeStartFailure(session)
         }
     }
 
@@ -3641,6 +3673,8 @@ class MainActivity : Activity() {
         if (activeThroughputSessionId != session) return
         activeThroughputSessionId = null
         activeThroughputProfile = null
+        throughputPreparationPending = false
+        throughputPreparationRunning = false
         if (throughputBatchActive) {
             throughputBatchCompleted++
             throughputProbeInFlight = true
@@ -3753,6 +3787,8 @@ class MainActivity : Activity() {
         if (session == null && !wasBatch) return
         activeThroughputSessionId = null
         activeThroughputProfile = null
+        throughputPreparationPending = false
+        throughputPreparationRunning = false
         throughputBatchGeneration++
         throughputBatchTask?.let(throughputBatchHandler::removeCallbacks)
         throughputBatchTask = null
@@ -4355,7 +4391,16 @@ class MainActivity : Activity() {
         (application as? AstraApplication)?.takePendingThroughputEvent()?.let {
             throughputReceiver.onReceive(this, it)
         }
-        if (throughputBatchActive && activeThroughputSessionId == null) {
+        if (throughputPreparationPending &&
+            activeThroughputSessionId != null &&
+            activeThroughputProfile != null
+        ) {
+            prepareThroughputProbe(
+                activeThroughputProfile!!,
+                activeThroughputSessionId!!,
+                throughputPreparationFastMode
+            )
+        } else if (throughputBatchActive && activeThroughputSessionId == null) {
             scheduleNextThroughputBatchProbe()
         }
         // The foreground Activity may legally start the user-enabled monitor.
@@ -8028,6 +8073,8 @@ class MainActivity : Activity() {
         ThroughputRetainedState(
             sessionId = activeThroughputSessionId,
             profile = activeThroughputProfile,
+            preparationPending = throughputPreparationPending,
+            preparationFastMode = throughputPreparationFastMode,
             inFlight = throughputProbeInFlight,
             batchActive = throughputBatchActive,
             batchQueue = throughputBatchQueue.toList(),
