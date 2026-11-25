@@ -66,10 +66,10 @@ class LatencyProbeDispatchPolicyTest {
         assertFalse(LatencyProbeDispatchPolicy.isResultFresh(null, 201L))
     }
 
-    @Test fun waitsForTimedOutNativeSlotsBeforeFinishingBatch() {
-        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(true, true))
-        assertTrue(LatencyProbeDispatchPolicy.shouldFinish(true, false))
-        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(false, false))
+    @Test fun waitsForEngineRecycleBeforeFinishingBatch() {
+        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(completedAll = true, engineRecycleInProgress = true))
+        assertTrue(LatencyProbeDispatchPolicy.shouldFinish(completedAll = true, engineRecycleInProgress = false))
+        assertFalse(LatencyProbeDispatchPolicy.shouldFinish(completedAll = false, engineRecycleInProgress = false))
     }
 }
 
