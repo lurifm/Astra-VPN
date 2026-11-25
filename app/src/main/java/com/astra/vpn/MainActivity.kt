@@ -2326,7 +2326,13 @@ class MainActivity : Activity() {
             runCatching { latencyHistory.remove(profile) }
             runCatching { throughputHistory.remove(profile) }
         }
-        if (selectedProfile?.let { it in removedProfiles } == true) selectedProfile = null
+        if (selectedProfile?.let { it in removedProfiles } == true) {
+            selectedProfile = null
+            // Persist the deletion immediately. Otherwise selectedProfile() on the
+            // next process start could remap the stale encrypted URI to another
+            // profile with a matching endpoint/name and silently select it again.
+            persistSelectedProfileIfChanged()
+        }
         fastestSelectionCandidates = fastestSelectionCandidates.filterNot { it in removedProfiles }
         urlTestProfileMap = urlTestProfileMap.filterValues { it !in removedProfiles }
     }
