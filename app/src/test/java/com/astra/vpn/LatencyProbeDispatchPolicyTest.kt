@@ -76,7 +76,7 @@ class LatencyProbeDispatchPolicyTest {
 class LatencyEngineRecyclePolicyTest {
     @Test fun serverDeadlineIsExactlyTenSecondsAndRecycleHasSeparateBound() {
         assertEquals(10_000L, LatencyEngineRecyclePolicy.SERVER_TIMEOUT_MS)
-        assertEquals(12_000L, LatencyEngineRecyclePolicy.RECYCLE_TIMEOUT_MS)
+        assertEquals(20_000L, LatencyEngineRecyclePolicy.RECYCLE_TIMEOUT_MS)
     }
 
     @Test fun recycleStartsOnlyWhenServiceIsActiveAndNotAlreadyRecycling() {
