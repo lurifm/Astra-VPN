@@ -11,13 +11,20 @@ internal class DailyTrafficAccumulator(
     data class Snapshot(val downloadedBytes: Long, val uploadedBytes: Long)
 
     fun update(todayKey: Int, rxBytes: Long, txBytes: Long): Snapshot {
-        if (todayKey != dayKey || lastRx < 0L || lastTx < 0L ||
-            rxBytes < lastRx || txBytes < lastTx) {
-            if (todayKey != dayKey) {
-                downloaded = 0L
-                uploaded = 0L
-            }
+        // A manual/system clock rollback must not move the active accounting day
+        // backwards or erase totals already collected for that day.
+        if (dayKey > 0 && todayKey < dayKey) return snapshot()
+
+        if (todayKey > dayKey) {
+            downloaded = 0L
+            uploaded = 0L
             dayKey = todayKey
+            lastRx = rxBytes
+            lastTx = txBytes
+            return snapshot()
+        }
+
+        if (lastRx < 0L || lastTx < 0L || rxBytes < lastRx || txBytes < lastTx) {
             lastRx = rxBytes
             lastTx = txBytes
             return snapshot()

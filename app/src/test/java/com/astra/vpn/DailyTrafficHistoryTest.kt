@@ -10,6 +10,25 @@ class DailyTrafficHistoryTest {
         assertEquals(7, history.entries().size); assertEquals(20261110, history.entries().first().dayKey)
         assertEquals(20261104, history.entries().last().dayKey)
     }
+    @Test fun clockRollbackDoesNotOverwriteEarlierDayWhenRecordingActiveDay() {
+        val history = DailyTrafficHistory()
+        history.record(20261117, 120L, 60L)
+        history.record(20261118, 500L, 250L)
+
+        val usage = DailyTrafficAccumulator(20261118, 1000L, 2000L, 500L, 250L)
+        val totals = usage.update(20261117, 9000L, 12000L)
+        history.record(usage.currentDayKey(), totals.downloadedBytes, totals.uploadedBytes)
+
+        assertEquals(
+            DailyTrafficHistory.Totals(120L, 60L),
+            history.entries().first { it.dayKey == 20261117 }.totals
+        )
+        assertEquals(
+            DailyTrafficHistory.Totals(500L, 250L),
+            history.entries().first { it.dayKey == 20261118 }.totals
+        )
+    }
+
     @Test fun replacesTotalsForTheSameDay() {
         val history = DailyTrafficHistory(); history.record(20261118, 100L, 50L); history.record(20261118, 250L, 80L)
         assertEquals(DailyTrafficHistory.Totals(250L, 80L), history.total())

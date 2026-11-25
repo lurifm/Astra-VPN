@@ -5223,7 +5223,8 @@ class MainActivity : Activity() {
             (calendar.get(java.util.Calendar.MONTH) + 1) * 100 +
             calendar.get(java.util.Calendar.DAY_OF_MONTH)
         val totals = dailyTrafficAccumulator.update(dayKey, rx, tx)
-        dailyTrafficHistory.record(dayKey, totals.downloadedBytes, totals.uploadedBytes)
+        val activeDayKey = dailyTrafficAccumulator.currentDayKey()
+        dailyTrafficHistory.record(activeDayKey, totals.downloadedBytes, totals.uploadedBytes)
         val prefs = getSharedPreferences("astra_daily_traffic", MODE_PRIVATE)
         prefs.edit()
             .putInt("day", dailyTrafficAccumulator.currentDayKey())
@@ -5233,7 +5234,15 @@ class MainActivity : Activity() {
             .putLong("uploaded", totals.uploadedBytes)
             .putString("week", dailyTrafficHistory.encode())
             .apply()
-        monitorDailyTraffic.text = "Сегодня*  ↓ " +
+        val dailyLabel = if (activeDayKey == dayKey) {
+            "Сегодня*"
+        } else {
+            "За " + String.format(
+                java.util.Locale.US, "%02d.%02d",
+                activeDayKey % 100, (activeDayKey / 100) % 100
+            ) + "*"
+        }
+        monitorDailyTraffic.text = "$dailyLabel  ↓ " +
             DailyTrafficAccumulator.formatBytes(totals.downloadedBytes) +
             "  /  ↑ " + DailyTrafficAccumulator.formatBytes(totals.uploadedBytes)
         val weekly = dailyTrafficHistory.total()
