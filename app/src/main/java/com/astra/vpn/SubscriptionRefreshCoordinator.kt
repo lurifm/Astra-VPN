@@ -43,7 +43,10 @@ object SubscriptionRefreshCoordinator {
     ): Int = synchronized(lock) {
         cancellation?.throwIfCancelled()
         val parsed = SubscriptionParser.importDetailed(sourceUrl, downloadBudget, cancellation)
-        store.replaceSubscription(sourceUrl, parsed.links, parsed.metadata)
+        val commit = {
+            store.replaceSubscription(sourceUrl, parsed.links, parsed.metadata)
+        }
+        if (cancellation == null) commit() else cancellation.commitIfActive(commit)
         parsed.links.size
     }
 
@@ -64,8 +67,11 @@ object SubscriptionRefreshCoordinator {
         operation = {
             cancellation?.throwIfCancelled()
             val parsed = SubscriptionParser.importDetailed(sourceUrl, downloadBudget, cancellation)
-            if (!store.replaceSubscriptionIfPresent(sourceUrl, parsed.links, parsed.metadata)) null
-            else parsed.links.size
+            val commit = {
+                if (!store.replaceSubscriptionIfPresent(sourceUrl, parsed.links, parsed.metadata)) null
+                else parsed.links.size
+            }
+            if (cancellation == null) commit() else cancellation.commitIfActive(commit)
         },
         onResult = onResult
     )

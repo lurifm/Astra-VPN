@@ -35,6 +35,15 @@ class SubscriptionDownloadCancellation {
         connection?.disconnect()
     }
 
+    /**
+     * Linearizes the final profile write against cancel(): either the write
+     * finishes before cancellation takes effect, or cancellation prevents it.
+     */
+    fun <T> commitIfActive(action: () -> T): T = synchronized(lock) {
+        if (cancelled) throw CancellationException("Загрузка подписки отменена")
+        action()
+    }
+
     fun throwIfCancelled() {
         if (isCancelled) throw CancellationException("Загрузка подписки отменена")
     }
