@@ -6306,8 +6306,7 @@ class MainActivity : Activity() {
                     reportView.text = latestReport
                 }
             }
-            }
-        }.getOrNull()
+        }
     }
 
     private fun showConnectionHistoryDialog() {
