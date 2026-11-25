@@ -41,9 +41,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
-    // CommandClient may report connected more than once; only one URLTest batch
-    // is allowed to own this service session and its per-server deadlines.
-    private val urlTestsDispatched = AtomicBoolean(false)
+    // Each CommandClient is bound to one engine generation. Replacing the client
+    // after recycle prevents buffered callbacks from the previous subscription
+    // from being mistaken for results produced by the new engine.
+    private val connectedGeneration = AtomicLong(-1L)
     @Volatile private var server: CommandServer? = null
     @Volatile private var serviceConfig: String? = null
     @Volatile private var engineRecycleInProgress = false
@@ -117,6 +118,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         latestResults = LatencyResultAccumulator(expectedTags)
+        pendingTags.clear()
+        pendingTags.addAll(expectedTags)
         serviceConfig = config
 
         registerProbeNetworkCallback()
@@ -156,7 +159,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 server = commandServer
 
                 val options = CommandClientOptions().apply { addCommand(Libbox.CommandOutbounds) }
-                val commandClient = CommandClient(resultHandler, options)
+                val commandClient = CommandClient(resultHandlerForGeneration(engineGeneration.get()), options)
                 createdClient = commandClient
                 client = commandClient
                 if (stopped.get()) {
@@ -203,29 +206,28 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         }
     }
 
-    private val resultHandler = object : CommandClientHandler {
+    private fun resultHandlerForGeneration(callbackGeneration: Long) = object : CommandClientHandler {
         override fun connected() {
-            executeWorkerIfActive {
-                val activeClient = client ?: return@executeWorkerIfActive
-                if (!urlTestsDispatched.compareAndSet(false, true)) return@executeWorkerIfActive
-                handler.post {
-                    if (stopped.get()) return@post
-                    handler.removeCallbacks(batchTimeout)
-                    // URLTest() is asynchronous in libbox. Limit actual native probes
-                    // until their result arrives, rather than merely limiting RPC calls.
-                    pendingTags.clear()
-                    pendingTags.addAll(expectedTags)
-                    dispatchNextUrlTests(activeClient)
-                }
+            if (callbackGeneration != engineGeneration.get()) return
+            connectedGeneration.set(callbackGeneration)
+            handler.post {
+                if (stopped.get() || callbackGeneration != engineGeneration.get() ||
+                    engineRecycleInProgress
+                ) return@post
+                handler.removeCallbacks(batchTimeout)
+                // URLTest() is asynchronous in libbox. Limit actual native probes
+                // until their result arrives, rather than merely limiting RPC calls.
+                dispatchNextUrlTests(client)
             }
         }
 
         override fun disconnected(message: String?) {
-            // Serialize terminal callback handling with timeout/completion on the main
-            // handler. A callback that was already in flight must not publish an error
-            // after finish() has committed the final result.
+            // The old client is intentionally disconnected during engine recycle.
+            // Its callback must not be treated as a failure of the replacement client.
             handler.post {
-                if (!stopped.get()) {
+                if (!stopped.get() && callbackGeneration == engineGeneration.get() &&
+                    !engineRecycleInProgress
+                ) {
                     publishFailure("Канал проверки отключён")
                     finish()
                 }
@@ -254,9 +256,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun writeGroups(message: OutboundGroupIterator) = Unit
 
         override fun writeOutbounds(message: OutboundGroupItemIterator) {
-            // Capture before consuming the native iterator so an old callback
-            // cannot acquire the new generation while a recycle is in progress.
-            val callbackGeneration = engineGeneration.get()
+            // This handler is permanently bound to the generation that created
+            // its CommandClient; a delayed callback cannot inherit a newer generation.
             val snapshot = linkedMapOf<String, Pair<Long, Long>>()
             while (message.hasNext()) {
                 val item = message.next()
@@ -405,6 +406,15 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
         executeWorkerIfActive {
             try {
+                // Disconnect the old subscription before replacing the native
+                // instance. Its handler retains the old generation and rejects any
+                // callback that was already queued by libbox.
+                val previousClient = client
+                client = null
+                previousClient?.let { oldClient ->
+                    runCatching { oldClient.disconnect() }
+                        .onFailure { Log.w(TAG, "latency client recycle disconnect failed (${it.javaClass.simpleName})") }
+                }
                 activeServer.closeService()
                 if (stopped.get() || engineGeneration.get() != generation) return@executeWorkerIfActive
                 activeServer.startOrReloadService(config, OverrideOptions())
@@ -414,6 +424,10 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     runCatching { activeServer.closeService() }
                     return@executeWorkerIfActive
                 }
+                val options = CommandClientOptions().apply { addCommand(Libbox.CommandOutbounds) }
+                val replacementClient = CommandClient(resultHandlerForGeneration(generation), options)
+                client = replacementClient
+                replacementClient.connect()
                 handler.post {
                     if (stopped.get() || engineGeneration.get() != generation) return@post
                     recycleWatchdog?.let(handler::removeCallbacks)
@@ -433,7 +447,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                         }
                     }
                     recycleHandoverTags.clear()
-                    dispatchNextUrlTests(client)
+                    // The replacement subscription may connect before or after this
+                    // handler runs. Whichever arrives second starts the next probe.
+                    if (connectedGeneration.get() == generation) dispatchNextUrlTests(client)
                     finishIfAllTagsCompleted()
                 }
             } catch (failure: Exception) {
