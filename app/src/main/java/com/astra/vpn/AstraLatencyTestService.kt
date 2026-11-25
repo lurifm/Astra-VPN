@@ -36,8 +36,7 @@ import java.util.concurrent.atomic.AtomicLong
 internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    // Fixed concurrency keeps native calls bounded; the executor queue is sized
-    // by the actual subscription workload so large server lists are not dropped.
+    // Only one native URLTest may exist at a time; the engine is recycled on timeout.
     private val urlTestDispatcher = Executors.newSingleThreadExecutor()
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
@@ -255,6 +254,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         override fun writeGroups(message: OutboundGroupIterator) = Unit
 
         override fun writeOutbounds(message: OutboundGroupItemIterator) {
+            // Capture before consuming the native iterator so an old callback
+            // cannot acquire the new generation while a recycle is in progress.
+            val callbackGeneration = engineGeneration.get()
             val snapshot = linkedMapOf<String, Pair<Long, Long>>()
             while (message.hasNext()) {
                 val item = message.next()
@@ -264,9 +266,6 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (delay > 0L && resultTime > 0L) snapshot[item.tag] = delay to resultTime
             }
             if (snapshot.isNotEmpty()) {
-                // Capture the engine generation before posting. A callback queued by
-                // the old instance must not be accepted after an engine recycle.
-                val callbackGeneration = engineGeneration.get()
                 handler.post {
                     if (stopped.get() || !LatencyEngineRecyclePolicy.shouldAcceptResult(
                             recycling = engineRecycleInProgress,
