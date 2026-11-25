@@ -35,6 +35,14 @@ object ProfileSelectionMatcher {
         return namedMatches.singleOrNull()?.first
     }
 
+    /** True only for the same protocol endpoint; unlike remap(), never falls back to a display name. */
+    fun sharesEndpoint(first: String?, second: String?): Boolean {
+        if (first.isNullOrBlank() || second.isNullOrBlank()) return false
+        val left = identity(first) ?: return false
+        val right = identity(second) ?: return false
+        return left.endpointKey() == right.endpointKey()
+    }
+
     private fun identity(link: String): Identity? = runCatching {
         val uri = URI(link.trim())
         val protocol = when (uri.scheme?.lowercase(Locale.ROOT)) {

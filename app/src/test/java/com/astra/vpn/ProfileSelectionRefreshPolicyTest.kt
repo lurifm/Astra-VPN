@@ -34,6 +34,12 @@ class ProfileSelectionRefreshPolicyTest {
         org.junit.Assert.assertFalse(ProfileSelectionRefreshPolicy.matchesRemovedProfile(active, removed))
     }
 
+    @Test fun doesNotTreatSameDisplayNameOnDifferentEndpointAsRemoved() {
+        val active = "vless://token@active.example:443#Germany"
+        val removed = listOf("vless://token@other.example:443#Germany")
+        org.junit.Assert.assertFalse(ProfileSelectionRefreshPolicy.matchesRemovedProfile(active, removed))
+    }
+
     @Test fun ignoresUnrelatedProfilesWhenDeletingSubscription() {
         val active = "vless://token@other.example:443#Sweden"
         val removed = listOf("vless://new@node.example:443#Germany")
