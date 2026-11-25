@@ -231,6 +231,9 @@ class MainActivity : Activity() {
     private var refreshingSubscriptions = false
     private var pendingBackupBytes: ByteArray? = null
     private var sortMode = "original"
+    private var serverListVisibleLimit = ServerListRenderPolicy.INITIAL_PAGE_SIZE
+    private var serverListSourceSnapshot: List<String> = emptyList()
+    private var serverListPageContext: String? = null
     // Tracks the last filter value actually used to render rows, preventing Spinner
     // adapter/selection callbacks from scheduling duplicate full list rebuilds.
     private var renderedCountryFilterSelection: String? = null
@@ -2817,6 +2820,12 @@ class MainActivity : Activity() {
                 allCountries.firstOrNull { CountryFlagResolver.countryCodeForFlag(it) == code }
             }
         val query = serverSearch.text?.toString()?.trim()?.lowercase(java.util.Locale.getDefault()).orEmpty()
+        val pageContext = query + "|" + (selectedCountry ?: "") + "|" + sortMode
+        if (profiles != serverListSourceSnapshot || pageContext != serverListPageContext) {
+            serverListSourceSnapshot = profiles.toList()
+            serverListPageContext = pageContext
+            serverListVisibleLimit = ServerListRenderPolicy.INITIAL_PAGE_SIZE
+        }
         val filteredProfiles = profiles.filter { link ->
             val matchesText = query.isBlank() || normalizedNames[link].orEmpty().contains(query) ||
                 link.lowercase(java.util.Locale.ROOT).contains(query) ||
@@ -3024,7 +3033,8 @@ class MainActivity : Activity() {
             })
         }
 
-        displayProfiles.forEach { link ->
+        val visibleProfiles = ServerListRenderPolicy.visibleProfiles(displayProfiles, serverListVisibleLimit)
+        visibleProfiles.forEach { link ->
             val isSelected = link == selected
             val isFastestProfile = link == fastestProfile
             // displayProfiles is derived from profiles, so every row already has
@@ -3305,6 +3315,29 @@ class MainActivity : Activity() {
             row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
             profileList.addView(row, LinearLayout.LayoutParams(matchWidth().width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(9)
+            })
+        }
+        if (visibleProfiles.size < displayProfiles.size) {
+            val remaining = displayProfiles.size - visibleProfiles.size
+            val nextPageSize = minOf(ServerListRenderPolicy.PAGE_SIZE, remaining)
+            val showMore = MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                text = "Показать ещё $nextPageSize · осталось $remaining"
+                isAllCaps = false
+                setOnClickListener {
+                    serverListVisibleLimit = ServerListRenderPolicy.nextVisibleLimit(
+                        currentLimit = serverListVisibleLimit,
+                        totalProfiles = displayProfiles.size
+                    )
+                    renderProfiles()
+                }
+            }
+            profileList.addView(showMore, LinearLayout.LayoutParams(matchWidth().width, dp(48)).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(12)
             })
         }
     }
