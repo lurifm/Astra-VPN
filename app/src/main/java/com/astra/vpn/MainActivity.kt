@@ -6745,6 +6745,7 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.network_status_title)
             .setMessage(getString(R.string.network_status_message, vpn, internet, dns, ipv6))
+            .setNegativeButton("Блокировка без VPN") { _, _ -> showAndroidLockdownGuide() }
             .setNeutralButton(R.string.network_vpn_settings) { _, _ -> AstraNetworkSecurity.openVpnSettings(this) }
             .setPositiveButton(android.R.string.ok, null)
             .show()
