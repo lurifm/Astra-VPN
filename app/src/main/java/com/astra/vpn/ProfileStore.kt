@@ -506,20 +506,32 @@ class ProfileStore(context: Context) {
             .digest(source.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
-    private fun encrypt(value: String): String = try {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        val packed = ByteBuffer.allocate(1 + cipher.iv.size + encrypted.size)
-            .put(cipher.iv.size.toByte())
-            .put(cipher.iv)
-            .put(encrypted)
-            .array()
-        Base64.encodeToString(packed, Base64.NO_WRAP)
-    } catch (error: InvalidKeyException) {
-        // Encryption can fail too when Android invalidates a Keystore key.
-        // Keep the same actionable recovery message used by the read path.
-        throw ProfileStorageException(storageRecoveryMessage(), error)
+    private fun encrypt(value: String): String {
+        val plaintext = value.toByteArray(Charsets.UTF_8)
+        var encrypted: ByteArray? = null
+        var packed: ByteArray? = null
+        var iv: ByteArray? = null
+        try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+            iv = cipher.iv
+            encrypted = cipher.doFinal(plaintext)
+            packed = ByteBuffer.allocate(1 + iv.size + encrypted.size)
+                .put(iv.size.toByte())
+                .put(iv)
+                .put(encrypted)
+                .array()
+            return Base64.encodeToString(packed, Base64.NO_WRAP)
+        } catch (error: InvalidKeyException) {
+            // Encryption can fail too when Android invalidates a Keystore key.
+            // Keep the same actionable recovery message used by the read path.
+            throw ProfileStorageException(storageRecoveryMessage(), error)
+        } finally {
+            plaintext.fill(0)
+            encrypted?.fill(0)
+            packed?.fill(0)
+            iv?.fill(0)
+        }
     }
 
     private fun decryptStored(value: String): String = try {
@@ -544,14 +556,25 @@ class ProfileStore(context: Context) {
 
     private fun decrypt(value: String): String {
         val packed = Base64.decode(value, Base64.NO_WRAP)
-        val buffer = ByteBuffer.wrap(packed)
-        val ivLength = buffer.get().toInt() and 0xff
-        require(ivLength in 12..16 && buffer.remaining() > ivLength)
-        val iv = ByteArray(ivLength).also(buffer::get)
-        val encrypted = ByteArray(buffer.remaining()).also(buffer::get)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
-        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        var iv: ByteArray? = null
+        var encrypted: ByteArray? = null
+        var plaintext: ByteArray? = null
+        try {
+            val buffer = ByteBuffer.wrap(packed)
+            val ivLength = buffer.get().toInt() and 0xff
+            require(ivLength in 12..16 && buffer.remaining() > ivLength)
+            iv = ByteArray(ivLength).also(buffer::get)
+            encrypted = ByteArray(buffer.remaining()).also(buffer::get)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+            plaintext = cipher.doFinal(encrypted)
+            return String(plaintext, Charsets.UTF_8)
+        } finally {
+            packed.fill(0)
+            iv?.fill(0)
+            encrypted?.fill(0)
+            plaintext?.fill(0)
+        }
     }
 
     private fun secretKey(): SecretKey {
