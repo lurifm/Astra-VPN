@@ -3872,8 +3872,14 @@ class MainActivity : Activity() {
 
     private fun connectSelectedProfile() {
         // Consent UI is asynchronous: block duplicate starts before the service
-        // has had a chance to publish STATE_CONNECTING.
-        if (connecting || pendingConfig != null) return
+        // has had a chance to publish STATE_CONNECTING. A manual stop is also
+        // authoritative until the service confirms DISCONNECTED.
+        if (!VpnActionAdmissionPolicy.shouldStartSelectedProfile(
+                connecting = connecting,
+                disconnecting = disconnecting,
+                hasPendingConfig = pendingConfig != null
+            )
+        ) return
         val link = selectedProfile ?: return
         // A deliberate new connection/profile selection supersedes any pending
         // banking auto-resume, including a stale snapshot from a prior process.
@@ -4826,6 +4832,10 @@ class MainActivity : Activity() {
         // Ignore repeated taps from the main button or Quick Settings tile while
         // the first stop request is still waiting for the service acknowledgement.
         if (disconnecting) return
+        // Manual disconnect wins over a health probe already running on the worker.
+        // Its late result must not trigger failover before ACTION_STOP is acknowledged.
+        tunnelHealthCheckGeneration.advance()
+        lastHealthCheckAt = 0L
         val intent = Intent(this, AstraVpnService::class.java).setAction(AstraVpnService.ACTION_STOP)
         try {
             disconnecting = true
@@ -5262,7 +5272,13 @@ class MainActivity : Activity() {
      * carry traffic. The check runs off the UI thread and is rate-limited.
      */
     private fun scheduleTunnelHealthCheck() {
-        if (!connected || isFinishing || isDestroyed) return
+        if (!VpnActionAdmissionPolicy.shouldRunHealthCheck(
+                connected = connected,
+                disconnecting = disconnecting,
+                isFinishing = isFinishing,
+                isDestroyed = isDestroyed
+            )
+        ) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val hasValidatedUnderlay = hasValidatedPhysicalNetwork(connectivity)
         if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedUnderlay)) {
@@ -5414,7 +5430,13 @@ class MainActivity : Activity() {
      * probe or transient network handover must not cause a server change.
      */
     private fun maybeAutoFailover() {
-        if (!connected || connecting || selectingFastest) return
+        if (!VpnActionAdmissionPolicy.shouldAutoFailover(
+                connected = connected,
+                connecting = connecting,
+                disconnecting = disconnecting,
+                selectingFastest = selectingFastest
+            )
+        ) return
         val connectivity = getSystemService(ConnectivityManager::class.java)
         if (!NetworkRecoveryPolicy.shouldProbeTunnel(hasValidatedPhysicalNetwork(connectivity))) return
         // Use a monotonic clock: wall-clock corrections must not shorten or extend the cooldown.
