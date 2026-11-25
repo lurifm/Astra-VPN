@@ -246,6 +246,10 @@ class MainActivity : Activity() {
     private var cachedNormalizedProfileNames: Map<String, String> = emptyMap()
     private val settingsPrefs by lazy { getSharedPreferences("astra_settings", MODE_PRIVATE) }
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
+    // Run the initial latency batch only while the Activity is foregrounded.
+    private val initialLatencyCheckTask = Runnable {
+        if (!isFinishing && !isDestroyed && !latencyTestInFlight) checkAllLatencies()
+    }
     private val searchRenderHandler = Handler(Looper.getMainLooper())
     private val searchRenderTask = Runnable { if (!isFinishing && !isDestroyed) renderProfiles() }
     // Ping broadcasts must not cancel the user's independent search debounce.
@@ -1302,12 +1306,6 @@ class MainActivity : Activity() {
         // onStart() performs the open-time subscription check. Avoid doing the
         // same preference/source scan here during cold-start initialization.
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
-        // GeoIP is queried after restoreVpnState() determines whether a VPN is already active.
-        // Let the first frame become interactive before starting the isolated
-        // sing-box measurement engine. This avoids competing with cold app startup.
-        autoUpdateHandler.postDelayed({
-            if (!isFinishing && !isDestroyed && !latencyTestInFlight) checkAllLatencies()
-        }, 1_200L)
     }
 
     /**
@@ -4348,6 +4346,9 @@ class MainActivity : Activity() {
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         autoUpdateHandler.postDelayed(autoUpdateTick, 60_000L)
         maybeAutoUpdateSubscriptions(true)
+        // Delay the initial Ping batch until the first frame is interactive.
+        autoUpdateHandler.removeCallbacks(initialLatencyCheckTask)
+        autoUpdateHandler.postDelayed(initialLatencyCheckTask, 1_200L)
         checkSubscriptionWarnings()
     }
 
@@ -4616,6 +4617,7 @@ class MainActivity : Activity() {
         unregisterBatterySaverReceiver()
         unregisterPhysicalNetworkCallback()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
+        autoUpdateHandler.removeCallbacks(initialLatencyCheckTask)
         searchRenderHandler.removeCallbacks(searchRenderTask)
         latencyRenderHandler.removeCallbacks(latencyRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
