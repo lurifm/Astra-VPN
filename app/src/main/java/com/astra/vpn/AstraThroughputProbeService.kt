@@ -84,6 +84,15 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             downloadByteLimit = FAST_DOWNLOAD_BYTES
             uploadByteLimit = FAST_UPLOAD_BYTES
         }
+
+        // startForegroundService() has a strict promotion deadline. Promote before
+        // validating extras or registering callbacks: either operation can fail,
+        // and the failure path must still be a valid foreground-service lifecycle.
+        startForeground(
+            NOTIFICATION_ID,
+            AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Измерение скорости сервера")
+        )
+
         if (config.isNullOrBlank() || physicalNetwork == null ||
             profileId.isNullOrBlank() || listenPort !in 1..65535
         ) {
@@ -122,10 +131,6 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         // Engine startup time must consume the same budget as the HTTP probes.
         measurementDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(measurementTimeoutMs)
         mainHandler.postDelayed(timeoutRunnable, measurementTimeoutMs)
-        startForeground(
-            NOTIFICATION_ID,
-            AstraNotification.create(this, AstraVpnService.STATE_CONNECTING, "Измерение скорости сервера")
-        )
         worker.execute {
             var localServer: CommandServer? = null
             var localClient: CommandClient? = null
