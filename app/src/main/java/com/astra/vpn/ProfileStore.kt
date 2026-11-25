@@ -23,6 +23,13 @@ import javax.crypto.spec.GCMParameterSpec
  */
 class ProfileStorageException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+data class ThroughputSessionSnapshot(
+    val sessionId: String,
+    val profile: String,
+    val startedAtMillis: Long,
+    val fastMode: Boolean
+)
+
 data class BankPauseSnapshot(
     val profileLink: String,
     val pausedAtEpochMillis: Long
@@ -97,6 +104,40 @@ class ProfileStore(context: Context) {
      * Stores the exact profile that was active when banking automation paused the tunnel.
      * The proxy URI remains encrypted; timestamp is non-sensitive local state.
      */
+    /** Persisted measurement session; the proxy URI is always encrypted. */
+    fun setThroughputSession(snapshot: ThroughputSessionSnapshot?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val editor = prefs.edit()
+        if (snapshot == null) {
+            editor.remove(THROUGHPUT_SESSION_ID_KEY)
+                .remove(THROUGHPUT_SESSION_PROFILE_KEY)
+                .remove(THROUGHPUT_SESSION_STARTED_KEY)
+                .remove(THROUGHPUT_SESSION_FAST_KEY)
+        } else {
+            require(snapshot.sessionId.isNotBlank() && snapshot.sessionId.length <= 128)
+            require(snapshot.profile in all()) { "Профиль измерения скорости не найден" }
+            editor.putString(THROUGHPUT_SESSION_ID_KEY, snapshot.sessionId)
+                .putString(THROUGHPUT_SESSION_PROFILE_KEY, encrypt(snapshot.profile))
+                .putLong(THROUGHPUT_SESSION_STARTED_KEY, snapshot.startedAtMillis)
+                .putBoolean(THROUGHPUT_SESSION_FAST_KEY, snapshot.fastMode)
+        }
+        check(editor.commit()) { "Не удалось сохранить сессию измерения скорости" }
+    }
+
+    fun throughputSession(): ThroughputSessionSnapshot? = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
+        val session = prefs.getString(THROUGHPUT_SESSION_ID_KEY, null) ?: return@synchronized null
+        val encryptedProfile = prefs.getString(THROUGHPUT_SESSION_PROFILE_KEY, null)
+            ?: return@synchronized null
+        val profile = runCatching { decryptStored(encryptedProfile) }.getOrNull()
+            ?: return@synchronized null
+        if (profile !in all()) return@synchronized null
+        ThroughputSessionSnapshot(
+            sessionId = session,
+            profile = profile,
+            startedAtMillis = prefs.getLong(THROUGHPUT_SESSION_STARTED_KEY, 0L),
+            fastMode = prefs.getBoolean(THROUGHPUT_SESSION_FAST_KEY, false)
+        )
+    }
+
     /** Exact profile currently running in AstraVpnService; encrypted at rest. */
     fun setActiveTunnelProfile(link: String?) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
         val editor = prefs.edit()
@@ -615,6 +656,10 @@ class ProfileStore(context: Context) {
     }
 
     companion object {
+        private const val THROUGHPUT_SESSION_ID_KEY = "throughput_session_id"
+        private const val THROUGHPUT_SESSION_PROFILE_KEY = "throughput_session_profile_encrypted"
+        private const val THROUGHPUT_SESSION_STARTED_KEY = "throughput_session_started"
+        private const val THROUGHPUT_SESSION_FAST_KEY = "throughput_session_fast"
         private const val RECOVERY_PROFILE_KEY = "recovery_profile_encrypted"
         private const val BANK_PAUSE_PROFILE_KEY = "bank_pause_profile_encrypted"
         private const val ACTIVE_TUNNEL_PROFILE_KEY = "active_tunnel_profile_encrypted"

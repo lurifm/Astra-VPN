@@ -204,7 +204,6 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             val upload = measureUpload(network, port, deadline)
             ensureMeasurementCanComplete(deadline)
             val result = JSONObject()
-                .put("profileId", profileId)
                 .put("downloadMbps", download.mbps)
                 .put("uploadMbps", upload.mbps)
                 .put("downloadBytes", download.bytes)
@@ -216,6 +215,11 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
             // may be delayed while the worker is finishing JSON/result handling.
             ensureMeasurementCanComplete(deadline)
             if (!terminalState.claimSuccess()) return
+            persistMailboxEvent(ThroughputMailboxEvent(
+                sessionId = sessionId.orEmpty(),
+                action = ACTION_RESULT,
+                resultJson = result.toString()
+            ))
             sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName)
                 .putExtra(EXTRA_RESULT, result.toString())
                 .putExtra(EXTRA_SESSION, sessionId))
@@ -356,7 +360,17 @@ internal class AstraThroughputProbeService : VpnService(), CommandServerHandler 
         }
     }
 
+    private fun persistMailboxEvent(event: ThroughputMailboxEvent) {
+        runCatching { ThroughputMailboxStore(this).write(event) }
+            .onFailure { Log.w(TAG, "Не удалось сохранить результат измерения скорости", it) }
+    }
+
     private fun publishError(message: String) {
+        persistMailboxEvent(ThroughputMailboxEvent(
+            sessionId = sessionId.orEmpty(),
+            action = ACTION_ERROR,
+            errorMessage = message
+        ))
         sendBroadcast(Intent(ACTION_ERROR).setPackage(packageName)
             .putExtra(EXTRA_ERROR, message)
             .putExtra(EXTRA_SESSION, sessionId))

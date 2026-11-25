@@ -23,8 +23,8 @@ class AstraApplication : Application() {
         }
     }
 
-    fun takePendingThroughputEvent(): Intent? = synchronized(throughputEventLock) {
-        pendingThroughputEvent?.also { pendingThroughputEvent = null }
+    fun peekPendingThroughputEvent(): Intent? = synchronized(throughputEventLock) {
+        pendingThroughputEvent?.let(::Intent)
     }
 
     fun acknowledgeThroughputEvent(sessionId: String) {

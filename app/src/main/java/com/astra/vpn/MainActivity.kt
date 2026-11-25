@@ -131,8 +131,12 @@ class MainActivity : Activity() {
             if (intent?.action != AstraThroughputProbeService.ACTION_RESULT &&
                 intent?.action != AstraThroughputProbeService.ACTION_ERROR) return
             val session = intent.getStringExtra(AstraThroughputProbeService.EXTRA_SESSION)
-            if (session.isNullOrBlank() || session != activeThroughputSessionId) return
-            (application as? AstraApplication)?.acknowledgeThroughputEvent(session)
+            if (session.isNullOrBlank()) return
+            if (session != activeThroughputSessionId) {
+                (application as? AstraApplication)?.acknowledgeThroughputEvent(session)
+                runCatching { ThroughputMailboxStore(this@MainActivity).acknowledge(session) }
+                return
+            }
             val profile = activeThroughputProfile
             activeThroughputSessionId = null
             activeThroughputProfile = null
@@ -157,6 +161,11 @@ class MainActivity : Activity() {
                     sampleSaved = true
                 }
             }
+            // A terminal event is acknowledged only after it has been validated
+            // and applied to history (or deliberately rejected as unusable).
+            (application as? AstraApplication)?.acknowledgeThroughputEvent(session)
+            runCatching { ThroughputMailboxStore(this@MainActivity).acknowledge(session) }
+            runCatching { profileStore.setThroughputSession(null) }
             if (throughputBatchActive) {
                 throughputBatchCompleted++
                 throughputProbeInFlight = true
@@ -665,6 +674,18 @@ class MainActivity : Activity() {
             AstraVpnService.STATE_PREFS, MODE_PRIVATE
         ).getLong(AstraVpnService.PREF_STATE_EVENT_SEQUENCE, -1L).takeIf { it >= 0L }
         profileStore = ProfileStore(this)
+        if (lastNonConfigurationInstance == null) {
+            val restored = runCatching { profileStore.throughputSession() }.getOrNull()
+            if (restored != null && System.currentTimeMillis() - restored.startedAtMillis in 0L..120_000L) {
+                activeThroughputSessionId = restored.sessionId
+                activeThroughputProfile = restored.profile
+                throughputPreparationPending = true
+                throughputPreparationFastMode = restored.fastMode
+                throughputProbeInFlight = true
+            } else {
+                runCatching { profileStore.setThroughputSession(null) }
+            }
+        }
         runCatching {
             val filter = IntentFilter().apply {
                 addAction(AstraThroughputProbeService.ACTION_RESULT)
@@ -3616,6 +3637,14 @@ class MainActivity : Activity() {
 
     private fun startThroughputProbeForProfile(profile: String, fastMode: Boolean) {
         val session = java.util.UUID.randomUUID().toString()
+        runCatching {
+            profileStore.setThroughputSession(
+                ThroughputSessionSnapshot(session, profile, System.currentTimeMillis(), fastMode)
+            )
+        }.onFailure {
+            Toast.makeText(this, "Не удалось сохранить сессию проверки скорости", Toast.LENGTH_SHORT).show()
+            return
+        }
         activeThroughputSessionId = session
         activeThroughputProfile = profile
         throughputPreparationPending = true
@@ -3675,6 +3704,7 @@ class MainActivity : Activity() {
         activeThroughputProfile = null
         throughputPreparationPending = false
         throughputPreparationRunning = false
+        runCatching { profileStore.setThroughputSession(null) }
         if (throughputBatchActive) {
             throughputBatchCompleted++
             throughputProbeInFlight = true
@@ -3789,6 +3819,7 @@ class MainActivity : Activity() {
         activeThroughputProfile = null
         throughputPreparationPending = false
         throughputPreparationRunning = false
+        runCatching { profileStore.setThroughputSession(null) }
         throughputBatchGeneration++
         throughputBatchTask?.let(throughputBatchHandler::removeCallbacks)
         throughputBatchTask = null
@@ -4388,8 +4419,13 @@ class MainActivity : Activity() {
         }
         restorePendingLatencyResult()
         // Bridge the brief gap between old and replacement Activity receivers.
-        (application as? AstraApplication)?.takePendingThroughputEvent()?.let {
+        (application as? AstraApplication)?.peekPendingThroughputEvent()?.let {
             throughputReceiver.onReceive(this, it)
+        }
+        // The service commits terminal events before broadcasting, so this
+        // disk-backed mailbox also covers a main-process death.
+        ThroughputMailboxStore(this).read()?.let { event ->
+            throughputReceiver.onReceive(this, event.toIntent())
         }
         if (throughputPreparationPending &&
             activeThroughputSessionId != null &&
