@@ -220,10 +220,16 @@ object SingBoxConfigBuilder {
                 .put("enabled", true)
                 .put("server_name", uri.getQueryParameter("sni") ?: server)
                 .put("insecure", uri.getQueryParameter("insecure").isTruthy()))
-        if (uri.getQueryParameter("obfs")?.lowercase() == "salamander") {
-            val obfsPassword = uri.getQueryParameter("obfs-password")
-                ?: error("Для Salamander не указан пароль обфускации")
-            outbound.put("obfs", JSONObject().put("type", "salamander").put("password", obfsPassword))
+        val obfsType = uri.getQueryParameter("obfs")
+        val obfsPassword = uri.getQueryParameter("obfs-password")
+        require(Hysteria2ObfsPolicy.isValid(obfsType, obfsPassword)) {
+            "В Hysteria2-ссылке указаны неподдерживаемые или неполные параметры обфускации"
+        }
+        if (Hysteria2ObfsPolicy.requiresPassword(obfsType)) {
+            outbound.put(
+                "obfs",
+                JSONObject().put("type", "salamander").put("password", obfsPassword)
+            )
         }
         return outbound
     }
