@@ -635,7 +635,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        (lastCustomNonConfigurationInstance as? ThroughputRetainedState)?.let { retained ->
+        (lastNonConfigurationInstance as? ThroughputRetainedState)?.let { retained ->
             activeThroughputSessionId = retained.sessionId
             activeThroughputProfile = retained.profile
             throughputProbeInFlight = retained.inFlight
@@ -8024,7 +8024,7 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-    override fun onRetainCustomNonConfigurationInstance(): Any =
+    override fun onRetainNonConfigurationInstance(): Any =
         ThroughputRetainedState(
             sessionId = activeThroughputSessionId,
             profile = activeThroughputProfile,
