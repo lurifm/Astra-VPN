@@ -24,14 +24,14 @@ internal object LatencyProbeDispatchPolicy {
     fun isResultFresh(dispatchedAtEpochSeconds: Long?, resultAtEpochSeconds: Long): Boolean =
         dispatchedAtEpochSeconds != null && resultAtEpochSeconds >= dispatchedAtEpochSeconds
 
-    fun shouldFinish(completedAll: Boolean, nativeSlotsPending: Boolean): Boolean =
-        completedAll && !nativeSlotsPending
+    fun shouldFinish(completedAll: Boolean, engineRecycleInProgress: Boolean): Boolean =
+        completedAll && !engineRecycleInProgress
 }
 
 /** Guards the serialized lifecycle of the isolated sing-box URLTest engine. */
 internal object LatencyEngineRecyclePolicy {
     const val SERVER_TIMEOUT_MS = 10_000L
-    const val RECYCLE_TIMEOUT_MS = 12_000L
+    const val RECYCLE_TIMEOUT_MS = 20_000L
 
     fun shouldStartRecycle(stopped: Boolean, alreadyRecycling: Boolean): Boolean =
         !stopped && !alreadyRecycling
