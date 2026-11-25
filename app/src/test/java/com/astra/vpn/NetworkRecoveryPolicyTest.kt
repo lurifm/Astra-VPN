@@ -115,6 +115,28 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun blockedPhysicalNetworkIsRejectedEvenWhenCapabilitiesRemainValidated() {
+        assertFalse(
+            NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
+                isVpn = false,
+                isBlocked = true,
+                hasInternet = true,
+                isValidated = true,
+                isNotSuspended = true
+            )
+        )
+        assertTrue(
+            NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
+                isVpn = false,
+                isBlocked = false,
+                hasInternet = true,
+                isValidated = true,
+                isNotSuspended = true
+            )
+        )
+    }
+
+    @Test
     fun internetWithoutValidationIsNotEnoughToProbeTunnel() {
         assertFalse(NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(false, true, false, true))
     }
