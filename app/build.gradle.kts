@@ -3,8 +3,31 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Release signing is enabled only when all four CI-provided values exist and
+// the workflow has decoded the keystore into the runner's temporary directory.
+val releaseStoreFile = System.getenv("ASTRA_RELEASE_STORE_FILE")
+val releaseStorePassword = System.getenv("ASTRA_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ASTRA_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("ASTRA_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank() &&
+    file(releaseStoreFile).isFile
+
 android {
     namespace = "com.astra.vpn"
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     compileSdk = 35
 
     defaultConfig {
@@ -27,6 +50,14 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 }
 

@@ -27,7 +27,9 @@ URL-test — это время HTTP-проверки через соответс
 
 GitHub Actions workflow: `.github/workflows/android.yml`
 
-После успешной сборки debug APK доступен в Actions → Android CI → Artifacts → AstraVPN-debug. Дополнительно собирается и проверяется unsigned release APK в артефакте AstraVPN-release-unsigned. Он не предназначен для установки как финальный релиз: перед распространением APK необходимо подписать release-ключом.
+После успешной сборки debug APK доступен в Actions → Android CI → Artifacts → AstraVPN-debug. Release-сборка автоматически подписывается только если в Settings → Secrets and variables → Actions настроены все четыре секрета: `ASTRA_RELEASE_KEYSTORE_BASE64`, `ASTRA_RELEASE_STORE_PASSWORD`, `ASTRA_RELEASE_KEY_ALIAS` и `ASTRA_RELEASE_KEY_PASSWORD`. В этом случае workflow проверяет keystore и подпись APK и публикует артефакт `AstraVPN-release-signed`. Если не задан ни один секрет, публикуется `AstraVPN-release-unsigned`; если задана только часть секретов, CI завершается ошибкой, чтобы не скрывать неправильную настройку.
+
+`ASTRA_RELEASE_KEYSTORE_BASE64` — содержимое release-keystore в Base64 (например, на Linux: `base64 -w 0 release-key.jks`). Пароли и alias задаются отдельными GitHub Secrets. Не коммитьте keystore или пароли в репозиторий. Храните резервную копию keystore в безопасном месте: потеря ключа лишит возможности выпускать совместимые обновления для уже опубликованного приложения. Пока секреты не настроены, CI намеренно оставляет Release APK неподписанным.
 
 ## Текущий статус
 

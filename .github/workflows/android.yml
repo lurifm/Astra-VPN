@@ -35,8 +35,50 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Check optional release signing configuration
+        id: release_signing
+        env:
+          ASTRA_RELEASE_KEYSTORE_BASE64: ${{ secrets.ASTRA_RELEASE_KEYSTORE_BASE64 }}
+          ASTRA_RELEASE_STORE_PASSWORD: ${{ secrets.ASTRA_RELEASE_STORE_PASSWORD }}
+          ASTRA_RELEASE_KEY_ALIAS: ${{ secrets.ASTRA_RELEASE_KEY_ALIAS }}
+          ASTRA_RELEASE_KEY_PASSWORD: ${{ secrets.ASTRA_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          provided=0
+          for value in \\
+            "$ASTRA_RELEASE_KEYSTORE_BASE64" \\
+            "$ASTRA_RELEASE_STORE_PASSWORD" \\
+            "$ASTRA_RELEASE_KEY_ALIAS" \\
+            "$ASTRA_RELEASE_KEY_PASSWORD"; do
+            if [ -n "$value" ]; then provided=$((provided + 1)); fi
+          done
+
+          if [ "$provided" -eq 0 ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Release signing secrets are not configured; building an unsigned release APK."
+            exit 0
+          fi
+          if [ "$provided" -ne 4 ]; then
+            echo "Release signing is partially configured. Set all four ASTRA_RELEASE_* secrets or none." >&2
+            exit 1
+          fi
+
+          KEYSTORE="$RUNNER_TEMP/astra-release.keystore"
+          printf '%s' "$ASTRA_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" \\
+            -storepass "$ASTRA_RELEASE_STORE_PASSWORD" \\
+            -alias "$ASTRA_RELEASE_KEY_ALIAS" >/dev/null
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "Release signing keystore and alias validated."
+
       - name: Run unit tests, lint, and build debug and release APKs
         # One Gradle invocation shares configuration and compiled outputs between tasks.
+        env:
+          ASTRA_RELEASE_STORE_FILE: ${{ runner.temp }}/astra-release.keystore
+          ASTRA_RELEASE_STORE_PASSWORD: ${{ secrets.ASTRA_RELEASE_STORE_PASSWORD }}
+          ASTRA_RELEASE_KEY_ALIAS: ${{ secrets.ASTRA_RELEASE_KEY_ALIAS }}
+          ASTRA_RELEASE_KEY_PASSWORD: ${{ secrets.ASTRA_RELEASE_KEY_PASSWORD }}
         run: gradle testDebugUnitTest lintDebug assembleDebug assembleRelease
 
       - name: Print Android Lint report
@@ -59,15 +101,27 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: ignore
 
-      - name: Verify unsigned debug APK
+      - name: Verify debug APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
           unzip -t app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Verify unsigned release APK
+      - name: Verify signed release APK
+        if: steps.release_signing.outputs.enabled == 'true'
         run: |
-          test -s app/build/outputs/apk/release/app-release-unsigned.apk
-          unzip -t app/build/outputs/apk/release/app-release-unsigned.apk
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print -quit)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+
+      - name: Verify unsigned release APK
+        if: steps.release_signing.outputs.enabled != 'true'
+        run: |
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          unzip -t "$APK"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -76,7 +130,16 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
+      - name: Upload signed release APK
+        if: steps.release_signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraVPN-release-signed
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
       - name: Upload unsigned release APK
+        if: steps.release_signing.outputs.enabled != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AstraVPN-release-unsigned
