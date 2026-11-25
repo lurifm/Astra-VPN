@@ -8,7 +8,7 @@ import java.util.concurrent.CancellationException
  * HTTPS read. Disconnecting the registered connection unblocks socket I/O;
  * late registrations are rejected after cancellation.
  */
-internal class SubscriptionDownloadCancellation {
+class SubscriptionDownloadCancellation {
     private val lock = Any()
     private var cancelled = false
     private var activeConnection: HttpURLConnection? = null
