@@ -201,6 +201,9 @@ class MainActivity : Activity() {
     private var latencyPreparationTask: java.util.concurrent.Future<*>? = null
     private var pendingFastestSelection = false
     private val importExecutor = Executors.newSingleThreadExecutor()
+    // Libbox.checkConfig may perform native parsing/validation; never run it on the UI thread.
+    private val tunnelConfigExecutor = Executors.newSingleThreadExecutor()
+    private val tunnelConfigGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
     /** Submits background work without allowing executor shutdown to strand UI state. */
     private fun executeImportTask(
@@ -3167,11 +3170,7 @@ class MainActivity : Activity() {
                         clearPendingFailoverForManualSelection()
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, currentAdvancedNetworkOptions()) }.getOrElse {
-                            Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
-                            return@setOnClickListener
-                        }
-                        startTunnel(nextConfig)
+                        prepareAndStartTunnel(link, showConfigError = false)
                     } else {
                         if (selectedProfile != link) {
                             cancelConnectRetry(resetAttempts = true)
@@ -4078,6 +4077,64 @@ class MainActivity : Activity() {
         checkAllLatencies()
     }
 
+    /**
+     * Build and validate a tunnel config off the main thread. The generation token
+     * makes cancellation/profile changes authoritative even if native validation
+     * cannot be interrupted once Libbox.checkConfig has started.
+     */
+    private fun prepareAndStartTunnel(link: String, showConfigError: Boolean) {
+        val generation = tunnelConfigGeneration.incrementAndGet()
+        val options = currentAdvancedNetworkOptions()
+        pendingConfig = ""
+        pendingProfile = link
+        connecting = true
+        status.text = "Подготавливаем подключение…"
+        status.setTextColor(AMBER)
+        updateProtectionLabels()
+        renderProfiles()
+        try {
+            tunnelConfigExecutor.execute {
+                val result = runCatching { SingBoxConfigBuilder.build(link, options) }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed ||
+                        generation != tunnelConfigGeneration.get() ||
+                        pendingProfile != link || pendingConfig == null
+                    ) return@runOnUiThread
+                    result.onSuccess { config ->
+                        pendingConfig = config
+                        requestVpnPermissionAndStart(config)
+                    }.onFailure {
+                        pendingConfig = null
+                        pendingProfile = null
+                        connecting = false
+                        rollbackPendingFailoverSelection()
+                        status.text = "Не удалось подготовить конфигурацию"
+                        status.setTextColor(RED)
+                        updateProtectionLabels()
+                        if (showConfigError) {
+                            MaterialAlertDialogBuilder(this)
+                                .setTitle("Ошибка конфигурации")
+                                .setMessage("Не удалось подготовить конфигурацию сервера. Проверь ссылку и параметры подключения.")
+                                .setPositiveButton("ОК", null).show()
+                        } else {
+                            Toast.makeText(this, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
+                        }
+                        renderProfiles()
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            if (generation == tunnelConfigGeneration.get()) {
+                pendingConfig = null
+                pendingProfile = null
+                connecting = false
+                status.text = "Не удалось подготовить подключение"
+                status.setTextColor(RED)
+                renderProfiles()
+            }
+        }
+    }
+
     private fun connectSelectedProfile() {
         // Consent UI is asynchronous: block duplicate starts before the service
         // has had a chance to publish STATE_CONNECTING. A manual stop is also
@@ -4092,28 +4149,11 @@ class MainActivity : Activity() {
         // A deliberate new connection/profile selection supersedes any pending
         // banking auto-resume, including a stale snapshot from a prior process.
         applyManualBankingOverride(connecting = true)
-        val config = runCatching { SingBoxConfigBuilder.build(link, currentAdvancedNetworkOptions()) }.getOrElse {
-            rollbackPendingFailoverSelection()
-            // Config/parser diagnostics may include the original proxy URI and credentials.
-            // Keep the user-facing error actionable without exposing the imported profile.
-            MaterialAlertDialogBuilder(this).setTitle("Ошибка конфигурации")
-                .setMessage("Не удалось подготовить конфигурацию сервера. Проверь ссылку и параметры подключения.")
-                .setPositiveButton("ОК", null).show()
-            renderProfiles()
-            return
-        }
-        pendingConfig = config
-        pendingProfile = link
-        connecting = true
-        status.text = "Подключаемся…"
-        status.setTextColor(AMBER)
-        renderProfiles()
-
         // Do not show an extra in-app confirmation when switching profiles.
         // If Astra already owns the VPN, the service reloads sing-box in place
         // and reuses the existing TUN. Android's own VPN permission prompt is
         // still required when permission has not yet been granted.
-        requestVpnPermissionAndStart(config)
+        prepareAndStartTunnel(link, showConfigError = true)
     }
 
     private fun requestVpnPermissionAndStart(config: String) {
@@ -5028,6 +5068,8 @@ class MainActivity : Activity() {
      */
     private fun cancelPendingConnect() {
         if (pendingConfig == null) return
+        // Invalidate a config build already running on the background executor.
+        tunnelConfigGeneration.incrementAndGet()
         // This path is also used when the user cancels the Android consent
         // flow or changes/removes the provisional target before it can start.
         rollbackPendingFailoverSelection()
@@ -8278,6 +8320,8 @@ class MainActivity : Activity() {
         latencyPreparationTask = null
         pingExecutor.shutdownNow()
         autoSelectExecutor.shutdownNow()
+        tunnelConfigGeneration.incrementAndGet()
+        tunnelConfigExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
         super.onDestroy()
