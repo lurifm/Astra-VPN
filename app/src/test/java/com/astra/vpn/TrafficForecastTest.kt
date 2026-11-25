@@ -6,55 +6,59 @@ import org.junit.Test
 
 class TrafficForecastTest {
     @Test
-    fun averagesCompletedDaysAndExcludesToday() {
-        val result = TrafficForecast.estimate(
-            listOf(
-                DailyTrafficHistory.Entry(20261124, DailyTrafficHistory.Totals(9_000L, 9_000L)),
-                DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(100L, 50L)),
-                DailyTrafficHistory.Entry(20261122, DailyTrafficHistory.Totals(200L, 50L))
-            ),
-            todayKey = 20261124
-        )
+    fun excludesTodayAndAveragesCompletedDays() {
+        val history = DailyTrafficHistory()
+        history.record(20261122, 100L, 0L)
+        history.record(20261123, 200L, 50L)
+        history.record(20261124, 900L, 100L)
 
-        assertEquals(TrafficForecast.Result(200L, 2), result)
+        val result = TrafficForecast.estimate(history.entries(), todayKey = 20261124)
+
+        assertEquals(TrafficForecast.Result(175L, 2), result)
     }
 
     @Test
-    fun saturatesCombinedDailyCountersAndAverage() {
-        val result = TrafficForecast.estimate(
-            listOf(
-                DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(Long.MAX_VALUE, Long.MAX_VALUE)),
-                DailyTrafficHistory.Entry(20261122, DailyTrafficHistory.Totals(Long.MAX_VALUE, 1L))
-            ),
-            todayKey = 20261124
-        )
+    fun requiresAtLeastTwoCompletedDays() {
+        val history = DailyTrafficHistory()
+        history.record(20261123, 100L, 20L)
+        history.record(20261124, 500L, 30L)
+
+        assertNull(TrafficForecast.estimate(history.entries(), todayKey = 20261124))
+    }
+
+    @Test
+    fun usesOnlySixMostRecentCompletedDays() {
+        val history = DailyTrafficHistory()
+        (20261117..20261123).forEach { day ->
+            history.record(day, (day - 20261117).toLong() * 100L, 0L)
+        }
+
+        val result = TrafficForecast.estimate(history.entries(), todayKey = 20261124)
+
+        // The oldest completed day is excluded; the six newest totals are 100..600.
+        assertEquals(TrafficForecast.Result(350L, 6), result)
+    }
+
+    @Test
+    fun averagesSaturatedDailyTotalsWithoutOverflow() {
+        val history = DailyTrafficHistory()
+        history.record(20261122, Long.MAX_VALUE, Long.MAX_VALUE)
+        history.record(20261123, Long.MAX_VALUE, 1L)
+
+        val result = TrafficForecast.estimate(history.entries(), todayKey = 20261124)
 
         assertEquals(TrafficForecast.Result(Long.MAX_VALUE, 2), result)
     }
 
     @Test
-    fun requiresAtLeastTwoCompletedDays() {
-        val result = TrafficForecast.estimate(
-            listOf(
-                DailyTrafficHistory.Entry(20261124, DailyTrafficHistory.Totals(100L, 50L)),
-                DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(200L, 50L))
-            ),
-            todayKey = 20261124
+    fun ignoresNegativeTrafficValuesWhenEstimating() {
+        val entries = listOf(
+            DailyTrafficHistory.Entry(20261122, DailyTrafficHistory.Totals(-100L, 50L)),
+            DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(150L, -25L))
         )
 
-        assertNull(result)
-    }
+        val result = TrafficForecast.estimate(entries, todayKey = 20261124)
 
-    @Test
-    fun normalizesNegativeCountersToZero() {
-        val result = TrafficForecast.estimate(
-            listOf(
-                DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(-10L, -20L)),
-                DailyTrafficHistory.Entry(20261122, DailyTrafficHistory.Totals(0L, 0L))
-            ),
-            todayKey = 20261124
-        )
-
-        assertEquals(TrafficForecast.Result(0L, 2), result)
+        assertEquals(TrafficForecast.Result(125L, 2), result)
     }
 }
