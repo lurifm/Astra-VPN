@@ -248,6 +248,9 @@ class MainActivity : Activity() {
     private val autoUpdateHandler = Handler(Looper.getMainLooper())
     private val searchRenderHandler = Handler(Looper.getMainLooper())
     private val searchRenderTask = Runnable { if (!isFinishing && !isDestroyed) renderProfiles() }
+    // Ping broadcasts must not cancel the user's independent search debounce.
+    private val latencyRenderHandler = Handler(Looper.getMainLooper())
+    private val latencyRenderTask = Runnable { if (!isFinishing && !isDestroyed) renderProfiles() }
     private val autoUpdateTick = object : Runnable {
         override fun run() {
             maybeAutoUpdateSubscriptions(false)
@@ -456,8 +459,8 @@ class MainActivity : Activity() {
                     } else if (latencyTestInFlight) {
                         // Completion can advance even when the server has no latency
                         // value, so refresh the progress counter for every partial event.
-                        searchRenderHandler.removeCallbacks(searchRenderTask)
-                        searchRenderHandler.postDelayed(searchRenderTask, 90L)
+                        latencyRenderHandler.removeCallbacks(latencyRenderTask)
+                        latencyRenderHandler.postDelayed(latencyRenderTask, 90L)
                     }
                     return
                 }
@@ -4496,8 +4499,8 @@ class MainActivity : Activity() {
         // This keeps ping badges responsive without repeatedly recreating every
         // server card while several probes finish close together.
         if (!isFinishing && !isDestroyed && (finished || latencyPresentationChanged)) {
-            searchRenderHandler.removeCallbacks(searchRenderTask)
-            searchRenderHandler.postDelayed(searchRenderTask, 90L)
+            latencyRenderHandler.removeCallbacks(latencyRenderTask)
+            latencyRenderHandler.postDelayed(latencyRenderTask, 90L)
         }
     }
 
@@ -4614,6 +4617,7 @@ class MainActivity : Activity() {
         unregisterPhysicalNetworkCallback()
         autoUpdateHandler.removeCallbacks(autoUpdateTick)
         searchRenderHandler.removeCallbacks(searchRenderTask)
+        latencyRenderHandler.removeCallbacks(latencyRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         monitorHandler.removeCallbacks(physicalNetworkChangeDebounce)
         // Keep the receiver registered while this Activity instance is alive.
