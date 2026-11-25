@@ -675,6 +675,11 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             publishTrafficSnapshot(emptyMap())
             activeConfig = null
             activeProfileLink = null
+            // The persisted active-profile marker describes a live tunnel, not a
+            // recovery preference. Clear it on every terminal stop path (including
+            // revoke/start failure); banking auto-resume has its own durable snapshot.
+            runCatching { ProfileStore(this).setActiveTunnelProfile(null) }
+                .onFailure { SafeLog.w(TAG, "Не удалось очистить активный профиль остановленного VPN", it) }
             configurationAccepted = false
             activeTunRequestToken = null
             tunReadyRequestToken = null
