@@ -106,10 +106,10 @@ internal object NetworkRecoveryPolicy {
     /** A probe socket must never fall back to a captive, suspended, or VPN route. */
     fun isProbeSocketNetworkEligible(
         isVpn: Boolean,
-        isBlocked: Boolean = false,
         hasInternet: Boolean,
         isValidated: Boolean,
-        isNotSuspended: Boolean
+        isNotSuspended: Boolean,
+        isBlocked: Boolean = false
     ): Boolean = isValidatedPhysicalUnderlay(
         isVpn = isVpn,
         isBlocked = isBlocked,

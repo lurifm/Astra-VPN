@@ -360,7 +360,10 @@ class MainActivity : Activity() {
     }
     private val physicalNetworkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) = onPhysicalNetworkChanged()
-        override fun onLost(network: android.net.Network) = onPhysicalNetworkChanged()
+        override fun onLost(network: android.net.Network) {
+            AstraPlatform.setPhysicalNetworkBlocked(network, false)
+            onPhysicalNetworkChanged()
+        }
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             networkCapabilities: NetworkCapabilities
@@ -377,7 +380,10 @@ class MainActivity : Activity() {
         override fun onBlockedStatusChanged(
             network: android.net.Network,
             blocked: Boolean
-        ) = onPhysicalNetworkChanged()
+        ) {
+            AstraPlatform.setPhysicalNetworkBlocked(network, blocked)
+            onPhysicalNetworkChanged()
+        }
     }
 
     private val physicalNetworkChangeDebounce = Runnable {
@@ -5092,8 +5098,8 @@ class MainActivity : Activity() {
 
     /** True only when Android has a validated, unsuspended physical Internet path. */
     private fun hasValidatedPhysicalNetwork(connectivity: ConnectivityManager): Boolean {
-        fun isUsableUnderlay(capabilities: NetworkCapabilities?): Boolean {
-            if (capabilities == null) return false
+        fun isUsableUnderlay(network: android.net.Network, capabilities: NetworkCapabilities?): Boolean {
+            if (capabilities == null || AstraPlatform.isPhysicalNetworkBlocked(network)) return false
             val notSuspended = Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
             return NetworkRecoveryPolicy.isValidatedPhysicalUnderlay(
@@ -5105,19 +5111,17 @@ class MainActivity : Activity() {
         }
 
         // Prefer the exact underlay selected by AstraPlatform for sing-box.
-        // A secondary connected network must not make a broken default route
-        // look healthy and permit false tunnel-failure accounting.
         val selectedUnderlay = AstraPlatform.currentPhysicalNetwork
         if (selectedUnderlay != null) {
             return isUsableUnderlay(
+                selectedUnderlay,
                 runCatching { connectivity.getNetworkCapabilities(selectedUnderlay) }.getOrNull()
             )
         }
 
-        // During initial startup the platform callback may not have selected
-        // an underlay yet; allow discovery until that authoritative handle exists.
+        // Startup fallback must apply the same blocked-network rule as the platform.
         return connectivity.allNetworks.any { network ->
-            isUsableUnderlay(runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull())
+            isUsableUnderlay(network, runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull())
         }
     }
 
@@ -5128,7 +5132,8 @@ class MainActivity : Activity() {
             runCatching { connectivity.getNetworkCapabilities(it) }.getOrNull()
         }
         if (selectedCapabilities != null &&
-            !selectedCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            !selectedCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+            selectedUnderlay?.let { !AstraPlatform.isPhysicalNetworkBlocked(it) } == true
         ) return selectedCapabilities
 
         val activeNetwork = connectivity.activeNetwork
@@ -5138,13 +5143,15 @@ class MainActivity : Activity() {
         // While VPN is active, activeNetwork describes the tunnel, so select the
         // best validated physical underlay from the remaining connected networks.
         if (activeCapabilities != null &&
-            !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+            activeNetwork?.let { !AstraPlatform.isPhysicalNetworkBlocked(it) } == true
         ) {
             return activeCapabilities
         }
 
         return connectivity.allNetworks
             .asSequence()
+            .filterNot(AstraPlatform::isPhysicalNetworkBlocked)
             .mapNotNull { network -> connectivity.getNetworkCapabilities(network) }
             .filter { caps ->
                 !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&

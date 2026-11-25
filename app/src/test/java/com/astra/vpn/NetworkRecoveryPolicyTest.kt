@@ -196,6 +196,15 @@ class NetworkRecoveryPolicyTest {
         assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, false))
         assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, false, true, true))
         assertTrue(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, true))
+        assertFalse(
+            NetworkRecoveryPolicy.isProbeSocketNetworkEligible(
+                isVpn = false,
+                hasInternet = true,
+                isValidated = true,
+                isNotSuspended = true,
+                isBlocked = true
+            )
+        )
     }
 
     @Test

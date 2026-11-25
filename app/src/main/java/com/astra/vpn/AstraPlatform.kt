@@ -63,8 +63,6 @@ class AstraPlatform(
         return selected
     }
     private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    // NetworkCallback blocked status is not reflected in NetworkCapabilities.
-    private val blockedPhysicalNetworks = java.util.Collections.synchronizedSet(mutableSetOf<Network>())
     private var interfaceListener: InterfaceUpdateListener? = null
     private var lastUnderlyingNetwork: Network? = null
     private var lastInterfaceSnapshot: InterfaceSnapshot? = null
@@ -96,6 +94,20 @@ class AstraPlatform(
         @Volatile
         var currentPhysicalNetwork: Network? = null
             private set
+
+        // Blocked status is not exposed by NetworkCapabilities. Keep one
+        // process-wide snapshot so the VPN adapter and Activity use the same
+        // decision when selecting or reporting a physical underlay.
+        private val blockedPhysicalNetworkHandles =
+            java.util.Collections.synchronizedSet(mutableSetOf<Network>())
+
+        fun isPhysicalNetworkBlocked(network: Network): Boolean =
+            blockedPhysicalNetworkHandles.contains(network)
+
+        fun setPhysicalNetworkBlocked(network: Network, blocked: Boolean) {
+            if (blocked) blockedPhysicalNetworkHandles.add(network)
+            else blockedPhysicalNetworkHandles.remove(network)
+        }
     }
 
     // The latency runner is a separate process but shares the app UID with the
@@ -298,13 +310,12 @@ class AstraPlatform(
             // Blocked status is independent of capabilities: a blocked network
             // can continue to advertise INTERNET and VALIDATED.
             override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
-                if (blocked) blockedPhysicalNetworks.add(network)
-                else blockedPhysicalNetworks.remove(network)
+                setPhysicalNetworkBlocked(network, blocked)
                 refreshDefaultInterface()
             }
 
             override fun onLost(network: Network) {
-                blockedPhysicalNetworks.remove(network)
+                setPhysicalNetworkBlocked(network, false)
                 // Do not rely on Context.getMainExecutor(): it is API 28+,
                 // while this application supports Android 7.0 (API 24).
                 refreshDefaultInterface()
@@ -337,7 +348,6 @@ class AstraPlatform(
             defaultNetworkCallback = null
             interfaceListener = null
             lastUnderlyingNetwork = null
-            blockedPhysicalNetworks.clear()
             cancelUnderlayRetryLocked(resetAttempts = true)
             cancelInterfaceRetryLocked(resetAttempts = true)
             if (protectSockets) currentPhysicalNetwork = null
@@ -457,7 +467,7 @@ class AstraPlatform(
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 if (!NetworkRecoveryPolicy.isProbeSocketNetworkEligible(
                         isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
-                        isBlocked = blockedPhysicalNetworks.contains(network),
+                        isBlocked = isPhysicalNetworkBlocked(network),
                         hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
                         isValidated = validated,
                         isNotSuspended = notSuspended
