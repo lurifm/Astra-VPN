@@ -297,6 +297,9 @@ class MainActivity : Activity() {
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
+    private val appTrafficStatsGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private var appTrafficStatsFuture: java.util.concurrent.Future<*>? = null
+    private var appTrafficStatsDialog: android.app.Dialog? = null
     private val healthCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     // A probe belongs to the exact tunnel configuration that started it. Reloading a profile
     // can reuse the same Android VPN Network, so Network identity alone cannot reject stale results.
@@ -5700,7 +5703,14 @@ class MainActivity : Activity() {
             .setView(scroll)
             .setPositiveButton("Готово", null)
             .show()
-        dialog.setOnDismissListener { outboundTrafficRefresh = null }
+        appTrafficStatsDialog = dialog
+        dialog.setOnDismissListener {
+            outboundTrafficRefresh = null
+            appTrafficStatsDialog = null
+            appTrafficStatsGeneration.incrementAndGet()
+            appTrafficStatsFuture?.cancel(true)
+            appTrafficStatsFuture = null
+        }
     }
 
     /** Refreshes the partial libbox outbound snapshot while the dialog is open. */
@@ -5771,7 +5781,11 @@ class MainActivity : Activity() {
             textSize = 12f
             setTextColor(0xFFD8E0F2.toInt())
         })
-        diagnosticsExecutor.execute {
+        // A newer refresh supersedes the previous one; stale results are discarded.
+        val generation = appTrafficStatsGeneration.incrementAndGet()
+        appTrafficStatsFuture?.cancel(true)
+        appTrafficStatsFuture = runCatching {
+            diagnosticsExecutor.submit {
             val now = System.currentTimeMillis()
             val dayMs = 24L * 60L * 60L * 1000L
             val result = runCatching {
@@ -5783,7 +5797,11 @@ class MainActivity : Activity() {
                 Triple(current, previous, weekly)
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (isFinishing || isDestroyed ||
+                    appTrafficStatsGeneration.get() != generation ||
+                    appTrafficStatsDialog?.isShowing != true
+                ) return@runOnUiThread
+                appTrafficStatsFuture = null
                 target.removeAllViews()
                 result.fold(
                     onSuccess = { period ->
@@ -6287,7 +6305,8 @@ class MainActivity : Activity() {
                     reportView.text = latestReport
                 }
             }
-        }
+            }
+        }.getOrNull()
     }
 
     private fun showConnectionHistoryDialog() {
