@@ -163,6 +163,9 @@ object SingBoxConfigBuilder {
         val uuid = userInfo?.substringBefore(':')?.takeIf { it.isNotBlank() }
             ?: error("В ссылке VLESS отсутствует UUID")
         val security = uri.getQueryParameter("security").orEmpty().lowercase()
+        require(VlessSecurityPolicy.isSupported(security)) {
+            "В ссылке VLESS указан неподдерживаемый режим защиты: $security"
+        }
         val tls = security == "tls" || security == "reality"
         val outbound = JSONObject()
             .put("type", "vless")
