@@ -3056,7 +3056,7 @@ class MainActivity : Activity() {
                         clearPendingFailoverForManualSelection()
                         // One tap switches the active tunnel: no extra confirmation dialog.
                         selectedProfile = link
-                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link) }.getOrElse {
+                        val nextConfig = runCatching { SingBoxConfigBuilder.build(link, currentAdvancedNetworkOptions()) }.getOrElse {
                             Toast.makeText(this@MainActivity, "Не удалось подготовить конфигурацию сервера", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
@@ -6398,6 +6398,80 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun currentAdvancedNetworkOptions(): SingBoxAdvancedOptions =
+        SingBoxAdvancedOptions(
+            mtu = settingsPrefs.getInt("advanced_mtu", SingBoxAdvancedOptions.DEFAULT_MTU),
+            multiplexEnabled = settingsPrefs.getBoolean("advanced_multiplex", false),
+            routeRussianDomainsDirect = settingsPrefs.getBoolean("advanced_direct_ru", false),
+            dnsCacheEnabled = settingsPrefs.getBoolean("advanced_dns_cache", true)
+        )
+
+    private fun showAdvancedNetworkOptionsDialog() {
+        val current = currentAdvancedNetworkOptions()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(8), dp(22), dp(4))
+        }
+        val mtuLabel = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+        }
+        val mtu = android.widget.SeekBar(this).apply {
+            max = SingBoxAdvancedOptions.MAX_MTU - SingBoxAdvancedOptions.MIN_MTU
+            progress = current.safeMtu - SingBoxAdvancedOptions.MIN_MTU
+        }
+        fun refreshMtuLabel(value: Int) {
+            mtuLabel.text = "MTU туннеля: $value"
+        }
+        refreshMtuLabel(current.safeMtu)
+        mtu.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                refreshMtuLabel(SingBoxAdvancedOptions.MIN_MTU + progress)
+            }
+            override fun onStartTrackingTouch(bar: android.widget.SeekBar?) = Unit
+            override fun onStopTrackingTouch(bar: android.widget.SeekBar?) = Unit
+        })
+        content.addView(mtuLabel)
+        content.addView(mtu)
+        content.addView(TextView(this).apply {
+            text = "Обычное значение — 1400. Повышение MTU может ухудшить совместимость в некоторых сетях."
+            textSize = 11f
+            setTextColor(MUTED)
+        })
+        val multiplex = CheckBox(this).apply {
+            text = "Мультиплексирование VLESS"
+            setTextColor(Color.WHITE)
+            isChecked = current.multiplexEnabled
+        }
+        val directRu = CheckBox(this).apply {
+            text = "Направлять домены .ru, .рф и .su напрямую, вне VPN"
+            setTextColor(Color.WHITE)
+            isChecked = current.routeRussianDomainsDirect
+        }
+        val dnsCache = CheckBox(this).apply {
+            text = "Кэширование DNS"
+            setTextColor(Color.WHITE)
+            isChecked = current.dnsCacheEnabled
+        }
+        content.addView(multiplex)
+        content.addView(directRu)
+        content.addView(dnsCache)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Расширенные сетевые параметры")
+            .setView(content)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                settingsPrefs.edit()
+                    .putInt("advanced_mtu", SingBoxAdvancedOptions.MIN_MTU + mtu.progress)
+                    .putBoolean("advanced_multiplex", multiplex.isChecked)
+                    .putBoolean("advanced_direct_ru", directRu.isChecked)
+                    .putBoolean("advanced_dns_cache", dnsCache.isChecked)
+                    .apply()
+                Toast.makeText(this, "Параметры применятся при следующем подключении", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
     private fun showAppSettingsDialog() {
         if (isFinishing || isDestroyed) return
         // Keep the reference as the single-instance lock until onDismiss fires.
@@ -6538,6 +6612,17 @@ class MainActivity : Activity() {
             }, RadioGroup.LayoutParams(0, dp(46), 1f))
         }
         panel.addView(sortGroup)
+        val advancedNetworkEntry = TextView(this).apply {
+            text = "Расширенные сетевые параметры"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(0xFF172238.toInt(), 10)
+            setOnClickListener { showAdvancedNetworkOptionsDialog() }
+        }
+        addActionRow(advancedNetworkEntry)
+
         addSectionLabel("Инструменты")
         val onboardingEntry = TextView(this).apply {
             text = "Повторить знакомство с Astra"
