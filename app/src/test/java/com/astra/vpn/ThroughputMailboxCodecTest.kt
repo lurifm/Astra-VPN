@@ -31,4 +31,19 @@ class ThroughputMailboxCodecTest {
         assertNull(ThroughputMailboxCodec.decode("""{"session":"","action":"bad","error":"x"}"""))
         assertNull(ThroughputMailboxCodec.decode("""{"session":"s","action":"unknown","result":"{}"}"""))
     }
+
+    @Test
+    fun terminalPayloadMustMatchItsAction() {
+        assertNull(ThroughputMailboxCodec.decode(
+            """{"session":"s","action":"${AstraThroughputProbeService.ACTION_RESULT}","error":"wrong field"}"""
+        ))
+        assertNull(ThroughputMailboxCodec.decode(
+            """{"session":"s","action":"${AstraThroughputProbeService.ACTION_ERROR}","result":"{}"}"""
+        ))
+    }
+
+    @Test
+    fun oversizedMailboxPayloadIsRejected() {
+        assertNull(ThroughputMailboxCodec.decode(" ".repeat(65 * 1024)))
+    }
 }

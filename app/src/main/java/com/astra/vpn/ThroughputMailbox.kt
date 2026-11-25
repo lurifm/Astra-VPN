@@ -5,6 +5,8 @@ import android.content.Intent
 import android.util.AtomicFile
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.RandomAccessFile
 
 /** Terminal measurement event; contains metrics only, never a profile URI or credentials. */
 internal data class ThroughputMailboxEvent(
@@ -53,12 +55,17 @@ internal object ThroughputMailboxCodec {
     private const val MAX_PAYLOAD_CHARS = 64 * 1024
 }
 
-/** Atomic file mailbox shared by the main and isolated throughput processes. */
+/**
+ * Atomic mailbox shared by the main and isolated throughput processes.
+ * AtomicFile protects against torn writes; the separate OS file lock also
+ * serializes readers, writers and acknowledgements across Android processes.
+ */
 internal class ThroughputMailboxStore(context: Context) {
-    private val file = AtomicFile(File(context.filesDir, FILE_NAME))
+    private val baseFile = File(context.filesDir, FILE_NAME)
+    private val lockFile = File(context.filesDir, LOCK_FILE_NAME)
+    private val file = AtomicFile(baseFile)
 
-    @Synchronized
-    fun write(event: ThroughputMailboxEvent) {
+    fun write(event: ThroughputMailboxEvent) = withMailboxLock {
         val bytes = ThroughputMailboxCodec.encode(event).toByteArray(Charsets.UTF_8)
         var output: java.io.FileOutputStream? = null
         try {
@@ -72,20 +79,43 @@ internal class ThroughputMailboxStore(context: Context) {
         }
     }
 
-    @Synchronized
-    fun read(): ThroughputMailboxEvent? = runCatching {
-        file.openRead().bufferedReader(Charsets.UTF_8).use {
-            ThroughputMailboxCodec.decode(it.readText())
-        }
-    }.getOrNull()
+    fun read(): ThroughputMailboxEvent? = withMailboxLock { readLocked() }
 
-    @Synchronized
-    fun acknowledge(sessionId: String) {
-        if (sessionId.isBlank()) return
-        if (read()?.sessionId == sessionId) file.delete()
+    fun acknowledge(sessionId: String) = withMailboxLock {
+        if (sessionId.isNotBlank() && readLocked()?.sessionId == sessionId) {
+            file.delete()
+        }
+    }
+
+    private fun readLocked(): ThroughputMailboxEvent? {
+        val raw = try {
+            file.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: FileNotFoundException) {
+            return null
+        } catch (_: Exception) {
+            return null
+        }
+        val decoded = ThroughputMailboxCodec.decode(raw)
+        if (decoded == null) {
+            // A malformed or truncated terminal event must not poison every
+            // future app launch. Delete only after a successful file read.
+            file.delete()
+        }
+        return decoded
+    }
+
+    private fun <T> withMailboxLock(block: () -> T): T = synchronized(PROCESS_LOCK) {
+        lockFile.parentFile?.mkdirs()
+        RandomAccessFile(lockFile, "rw").use { lockHandle ->
+            lockHandle.channel.use { channel ->
+                channel.lock().use { block() }
+            }
+        }
     }
 
     private companion object {
         const val FILE_NAME = "throughput_terminal_event"
+        const val LOCK_FILE_NAME = "throughput_terminal_event.lock"
+        val PROCESS_LOCK = Any()
     }
 }
