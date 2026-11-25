@@ -322,11 +322,13 @@ class MainActivity : Activity() {
     // Observe physical Wi-Fi/mobile/Ethernet changes directly instead of waiting
     // for the periodic monitor tick. This callback never treats the VPN transport
     // itself as an underlay and is registered only while the Activity is visible.
+    @Volatile private var activityStarted = false
     private var physicalNetworkCallbackRegistered = false
     // React immediately when Battery Saver changes while the Activity is visible.
     private var batterySaverReceiverRegistered = false
     private val batterySaverReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (!activityStarted || isFinishing || isDestroyed) return
             if (intent?.action != android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) return
             setHeroAnimationsAllowed(!isBatterySaverActive())
             // Apply the lower polling cadence immediately when system Battery Saver changes.
@@ -349,6 +351,7 @@ class MainActivity : Activity() {
     }
 
     private val physicalNetworkChangeDebounce = Runnable {
+        if (!activityStarted || isFinishing || isDestroyed) return@Runnable
         // Several callbacks commonly arrive for one Wi-Fi/cellular handover
         // (availability, capabilities and link properties). Collapse them into
         // one transition so a probe is not repeatedly invalidated mid-handover.
@@ -380,8 +383,9 @@ class MainActivity : Activity() {
     }
 
     private fun onPhysicalNetworkChanged() {
+        if (!activityStarted || isFinishing || isDestroyed) return
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            monitorHandler.post { onPhysicalNetworkChanged() }
+            monitorHandler.post { if (activityStarted && !isFinishing && !isDestroyed) onPhysicalNetworkChanged() }
             return
         }
         // Invalidate an in-flight HTTPS result immediately, not after the
@@ -425,6 +429,7 @@ class MainActivity : Activity() {
 
     private val monitorTick = object : Runnable {
         override fun run() {
+            if (!activityStarted || isFinishing || isDestroyed) return
             updateTrafficMonitor()
             updateNetworkLabel()
             scheduleTunnelHealthCheck()
@@ -4307,6 +4312,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         setHeroAnimationsAllowed(!isBatterySaverActive())
         registerBatterySaverReceiver()
         registerPhysicalNetworkCallback()
@@ -4607,6 +4613,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
         vpnRouteRestoreHandler.removeCallbacks(vpnRouteRestoreTask)
         vpnRouteRestoreAttempts = 0
         // A health probe may finish after the Activity moves to the background.
