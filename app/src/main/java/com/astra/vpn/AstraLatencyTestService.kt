@@ -785,36 +785,43 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handoverTargetNetwork = null
         handoverGeneration.incrementAndGet()
         unregisterProbeNetworkCallback()
-        closeLibboxResourcesAsync(currentClient, currentServer)
+        closeLibboxResourcesOnWorker(currentClient, currentServer)
         getSharedPreferences(LATENCY_PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_ACTIVE_SESSION_ID).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun closeLibboxResourcesAsync(
+    /**
+     * Keep every CommandServer lifecycle call on the same serial worker. This
+     * prevents STOP cleanup from racing a timeout/handover recycle that is
+     * currently inside closeService() or startOrReloadService().
+     */
+    private fun closeLibboxResourcesOnWorker(
         activeClient: CommandClient?,
         activeServer: CommandServer?
     ) {
-        if (activeClient == null && activeServer == null) return
-        Thread({
-            if (activeClient != null) {
-                runCatching { activeClient.disconnect() }
-                    .onFailure { Log.w(TAG, "latency client shutdown failed (${it.javaClass.simpleName})") }
+        try {
+            worker.execute {
+                if (activeClient != null) {
+                    runCatching { activeClient.disconnect() }
+                        .onFailure { Log.w(TAG, "latency client shutdown failed (${it.javaClass.simpleName})") }
+                }
+                if (activeServer != null) {
+                    // Plain-outbound URLTest is bound to the box instance context.
+                    // CloseService cancels that context; disconnecting gRPC alone does not.
+                    runCatching { activeServer.closeService() }
+                        .onFailure { Log.w(TAG, "latency service shutdown failed (${it.javaClass.simpleName})") }
+                    runCatching { activeServer.close() }
+                        .onFailure { Log.w(TAG, "latency server close failed (${it.javaClass.simpleName})") }
+                }
             }
-            if (activeServer != null) {
-                // Important: sing-box 1.14.3 starts plain-outbound URLTest in a
-                // goroutine bound to the box instance context, not the gRPC
-                // request context. Disconnecting the client alone is insufficient;
-                // CloseService closes the instance and cancels that native context.
-                runCatching { activeServer.closeService() }
-                    .onFailure { Log.w(TAG, "latency service shutdown failed (${it.javaClass.simpleName})") }
-                runCatching { activeServer.close() }
-                    .onFailure { Log.w(TAG, "latency server close failed (${it.javaClass.simpleName})") }
-            }
-        }, "Astra-LatencyCleanup").apply {
-            isDaemon = true
-            start()
+        } catch (_: RejectedExecutionException) {
+            Log.w(TAG, "latency worker rejected serialized native cleanup")
+        } finally {
+            // Already-queued worker callbacks are harmless: they check stopped
+            // before touching native state. Let the cleanup task drain first.
+            worker.shutdown()
         }
     }
 
@@ -834,7 +841,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
 
     override fun onDestroy() {
         finish()
-        worker.shutdownNow()
+        worker.shutdown()
         super.onDestroy()
     }
 
