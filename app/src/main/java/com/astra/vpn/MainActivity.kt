@@ -2295,6 +2295,25 @@ class MainActivity : Activity() {
         val removedProfiles = removed.filter(String::isNotBlank).toHashSet()
         if (removedProfiles.isEmpty()) return
 
+        // Apply the same removal policy to individual profile deletion and
+        // subscription deletion. A manually deleted active server must not keep
+        // routing traffic, and a pending Android consent must not start it later.
+        val removesActiveProfile =
+            ProfileSelectionRefreshPolicy.matchesRemovedProfile(activeProfile, removedProfiles)
+        val removesPendingProfile =
+            ProfileSelectionRefreshPolicy.matchesRemovedProfile(pendingProfile, removedProfiles) ||
+                ProfileSelectionRefreshPolicy.matchesRemovedProfile(selectedProfile, removedProfiles)
+        if (pendingConfig != null && removesPendingProfile) cancelPendingConnect()
+        if (removesActiveProfile) {
+            cancelBankingResumeForRemovedProfile()
+            activeProfile = null
+            stopTunnel()
+        }
+        if (ProfileSelectionRefreshPolicy.matchesRemovedProfile(selectedProfile, removedProfiles)) {
+            selectedProfile = null
+            persistSelectedProfileIfChanged()
+        }
+
         // A throughput session or fastest-server batch may still reference a
         // profile that no longer exists. Cancel the whole batch rather than let
         // its completion select a server from a stale candidate snapshot.
