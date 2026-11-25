@@ -26,14 +26,15 @@ object SubscriptionParser {
 
     internal fun importDetailed(
         input: String,
-        downloadBudget: SubscriptionDownloadBudget?
+        downloadBudget: SubscriptionDownloadBudget?,
+        cancellation: SubscriptionDownloadCancellation? = null
     ): ParsedSubscription {
         validateInputSize(input)
         val text = input.trim()
         require(text.isNotEmpty()) { "Пустая ссылка или подписка" }
 
         val downloaded = if (text.startsWith("https://", ignoreCase = true)) {
-            download(text, downloadBudget)
+            download(text, downloadBudget, cancellation)
         } else null
         val content = downloaded?.content ?: text
         val decoded = decodeIfBase64(content)
@@ -123,14 +124,20 @@ object SubscriptionParser {
 
     private fun download(
         address: String,
-        budget: SubscriptionDownloadBudget?
+        budget: SubscriptionDownloadBudget?,
+        cancellation: SubscriptionDownloadCancellation?
     ): DownloadResult {
         var current = validateSubscriptionUrl(address)
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
             require(current.protocol.equals("https", ignoreCase = true)) {
                 "Подписки разрешено загружать только по HTTPS"
             }
+            cancellation?.throwIfCancelled()
             val connection = current.openConnection() as HttpURLConnection
+            if (cancellation != null && !cancellation.register(connection)) {
+                connection.disconnect()
+                cancellation.throwIfCancelled()
+            }
             connection.connectTimeout = budget?.remainingTimeoutMillis(15_000) ?: 15_000
             connection.readTimeout = budget?.remainingTimeoutMillis(20_000) ?: 20_000
             connection.requestMethod = "GET"
@@ -138,7 +145,9 @@ object SubscriptionParser {
             connection.instanceFollowRedirects = false
 
             try {
+                cancellation?.throwIfCancelled()
                 val code = connection.responseCode
+                cancellation?.throwIfCancelled()
                 if (code in 300..399) {
                     require(redirectCount < MAX_REDIRECTS) { "Слишком много перенаправлений" }
                     val location = connection.getHeaderField("Location")
@@ -153,8 +162,10 @@ object SubscriptionParser {
                     var total = 0
                     try {
                         while (true) {
+                            cancellation?.throwIfCancelled()
                             connection.readTimeout = budget?.remainingTimeoutMillis(20_000) ?: 20_000
                             val count = input.read(buffer)
+                            cancellation?.throwIfCancelled()
                             if (count < 0) break
                             total += count
                             require(total <= MAX_RESPONSE_BYTES) { "Подписка слишком большая" }
@@ -178,6 +189,7 @@ object SubscriptionParser {
                 }
                 return DownloadResult(content, headers)
             } finally {
+                cancellation?.unregister(connection)
                 connection.disconnect()
             }
         }

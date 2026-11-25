@@ -19,6 +19,13 @@ import java.util.concurrent.TimeUnit
 
 /** Periodic refresh continues when the activity is closed; WorkManager handles Doze and reboot. */
 class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    private val downloadCancellation = SubscriptionDownloadCancellation()
+
+    override fun onStopped() {
+        downloadCancellation.cancel()
+        super.onStopped()
+    }
+
     override fun doWork(): Result {
         val settings = applicationContext.getSharedPreferences("astra_settings", Context.MODE_PRIVATE)
         if (!settings.getBoolean("auto_update", false)) return Result.success()
@@ -57,7 +64,7 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                 val source = targets[index]
                 // A stopped worker must not silently lose subscriptions it had not
                 // reached yet. Persist those fingerprints so the next run resumes them.
-                if (isStopped) {
+                if (isStopped || downloadCancellation.isCancelled) {
                     failedSources += SubscriptionRefreshRetryState.pendingAfterStop(targets, index, failedSources)
                     SubscriptionRefreshRetryState.mergePending(settings, failedSources)
                     return Result.retry()
@@ -77,7 +84,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                                 recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settings, source) }
                             )
                         },
-                        downloadBudget = downloadBudget
+                        downloadBudget = downloadBudget,
+                        cancellation = downloadCancellation
                     )
                     if (count == null) continue
                     updated++
