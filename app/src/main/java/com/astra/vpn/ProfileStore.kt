@@ -46,14 +46,26 @@ class ProfileStore(context: Context) {
     // expensive cryptographic work on the main thread.
     @Volatile private var profilesCache: List<String>? = null
     @Volatile private var summariesCache: List<SubscriptionSummary>? = null
+    private var profilesCacheRevision = -1L
+    private var summariesCacheRevision = -1L
 
     fun all(): List<String> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        profilesCache ?: prefs.all.entries
+        val revision = ProfileStoreCacheRevision.current()
+        profilesCache?.takeIf { profilesCacheRevision == revision } ?: prefs.all.entries
             .filter { it.key.startsWith(PROFILE_PREFIX) || it.key.startsWith(SUBSCRIPTION_PROFILE_PREFIX) }
             .sortedBy { it.key }
             .map { (_, value) -> decryptStored(value as String) }
             .distinct()
-            .also { profilesCache = it }
+            .also { profilesCache = it; profilesCacheRevision = revision }
+    }
+
+    /** Invalidate snapshots held by every ProfileStore instance in this process. */
+    private fun invalidateCaches() {
+        ProfileStoreCacheRevision.advance()
+        profilesCache = null
+        summariesCache = null
+        profilesCacheRevision = -1L
+        summariesCacheRevision = -1L
     }
 
     /**
@@ -187,7 +199,7 @@ class ProfileStore(context: Context) {
         check(prefs.edit().putString(PROFILE_PREFIX + id, encrypt(link)).commit()) {
             "Не удалось сохранить сервер"
         }
-        profilesCache = null
+        invalidateCaches()
     }
 
     fun addAll(links: List<String>) = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
@@ -199,7 +211,7 @@ class ProfileStore(context: Context) {
             editor.putString(PROFILE_PREFIX + java.util.UUID.randomUUID().toString(), encrypt(link))
         }
         check(editor.commit()) { "Не удалось сохранить список серверов" }
-        profilesCache = null
+        invalidateCaches()
     }
 
     /** Replace profiles for an imported HTTPS subscription, creating it when new. */
@@ -258,8 +270,7 @@ class ProfileStore(context: Context) {
         // Missing title headers must not erase a name the user chose themselves.
         metadata.title?.let { editor.putString(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id, it.take(120)) }
         check(editor.commit()) { "Не удалось сохранить обновлённую подписку" }
-        profilesCache = null
-        summariesCache = null
+        invalidateCaches()
     }
 
     fun renameSubscription(sourceUrl: String, title: String) =
@@ -272,7 +283,7 @@ class ProfileStore(context: Context) {
         check(prefs.edit().putString(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id, cleanTitle).commit()) {
             "Не удалось сохранить название подписки"
         }
-        summariesCache = null
+        invalidateCaches()
     }
 
     /** Remove a subscription and all profiles owned by it; return removed links. */
@@ -291,8 +302,7 @@ class ProfileStore(context: Context) {
             .remove(SUBSCRIPTION_CUSTOM_TITLE_PREFIX + id)
             .remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id)
         check(editor.commit()) { "Не удалось удалить подписку" }
-        profilesCache = null
-        summariesCache = null
+        invalidateCaches()
         return removed
     }
 
@@ -305,7 +315,8 @@ class ProfileStore(context: Context) {
 
     /** Safe local summary; usage and expiry are displayed only when provider metadata exists. */
     fun subscriptionSummaries(): List<SubscriptionSummary> = synchronized(SUBSCRIPTION_MUTATION_LOCK) {
-        summariesCache ?: run {
+        val revision = ProfileStoreCacheRevision.current()
+        summariesCache?.takeIf { summariesCacheRevision == revision } ?: run {
             // Read one SharedPreferences snapshot instead of repeatedly copying
             // the complete map while counting every subscription's profiles.
             val snapshot = prefs.all
@@ -344,7 +355,7 @@ class ProfileStore(context: Context) {
                     )
                 }
                 .sortedBy { it.title.lowercase(java.util.Locale.getDefault()) }
-                .also { summariesCache = it }
+                .also { summariesCache = it; summariesCacheRevision = revision }
         }
     }
 
@@ -356,8 +367,7 @@ class ProfileStore(context: Context) {
                 decryptStored(value as String) == link
         } ?: return@synchronized
         check(prefs.edit().remove(entry.key).commit()) { "Не удалось удалить сервер" }
-        profilesCache = null
-        summariesCache = null
+        invalidateCaches()
     }
 
     /**
@@ -483,8 +493,7 @@ class ProfileStore(context: Context) {
             else editor.remove(SUBSCRIPTION_PROVIDER_TITLE_PREFIX + id)
         }
         check(editor.commit()) { "Не удалось восстановить резервную копию" }
-        profilesCache = null
-        summariesCache = null
+        invalidateCaches()
         totalLinks
     }
 
