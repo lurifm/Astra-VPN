@@ -97,10 +97,10 @@ internal object NetworkRecoveryPolicy {
 
     fun isValidatedPhysicalUnderlay(
         isVpn: Boolean,
-        isBlocked: Boolean = false,
         hasInternet: Boolean,
         isValidated: Boolean,
-        isNotSuspended: Boolean
+        isNotSuspended: Boolean,
+        isBlocked: Boolean = false
     ): Boolean = !isVpn && !isBlocked && hasInternet && isValidated && isNotSuspended
 
     /** A probe socket must never fall back to a captive, suspended, or VPN route. */
