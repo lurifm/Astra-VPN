@@ -4,6 +4,7 @@ import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.system.OsConstants
 import android.os.ParcelFileDescriptor
 import android.os.Handler
