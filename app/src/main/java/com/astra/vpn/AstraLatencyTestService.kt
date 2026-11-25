@@ -30,6 +30,7 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Runs URLTest in an isolated process so it never reloads the active VPN tunnel. */
 internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
@@ -37,7 +38,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val worker = Executors.newSingleThreadExecutor()
     // Fixed concurrency keeps native calls bounded; the executor queue is sized
     // by the actual subscription workload so large server lists are not dropped.
-    private val urlTestDispatcher = Executors.newFixedThreadPool(URL_TEST_DISPATCH_CONCURRENCY)
+    private val urlTestDispatcher = Executors.newSingleThreadExecutor()
     private val stopped = AtomicBoolean(false)
     // Startup is asynchronous; server may still be null when a duplicate START arrives.
     private val startAccepted = AtomicBoolean(false)
@@ -45,6 +46,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     // is allowed to own this service session and its per-server deadlines.
     private val urlTestsDispatched = AtomicBoolean(false)
     @Volatile private var server: CommandServer? = null
+    @Volatile private var serviceConfig: String? = null
+    @Volatile private var engineRecycleInProgress = false
+    private val engineGeneration = AtomicLong(0L)
+    private val recycleHandoverTags = linkedSetOf<String>()
+    private var recycleWatchdog: Runnable? = null
     @Volatile private var client: CommandClient? = null
     // Updated from the foreground Activity after Wi-Fi/cellular handovers.
     @Volatile private var probePlatform: AstraPlatform? = null
@@ -68,15 +74,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     private val pendingTags = java.util.ArrayDeque<String>()
     private val timedOutTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val errorTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    // Native URLTest has no per-request cancellation API. Results belonging to
-    // probes started on a previous underlay are ignored until their native slot expires.
-    private val discardedByNetworkChangeTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // A timed-out native URLTest is cancelled by closing its isolated engine.
     private val handoverRetryCounts = mutableMapOf<String, Int>()
     private val perServerTimeouts = linkedMapOf<String, Runnable>()
-    // libbox 1.14.3 can keep a native URLTest running after the UI's 10s
-    // deadline. Retain its scheduler slot through the conservative native
-    // DNS + TCP connect + HTTP timeout window (10s + 5s + 15s, plus margin).
-    private val nativeSlotReleaseTimeouts = linkedMapOf<String, Runnable>()
     // sing-box includes URLTestTime (Unix seconds) in every outbound snapshot.
     // Keep the dispatch wall-clock time to reject a late result from an older attempt.
     private val probeDispatchEpochSeconds = linkedMapOf<String, Long>()
@@ -118,6 +118,7 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
             return START_NOT_STICKY
         }
         latestResults = LatencyResultAccumulator(expectedTags)
+        serviceConfig = config
 
         registerProbeNetworkCallback()
         startForeground(
@@ -263,10 +264,16 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                 if (delay > 0L && resultTime > 0L) snapshot[item.tag] = delay to resultTime
             }
             if (snapshot.isNotEmpty()) {
-                // Plain proxy outbounds publish URLTest history on this stream.
-                // Consume the native iterator here; serialize state changes on main.
+                // Capture the engine generation before posting. A callback queued by
+                // the old instance must not be accepted after an engine recycle.
+                val callbackGeneration = engineGeneration.get()
                 handler.post {
-                    if (stopped.get()) return@post
+                    if (stopped.get() || !LatencyEngineRecyclePolicy.shouldAcceptResult(
+                            recycling = engineRecycleInProgress,
+                            expectedGeneration = callbackGeneration,
+                            currentGeneration = engineGeneration.get()
+                        )
+                    ) return@post
                     // SubscribeOutbounds publishes a full state snapshot, not a
                     // per-probe event. Ignore cached/unsolicited values for servers
                     // that have not actually been dispatched in this batch.
@@ -281,8 +288,9 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                             isInFlight = tag in inFlightTags,
                             alreadyCompleted = tag in completedTags,
                             previouslyTimedOut = tag in timedOutTags,
-                            discardedByNetworkChange = tag in discardedByNetworkChangeTags,
-                            handoverPending = handoverInvalidationPending
+                            discardedByNetworkChange = false,
+                            handoverPending = handoverInvalidationPending,
+                            engineRecycleInProgress = engineRecycleInProgress
                         )
                     }.filterKeys(::completeMeasuredTag).mapValues { it.value.first }
                     if (accepted.isEmpty()) return@post
@@ -300,15 +308,19 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun dispatchNextUrlTests(activeClient: CommandClient?) {
-        if (stopped.get() || activeClient == null ||
-            pendingPreferredNetwork == null || handoverInvalidationPending
+        if (!LatencyEngineRecyclePolicy.shouldDispatch(
+                stopped = stopped.get(),
+                recycling = engineRecycleInProgress,
+                handoverPending = handoverInvalidationPending
+            ) || activeClient == null || pendingPreferredNetwork == null
         ) return
         while (inFlightTags.size < URL_TEST_DISPATCH_CONCURRENCY && pendingTags.isNotEmpty()) {
             val tag = pendingTags.removeFirst()
             if (!LatencyProbeDispatchPolicy.shouldDispatch(
                     stopped = stopped.get(),
                     alreadyCompleted = tag in completedTags,
-                    handoverPending = handoverInvalidationPending
+                    handoverPending = handoverInvalidationPending,
+                    engineRecycleInProgress = engineRecycleInProgress
                 ) || !inFlightTags.add(tag)
             ) continue
 
@@ -333,15 +345,13 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     private fun completeMeasuredTag(tag: String): Boolean {
-        val wasTimedOut = timedOutTags.remove(tag)
         val newlyCompleted = completedTags.add(tag)
-        if (!newlyCompleted && !wasTimedOut) return false
+        if (!newlyCompleted) return false
         inFlightTags.remove(tag)
         // A successful measurement closes this retry episode. A later, unrelated
         // network handover must receive its own bounded retry budget.
         handoverRetryCounts.remove(tag)
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
-        nativeSlotReleaseTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         probeDispatchEpochSeconds.remove(tag)
         return true
     }
@@ -351,36 +361,98 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         perServerTimeouts.remove(tag)?.let { handler.removeCallbacks(it) }
         if (timedOut) {
             timedOutTags.add(tag)
-            // URLTest() returns after scheduling native work, not after the
-            // network request. Keep this slot occupied after the UI timeout so
-            // repeated slow probes cannot accumulate beyond the concurrency cap.
-            val release = Runnable {
-                nativeSlotReleaseTimeouts.remove(tag)
-                inFlightTags.remove(tag)
-                // Once the native safety window expires, later stream updates
-                // must not be attributed to this timed-out request.
-                timedOutTags.remove(tag)
-                probeDispatchEpochSeconds.remove(tag)
-                dispatchNextUrlTests(client)
-                finishIfAllTagsCompleted()
-            }
-            nativeSlotReleaseTimeouts[tag] = release
-            handler.postDelayed(release, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
-        } else {
-            errorTags.add(tag)
-            inFlightTags.remove(tag)
-            probeDispatchEpochSeconds.remove(tag)
+            // The 10s deadline is a real native cancellation boundary:
+            // closeService() cancels the box instance context used by URLTest.
+            publishResults(mapOf(tag to null), finished = false)
+            recycleLatencyEngine(requeueAfterHandover = emptyList())
+            return
         }
-        // Publish completion and its reason even without a positive latency.
+        errorTags.add(tag)
+        inFlightTags.remove(tag)
+        probeDispatchEpochSeconds.remove(tag)
         publishResults(mapOf(tag to null), finished = false)
         dispatchNextUrlTests(client)
         finishIfAllTagsCompleted()
     }
 
+    /**
+     * Cancel the one active native URLTest by closing its owning sing-box instance,
+     * then start a fresh instance on the same CommandServer. SubscribeOutbounds is
+     * attached to the StartedService lifetime and survives service-instance reloads.
+     * All lifecycle calls are serialized on the worker, never on the UI thread.
+     */
+    private fun recycleLatencyEngine(requeueAfterHandover: List<String>) {
+        if (!LatencyEngineRecyclePolicy.shouldStartRecycle(stopped.get(), engineRecycleInProgress)) return
+        val activeServer = server
+        val config = serviceConfig
+        if (activeServer == null || config.isNullOrBlank()) {
+            failIfActive("Не удалось перезапустить движок проверки")
+            return
+        }
+
+        engineRecycleInProgress = true
+        val generation = engineGeneration.incrementAndGet()
+        recycleHandoverTags.clear()
+        recycleHandoverTags.addAll(requeueAfterHandover)
+        recycleWatchdog?.let(handler::removeCallbacks)
+        val watchdog = Runnable {
+            if (!stopped.get() && engineGeneration.get() == generation) {
+                publishFailure("Перезапуск движка проверки превысил допустимое время")
+                finish()
+            }
+        }
+        recycleWatchdog = watchdog
+        handler.postDelayed(watchdog, LatencyEngineRecyclePolicy.RECYCLE_TIMEOUT_MS)
+
+        executeWorkerIfActive {
+            try {
+                activeServer.closeService()
+                if (stopped.get() || engineGeneration.get() != generation) return@executeWorkerIfActive
+                activeServer.startOrReloadService(config, OverrideOptions())
+                if (stopped.get() || engineGeneration.get() != generation) {
+                    // STOP may race a blocking native start. Do not leave a fresh
+                    // engine running after the service session has been cancelled.
+                    runCatching { activeServer.closeService() }
+                    return@executeWorkerIfActive
+                }
+                handler.post {
+                    if (stopped.get() || engineGeneration.get() != generation) return@post
+                    recycleWatchdog?.let(handler::removeCallbacks)
+                    recycleWatchdog = null
+                    engineRecycleInProgress = false
+                    inFlightTags.clear()
+                    probeDispatchEpochSeconds.clear()
+                    recycleHandoverTags.forEach { tag ->
+                        val retries = handoverRetryCounts[tag] ?: 0
+                        val hasValidatedUnderlay = pendingPreferredNetwork != null
+                        if (LatencyEngineRecyclePolicy.shouldRequeueAfterHandover(retries, hasValidatedUnderlay)) {
+                            if (hasValidatedUnderlay) handoverRetryCounts[tag] = retries + 1
+                            completedTags.remove(tag)
+                            if (tag !in pendingTags) pendingTags.addFirst(tag)
+                        } else {
+                            errorTags.add(tag)
+                        }
+                    }
+                    recycleHandoverTags.clear()
+                    dispatchNextUrlTests(client)
+                    finishIfAllTagsCompleted()
+                }
+            } catch (failure: Exception) {
+                handler.post {
+                    if (!stopped.get() && engineGeneration.get() == generation) {
+                        Log.e(TAG, "Не удалось перезапустить движок Ping (" + failure.javaClass.simpleName + ")")
+                        publishFailure("Не удалось восстановить проверку серверов")
+                        finish()
+                    }
+                }
+            }
+        }
+    }
+
     private fun finishIfAllTagsCompleted() {
         if (!stopped.get() && LatencyProbeDispatchPolicy.shouldFinish(
                 completedAll = completedTags.containsAll(expectedTags),
-                nativeSlotsPending = nativeSlotReleaseTimeouts.isNotEmpty()
+                engineRecycleInProgress = engineRecycleInProgress
             )) finishAndPublish()
     }
 
@@ -638,52 +710,23 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
     }
 
     /**
-     * A socket already opened by libbox remains attached to its old Android
-     * Network. Do not publish its eventual result as a measurement of the new
-     * underlay. Keep its concurrency slot reserved for the native timeout
-     * budget because URLTest has no per-outbound cancellation operation.
+     * A probe opened on the previous Android Network cannot be attributed to the
+     * new route. Recycle the isolated engine to cancel it, then retry within the
+     * existing bounded handover retry budget.
      */
     private fun invalidateInFlightProbesForNetworkHandover() {
-        if (stopped.get()) return
+        if (stopped.get() || engineRecycleInProgress) return
         val affectedTags = inFlightTags.toList()
-        if (affectedTags.isEmpty()) return
+        if (affectedTags.isEmpty()) {
+            dispatchNextUrlTests(client)
+            return
+        }
         affectedTags.forEach { tag ->
             perServerTimeouts.remove(tag)?.let(handler::removeCallbacks)
             completedTags.add(tag)
-            timedOutTags.remove(tag)
-            discardedByNetworkChangeTags.add(tag)
-            nativeSlotReleaseTimeouts.remove(tag)?.let(handler::removeCallbacks)
-            val release = Runnable {
-                nativeSlotReleaseTimeouts.remove(tag)
-                inFlightTags.remove(tag)
-                discardedByNetworkChangeTags.remove(tag)
-                timedOutTags.remove(tag)
-                probeDispatchEpochSeconds.remove(tag)
-                val retries = handoverRetryCounts[tag] ?: 0
-                val hasValidatedUnderlay = pendingPreferredNetwork != null
-                val shouldRequeue = NetworkRecoveryPolicy.shouldRequeueAfterHandover(
-                    previousRetries = retries,
-                    hasValidatedUnderlay = hasValidatedUnderlay
-                )
-                if (shouldRequeue) {
-                    if (hasValidatedUnderlay) handoverRetryCounts[tag] = retries + 1
-                    completedTags.remove(tag)
-                    if (tag !in pendingTags) pendingTags.addFirst(tag)
-                    publishResults(mapOf(tag to null), finished = false)
-                }
-                dispatchNextUrlTests(client)
-                finishIfAllTagsCompleted()
-            }
-            nativeSlotReleaseTimeouts[tag] = release
-            handler.postDelayed(
-                release,
-                NetworkRecoveryPolicy.probeHandoverNativeCooldownMs()
-            )
+            publishResults(mapOf(tag to null), finished = false)
         }
-        // Use remaining free slots for queued servers on the new underlay.
-        dispatchNextUrlTests(client)
-        // Explicitly publish unknown for probes interrupted by a handover.
-        publishResults(affectedTags.associateWith { null }, finished = false)
+        recycleLatencyEngine(requeueAfterHandover = affectedTags)
     }
 
     private fun unregisterProbeNetworkCallback() {
@@ -718,8 +761,11 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         handler.removeCallbacks(batchTimeout)
         perServerTimeouts.values.forEach { handler.removeCallbacks(it) }
         perServerTimeouts.clear()
-        nativeSlotReleaseTimeouts.values.forEach { handler.removeCallbacks(it) }
-        nativeSlotReleaseTimeouts.clear()
+        recycleWatchdog?.let(handler::removeCallbacks)
+        recycleWatchdog = null
+        engineRecycleInProgress = false
+        engineGeneration.incrementAndGet()
+        recycleHandoverTags.clear()
         inFlightTags.clear()
         pendingTags.clear()
         probeDispatchEpochSeconds.clear()
@@ -816,8 +862,8 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
         private const val TAG = "AstraLatencyTest"
         private const val NOTIFICATION_ID = 2
         private const val ENGINE_STARTUP_TIMEOUT_MS = 8_000L
-        private const val SERVER_URLTEST_TIMEOUT_MS = NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS
-        private const val URL_TEST_DISPATCH_CONCURRENCY = 4
+        private const val SERVER_URLTEST_TIMEOUT_MS = LatencyEngineRecyclePolicy.SERVER_TIMEOUT_MS
+        private const val URL_TEST_DISPATCH_CONCURRENCY = 1
 
         fun start(context: Context, config: String, tags: Set<String>, network: Network, sessionId: String) {
             val intent = Intent(context, AstraLatencyTestService::class.java)
