@@ -70,7 +70,7 @@ internal object AppTrafficStatsReader {
         val dateFormat = java.text.SimpleDateFormat("EE", java.util.Locale.getDefault())
         val result = mutableListOf<DailySnapshot>()
         repeat(7) {
-            check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
+            ensureNotCancelled()
             val start = calendar.timeInMillis
             val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
                 .format(calendar.time).toInt()
@@ -81,6 +81,9 @@ internal object AppTrafficStatsReader {
                     readPeriod(context, start, end).apps
                 } catch (cancelled: java.util.concurrent.CancellationException) {
                     throw cancelled
+                } catch (_: Exception) {
+                    // Preserve this calendar-day slot even if Android rejects one query.
+                    emptyList()
                 }
             } else {
                 emptyList()
@@ -93,7 +96,7 @@ internal object AppTrafficStatsReader {
     }
 
     fun readPeriod(context: Context, start: Long, end: Long): Result {
-        check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
+        ensureNotCancelled()
         check(hasAccess(context)) { "Для статистики приложений нужен доступ Usage Access" }
         require(start < end) { "Некорректный период статистики" }
         val now = end
@@ -110,7 +113,7 @@ internal object AppTrafficStatsReader {
                 stats = manager.querySummary(networkType, null, start, now)
                 val bucket = NetworkStats.Bucket()
                 while (stats.hasNextBucket()) {
-                    check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
+                    ensureNotCancelled()
                     if (!stats.getNextBucket(bucket)) break
                     val uid = bucket.uid
                     if (uid < 0) continue
@@ -124,36 +127,67 @@ internal object AppTrafficStatsReader {
             }
         }
 
-        try { collect(ConnectivityManager.TYPE_WIFI, false) } catch (_: Exception) { }
-        try { collect(ConnectivityManager.TYPE_MOBILE, true) } catch (_: Exception) { }
+        try {
+            collect(ConnectivityManager.TYPE_WIFI, false)
+        } catch (cancelled: java.util.concurrent.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { }
+        try {
+            collect(ConnectivityManager.TYPE_MOBILE, true)
+        } catch (cancelled: java.util.concurrent.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { }
 
-        check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
+        ensureNotCancelled()
         val labels = HashMap<Int, String>()
         val pm = context.packageManager
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
         val launchable = pm.queryIntentActivities(launcherIntent, 0)
         for (activity in launchable) {
+            ensureNotCancelled()
             val app = activity.activityInfo?.applicationInfo ?: continue
             val label = runCatching { pm.getApplicationLabel(app).toString() }
                 .getOrDefault(app.packageName)
             val previous = labels[app.uid]
             labels[app.uid] = if (previous == null || label.length < previous.length) label else previous
         }
+        ensureNotCancelled()
         val ownInfo = runCatching { pm.getApplicationInfo(context.packageName, 0) }.getOrNull()
         if (ownInfo != null) labels[ownInfo.uid] = pm.getApplicationLabel(ownInfo).toString()
 
-        val apps = totals.mapNotNull { (uid, bytes) ->
+        val apps = ArrayList<AppTraffic>(totals.size)
+        for ((uid, bytes) in totals) {
+            ensureNotCancelled()
             val total = addCounters(bytes[0], bytes[1])
-            if (total <= 0L) null
-            else AppTraffic(uid, labels[uid] ?: "Системное приложение ($uid)", bytes[0], bytes[1])
-        }.sortedByDescending { it.totalBytes }
+            if (total > 0L) {
+                apps += AppTraffic(uid, labels[uid] ?: "Системное приложение ($uid)", bytes[0], bytes[1])
+            }
+        }
+        apps.sortWith { first, second ->
+            ensureNotCancelled()
+            second.totalBytes.compareTo(first.totalBytes)
+        }
+
+        var totalDownloaded = 0L
+        var totalUploaded = 0L
+        for (app in apps) {
+            ensureNotCancelled()
+            totalDownloaded = addCounters(totalDownloaded, app.downloadedBytes)
+            totalUploaded = addCounters(totalUploaded, app.uploadedBytes)
+        }
+        ensureNotCancelled()
 
         return Result(
             apps, mobileAvailable, wifiAvailable, start, now,
-            apps.fold(0L) { total, app -> addCounters(total, app.downloadedBytes) },
-            apps.fold(0L) { total, app -> addCounters(total, app.uploadedBytes) }
+            totalDownloaded, totalUploaded
         )
+    }
+
+    private fun ensureNotCancelled() {
+        if (Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("Чтение статистики отменено")
+        }
     }
 
     internal fun addCounters(first: Long, second: Long): Long {
