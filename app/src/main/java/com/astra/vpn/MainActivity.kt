@@ -5797,7 +5797,7 @@ class MainActivity : Activity() {
         appTrafficStatsFuture = appTrafficStatsExecutor.submit {
             val now = System.currentTimeMillis()
             val dayMs = 24L * 60L * 60L * 1000L
-            val result = runCatching {
+            val result = try {
                 val current = AppTrafficStatsReader.readPeriod(this, now - dayMs, now)
                 val previous = try {
                     AppTrafficStatsReader.readPeriod(this, now - 2L * dayMs, now - dayMs)
@@ -5807,8 +5807,16 @@ class MainActivity : Activity() {
                     null
                 }
                 val weekly = AppTrafficStatsReader.readLastSevenDays(this, now)
-                Triple(current, previous, weekly)
+                Result.success(Triple(current, previous, weekly))
+            } catch (_: java.util.concurrent.CancellationException) {
+                // Cancellation is expected when refreshing, dismissing, or destroying the Activity.
+                return@submit
+            } catch (error: Exception) {
+                Result.failure<Triple<AppTrafficStatsReader.Result, AppTrafficStatsReader.Result?, List<AppTrafficStatsReader.DailySnapshot>>>(error)
             }
+            if (Thread.currentThread().isInterrupted ||
+                appTrafficStatsGeneration.get() != generation
+            ) return@submit
             runOnUiThread {
                 if (isFinishing || isDestroyed ||
                     appTrafficStatsGeneration.get() != generation ||
