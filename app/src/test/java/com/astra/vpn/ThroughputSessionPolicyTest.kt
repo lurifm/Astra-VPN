@@ -1,6 +1,7 @@
 package com.astra.vpn
 
-import org.junit.Assert.assertEquals\nimport org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
