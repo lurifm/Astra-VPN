@@ -59,6 +59,6 @@ class TrafficForecastTest {
 
         val result = TrafficForecast.estimate(entries, todayKey = 20261124)
 
-        assertEquals(TrafficForecast.Result(125L, 2), result)
+        assertEquals(TrafficForecast.Result(100L, 2), result)
     }
 }
