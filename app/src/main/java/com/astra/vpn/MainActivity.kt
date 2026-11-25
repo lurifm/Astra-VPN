@@ -121,6 +121,7 @@ class MainActivity : Activity() {
     private val throughputBatchQueue = java.util.ArrayDeque<String>()
     private val throughputBatchHandler = Handler(Looper.getMainLooper())
     private var throughputBatchTask: Runnable? = null
+    private var throughputWatchdogTask: Runnable? = null
     @Volatile private var throughputBatchActive = false
     private var throughputBatchGeneration = 0L
     private var throughputBatchTotal = 0
@@ -137,6 +138,8 @@ class MainActivity : Activity() {
                 runCatching { ThroughputMailboxStore(this@MainActivity).acknowledge(session) }
                 return
             }
+            throughputWatchdogTask?.let(throughputBatchHandler::removeCallbacks)
+            throughputWatchdogTask = null
             val profile = activeThroughputProfile
             activeThroughputSessionId = null
             activeThroughputProfile = null
@@ -3652,6 +3655,7 @@ class MainActivity : Activity() {
         throughputPreparationPending = true
         throughputPreparationFastMode = fastMode
         throughputProbeInFlight = true
+        scheduleThroughputWatchdog(session)
         renderProfiles()
         prepareThroughputProbe(profile, session, fastMode)
     }
@@ -3702,6 +3706,8 @@ class MainActivity : Activity() {
 
     private fun handleThroughputProbeStartFailure(session: String) {
         if (activeThroughputSessionId != session) return
+        throughputWatchdogTask?.let(throughputBatchHandler::removeCallbacks)
+        throughputWatchdogTask = null
         activeThroughputSessionId = null
         activeThroughputProfile = null
         throughputPreparationPending = false
@@ -3756,6 +3762,63 @@ class MainActivity : Activity() {
         throughputCheckButton.contentDescription =
             "Проверка скорости: ${throughputBatchCompleted + 1} из $throughputBatchTotal"
         startThroughputProbeForProfile(profile, fastMode = true)
+    }
+
+    /**
+     * Reclaims a throughput session if its isolated service process died without
+     * publishing a terminal mailbox event. The deadline is based on the persisted
+     * session start time, so Activity recreation cannot extend the recovery window.
+     */
+    private fun scheduleThroughputWatchdog(session: String) {
+        if (activeThroughputSessionId != session) return
+        val snapshot = runCatching { profileStore.throughputSession() }.getOrNull()
+            ?.takeIf { it.sessionId == session } ?: return
+        throughputWatchdogTask?.let(throughputBatchHandler::removeCallbacks)
+        val delay = ThroughputSessionPolicy.remainingWatchdogDelayMillis(
+            snapshot.startedAtMillis, System.currentTimeMillis()
+        )
+        val task = Runnable {
+            throughputWatchdogTask = null
+            if (activeThroughputSessionId != session) return@Runnable
+
+            // The service writes the mailbox before broadcasting. Consume a
+            // committed terminal event through the regular receiver path first.
+            val pending = runCatching { ThroughputMailboxStore(this).read() }.getOrNull()
+            if (pending?.sessionId == session) {
+                throughputReceiver.onReceive(this, pending.toIntent())
+                return@Runnable
+            }
+
+            val now = System.currentTimeMillis()
+            if (!ThroughputSessionPolicy.isWatchdogExpired(snapshot.startedAtMillis, now)) {
+                scheduleThroughputWatchdog(session)
+                return@Runnable
+            }
+
+            // Stop only this exact service session; stale callbacks cannot
+            // terminate a subsequent item in the batch.
+            runCatching {
+                startService(Intent(this, AstraThroughputProbeService::class.java)
+                    .setAction(AstraThroughputProbeService.ACTION_STOP)
+                    .putExtra(AstraThroughputProbeService.EXTRA_SESSION, session))
+            }
+            activeThroughputSessionId = null
+            activeThroughputProfile = null
+            throughputPreparationPending = false
+            throughputPreparationRunning = false
+            runCatching { profileStore.setThroughputSession(null) }
+            if (throughputBatchActive) {
+                throughputBatchCompleted++
+                throughputProbeInFlight = true
+                scheduleNextThroughputBatchProbe()
+            } else {
+                throughputProbeInFlight = false
+                Toast.makeText(this, "Проверка скорости завершилась по тайм-ауту", Toast.LENGTH_SHORT).show()
+            }
+            if (!isFinishing && !isDestroyed) renderProfiles()
+        }
+        throughputWatchdogTask = task
+        throughputBatchHandler.postDelayed(task, delay)
     }
 
     private fun scheduleNextThroughputBatchProbe() {
@@ -3817,6 +3880,8 @@ class MainActivity : Activity() {
         val session = activeThroughputSessionId
         val wasBatch = throughputBatchActive
         if (session == null && !wasBatch) return
+        throughputWatchdogTask?.let(throughputBatchHandler::removeCallbacks)
+        throughputWatchdogTask = null
         activeThroughputSessionId = null
         activeThroughputProfile = null
         throughputPreparationPending = false
@@ -4429,6 +4494,7 @@ class MainActivity : Activity() {
         ThroughputMailboxStore(this).read()?.let { event ->
             throughputReceiver.onReceive(this, event.toIntent())
         }
+        activeThroughputSessionId?.let(::scheduleThroughputWatchdog)
         if (throughputPreparationPending &&
             activeThroughputSessionId != null &&
             activeThroughputProfile != null
@@ -8141,6 +8207,7 @@ class MainActivity : Activity() {
             cancelThroughputProbe(showToast = false, refreshUi = false)
         }
         throughputBatchHandler.removeCallbacksAndMessages(null)
+        throughputWatchdogTask = null
         if (throughputReceiverRegistered) {
             runCatching { unregisterReceiver(throughputReceiver) }
             throughputReceiverRegistered = false
