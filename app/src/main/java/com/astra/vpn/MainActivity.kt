@@ -297,6 +297,12 @@ class MainActivity : Activity() {
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
+    private val speedTestExecutor = Executors.newSingleThreadExecutor()
+    private val speedTestGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val speedTestCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val speedTestConnection =
+        java.util.concurrent.atomic.AtomicReference<HttpsURLConnection?>(null)
+    private var speedTestFuture: java.util.concurrent.Future<*>? = null
     private val appTrafficStatsExecutor = Executors.newSingleThreadExecutor()
     private val appTrafficStatsGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private var appTrafficStatsFuture: java.util.concurrent.Future<*>? = null
@@ -7587,53 +7593,168 @@ class MainActivity : Activity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Далее"
     }
 
+    private fun cancelSpeedTest(expectedGeneration: Long? = null) {
+        if (expectedGeneration != null && speedTestGeneration.get() != expectedGeneration) return
+        speedTestCancelled.set(true)
+        speedTestFuture?.cancel(true)
+        speedTestFuture = null
+        speedTestConnection.getAndSet(null)?.disconnect()
+    }
+
     private fun runCombinedSpeedAndIpTest() {
+        // Supersede any previous run before creating a new generation.
+        cancelSpeedTest()
+        val generation = speedTestGeneration.incrementAndGet()
+        speedTestCancelled.set(false)
+
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Тест скорости и IP")
             .setMessage("Проверяем внешний IP и измеряем загрузку тестового файла…")
             .setNegativeButton("Закрыть", null)
             .create()
         dialog.show()
-        diagnosticsExecutor.execute {
-            val report = runCatching {
-                val ipConnection = (URL("https://api.ipify.org").openConnection() as HttpsURLConnection).apply {
-                    connectTimeout = 7000; readTimeout = 7000; requestMethod = "GET"
+        dialog.setOnDismissListener { cancelSpeedTest(generation) }
+
+        val deadlineNanos = System.nanoTime() +
+            java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
+        val deadlineDisconnect = Runnable {
+            if (speedTestGeneration.get() == generation && !speedTestCancelled.get()) {
+                speedTestConnection.getAndSet(null)?.disconnect()
+            }
+        }
+        monitorHandler.postDelayed(deadlineDisconnect, 30_000L)
+
+        speedTestFuture = speedTestExecutor.submit {
+            var report: String? = null
+
+            fun ensureActive() {
+                if (generation != speedTestGeneration.get() ||
+                    speedTestCancelled.get() ||
+                    Thread.currentThread().isInterrupted
+                ) {
+                    throw java.util.concurrent.CancellationException("Тест отменён")
                 }
-                val ip = try { ipConnection.inputStream.bufferedReader().use { it.readText().trim() } }
-                    finally { ipConnection.disconnect() }
-                require(ip.isNotBlank() && ip.length <= 64) { "Не удалось определить внешний IP" }
-                val testBytes = 3_000_000L
-                val speedConnection = (URL("https://speed.cloudflare.com/__down?bytes=" + testBytes)
-                    .openConnection() as HttpsURLConnection).apply {
-                    connectTimeout = 8000; readTimeout = 15000; requestMethod = "GET"
-                    setRequestProperty("Cache-Control", "no-cache")
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw java.net.SocketTimeoutException("Превышен общий лимит теста — 30 секунд")
                 }
-                val started = System.nanoTime()
-                var received = 0L
+            }
+
+            fun boundedTimeout(configuredMs: Int): Int {
+                ensureActive()
+                val remainingMs = java.util.concurrent.TimeUnit.NANOSECONDS
+                    .toMillis(deadlineNanos - System.nanoTime())
+                    .coerceAtLeast(1L)
+                return minOf(configuredMs.toLong(), remainingMs).toInt()
+            }
+
+            try {
+                ensureActive()
+                val ipConnection = URL("https://api.ipify.org")
+                    .openConnection() as HttpsURLConnection
+                speedTestConnection.set(ipConnection)
                 try {
-                    speedConnection.inputStream.use { input ->
-                        val buffer = ByteArray(16 * 1024)
-                        while (received < testBytes) {
+                    ensureActive()
+                    ipConnection.connectTimeout = boundedTimeout(7000)
+                    ipConnection.readTimeout = boundedTimeout(7000)
+                    ipConnection.requestMethod = "GET"
+                    val ipBytes = java.io.ByteArrayOutputStream()
+                    ipConnection.inputStream.use { input ->
+                        val buffer = ByteArray(32)
+                        while (true) {
+                            ensureActive()
                             val count = input.read(buffer)
                             if (count < 0) break
-                            received += count
+                            if (ipBytes.size() + count > 64) {
+                                throw IllegalStateException("Сервер вернул некорректный IP")
+                            }
+                            ipBytes.write(buffer, 0, count)
                         }
                     }
-                } finally { speedConnection.disconnect() }
-                require(received > 0) { "Тестовый сервер не передал данные" }
-                val seconds = (System.nanoTime() - started).coerceAtLeast(1L) / 1_000_000_000.0
-                val mbps = received * 8.0 / seconds / 1_000_000.0
-                val route = if (connected) "через активный VPN" else "через текущее подключение без подтверждённого VPN"
-                "Внешний IP: " + ip + "\nЗагрузка: " + String.format(java.util.Locale.US, "%.2f", mbps) +
-                    " Мбит/с\nПолучено: " + (received / 1_000_000) + " МБ\nМаршрут: " + route +
-                    "\n\nРезультат зависит от сети и тестового узла."
-            }.getOrElse { error ->
-                "Тест не завершён: " + (error.message ?: "ошибка сети") + ". Проверь подключение и повтори попытку."
+                    val ip = ipBytes.toString("UTF-8").trim()
+                    require(ip.isNotBlank() && ip.length <= 64) {
+                        "Не удалось определить внешний IP"
+                    }
+                    ensureActive()
+                    val testBytes = 3_000_000L
+                    val speedConnection = URL(
+                        "https://speed.cloudflare.com/__down?bytes=" + testBytes
+                    ).openConnection() as HttpsURLConnection
+                    speedTestConnection.set(speedConnection)
+                    try {
+                        ensureActive()
+                        speedConnection.connectTimeout = boundedTimeout(8000)
+                        speedConnection.readTimeout = boundedTimeout(15000)
+                        speedConnection.requestMethod = "GET"
+                        speedConnection.setRequestProperty("Cache-Control", "no-cache")
+
+                        val started = System.nanoTime()
+                        var received = 0L
+                        speedConnection.inputStream.use { input ->
+                            val buffer = ByteArray(16 * 1024)
+                            while (received < testBytes) {
+                                ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                received += count
+                            }
+                        }
+                        ensureActive()
+                        require(received > 0) { "Тестовый сервер не передал данные" }
+                        val seconds = (System.nanoTime() - started)
+                            .coerceAtLeast(1L) / 1_000_000_000.0
+                        val mbps = received * 8.0 / seconds / 1_000_000.0
+                        val route = if (connected) {
+                            "через активный VPN"
+                        } else {
+                            "через текущее подключение без подтверждённого VPN"
+                        }
+                        report = "Внешний IP: " + ip +
+                            "\nЗагрузка: " + String.format(java.util.Locale.US, "%.2f", mbps) +
+                            " Мбит/с\nПолучено: " + (received / 1_000_000) +
+                            " МБ\nМаршрут: " + route +
+                            "\n\nРезультат зависит от сети и тестового узла."
+                    } finally {
+                        speedTestConnection.compareAndSet(speedConnection, null)
+                        speedConnection.disconnect()
+                    }
+                } finally {
+                    speedTestConnection.compareAndSet(ipConnection, null)
+                    ipConnection.disconnect()
+                }
+            } catch (_: java.util.concurrent.CancellationException) {
+                // Closing the dialog is a user cancellation, not a network failure.
+            } catch (error: Exception) {
+                val cancelled = generation != speedTestGeneration.get() ||
+                    speedTestCancelled.get() || Thread.currentThread().isInterrupted
+                if (!cancelled) {
+                    report = if (System.nanoTime() >= deadlineNanos) {
+                        "Тест не завершён: превышен общий лимит 30 секунд. Проверь подключение и повтори попытку."
+                    } else {
+                        "Тест не завершён: " +
+                            (error.message ?: "ошибка сети") +
+                            ". Проверь подключение и повтори попытку."
+                    }
+                }
+            } finally {
+                monitorHandler.removeCallbacks(deadlineDisconnect)
+                speedTestConnection.getAndSet(null)?.disconnect()
             }
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed && dialog.isShowing) {
-                    dialog.setMessage(report)
-                    dialog.setButton(AlertDialog.BUTTON_POSITIVE, "Готово") { _, _ -> dialog.dismiss() }
+
+            val finalReport = report
+            if (finalReport != null) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed &&
+                        generation == speedTestGeneration.get() &&
+                        !speedTestCancelled.get() &&
+                        dialog.isShowing
+                    ) {
+                        speedTestFuture = null
+                        dialog.setMessage(finalReport)
+                        dialog.setButton(
+                            AlertDialog.BUTTON_POSITIVE,
+                            "Готово"
+                        ) { _, _ -> dialog.dismiss() }
+                    }
                 }
             }
         }
@@ -8037,6 +8158,8 @@ class MainActivity : Activity() {
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        cancelSpeedTest()
+        speedTestExecutor.shutdownNow()
         appTrafficStatsGeneration.incrementAndGet()
         appTrafficStatsFuture?.cancel(true)
         appTrafficStatsFuture = null
