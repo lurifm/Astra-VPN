@@ -3261,12 +3261,15 @@ class MainActivity : Activity() {
                     latency == "Ошибка проверки" -> "ПИНГ  ·  ошибка проверки"
                     latency == "н/д" -> "ПИНГ  ·  нет данных"
                     latency == "Проверяем…" -> "ПИНГ  ·  проверяем…"
+                    LatencyCachePresentationPolicy.isSavedLabel(latency) ->
+                        "СОХРАНЁННЫЙ ПИНГ  ·  ${latencyMs[link]} мс"
                     else -> "ПИНГ  ·  не проверен"
                 }
                 textSize = 10.5f
                 typeface = Typeface.DEFAULT_BOLD
                 // Keep the server list in Astra's gold palette. The exact millisecond
                 // value carries the information; color is not used as a fake estimate.
+                val savedCache = LatencyCachePresentationPolicy.isSavedLabel(latency)
                 val tone = if (measuredLatency != null || latency == "Проверяем…") LIGHT_ACCENT else MUTED
                 setTextColor(tone)
                 val pillColor = if (measuredLatency != null || latency == "Проверяем…") {
@@ -3282,6 +3285,7 @@ class MainActivity : Activity() {
                     latency == "Ошибка проверки" -> "Во время проверки сервера произошла ошибка"
                     latency == "н/д" -> "Нет достоверных данных о задержке сервера; это не означает, что сервер недоступен"
                     latency == "Проверяем…" -> "Проверяем пинг сервера"
+                    savedCache -> "Последний сохранённый Ping: ${latencyMs[link]} миллисекунд; требуется повторная проверка"
                     else -> "Пинг ещё не проверялся"
                 }
                 setPadding(dp(9), dp(5), dp(9), dp(5))
@@ -4612,11 +4616,39 @@ class MainActivity : Activity() {
             return
         }
         if (pending != null) {
-            prefs.edit().remove(KEY_LATENCY_PENDING_RESULTS).apply()
+            // A pending snapshot is one-shot recovery for a previous Activity.
+            // Its monotonic measurement time did not survive process recreation,
+            // so it is display-only just like the reusable cache.
+            prefs.edit()
+                .remove(KEY_LATENCY_PENDING_RESULTS)
+                .remove(KEY_LATENCY_SESSION_ID)
+                .apply()
+            activeLatencySessionId = null
+            latencyTestInFlight = false
+            pendingFastestSelection = false
+            selectingFastest = false
+            tilePendingStart = false
         }
-        // Completed values remain visible after relaunch; pending is consumed
-        // only once, while the reusable cache is retained until the next test.
-        applyLatencyResults(cached, finished = true)
+        // Restored values have no trustworthy monotonic timestamp. Keep them
+        // visible, but never treat them as a new measurement or history sample.
+        applySavedLatencyCache(cached)
+    }
+
+    private fun applySavedLatencyCache(payload: String) {
+        val values = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        var changed = false
+        urlTestProfileMap.forEach { (tag, profile) ->
+            if (!values.has(tag) || values.isNull(tag)) return@forEach
+            val ms = values.optLong(tag, -1L)
+            if (ms <= 0L || freshLatencyMs(profile) != null) return@forEach
+            latencyMs[profile] = ms
+            // Deliberately remove the monotonic timestamp. A cache restored after
+            // process death cannot prove when the underlying network measurement ran.
+            latencyMeasuredAt.remove(profile)
+            pingInfo[profile] = LatencyCachePresentationPolicy.savedLabel(ms)
+            changed = true
+        }
+        if (changed && !isFinishing && !isDestroyed) renderProfiles()
     }
 
     private fun applyLatencyResults(payload: String, finished: Boolean) {
