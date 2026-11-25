@@ -191,11 +191,11 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun probeSocketBindingRejectsUnvalidatedAndVpnNetworks() {
-        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, false, true))
-        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(true, true, true, true))
-        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, false))
-        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, false, true, true))
-        assertTrue(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, true))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, false, true, false))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(true, true, true, true, false))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, false, false))
+        assertFalse(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, false, true, true, false))
+        assertTrue(NetworkRecoveryPolicy.isProbeSocketNetworkEligible(false, true, true, true, false))
         assertFalse(
             NetworkRecoveryPolicy.isProbeSocketNetworkEligible(
                 isVpn = false,
