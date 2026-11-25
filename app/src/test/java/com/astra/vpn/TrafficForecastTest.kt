@@ -18,6 +18,20 @@ class TrafficForecastTest {
     }
 
     @Test
+    fun excludesTodayAndFutureDatedEntries() {
+        val entries = listOf(
+            DailyTrafficHistory.Entry(20261122, DailyTrafficHistory.Totals(100L, 0L)),
+            DailyTrafficHistory.Entry(20261123, DailyTrafficHistory.Totals(200L, 0L)),
+            DailyTrafficHistory.Entry(20261124, DailyTrafficHistory.Totals(10_000L, 0L)),
+            DailyTrafficHistory.Entry(20261125, DailyTrafficHistory.Totals(20_000L, 0L))
+        )
+
+        val result = TrafficForecast.estimate(entries, todayKey = 20261124)
+
+        assertEquals(TrafficForecast.Result(150L, 2), result)
+    }
+
+    @Test
     fun requiresAtLeastTwoCompletedDays() {
         val history = DailyTrafficHistory()
         history.record(20261123, 100L, 20L)
