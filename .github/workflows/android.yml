@@ -45,11 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           provided=0
-          for value in \\
-            "$ASTRA_RELEASE_KEYSTORE_BASE64" \\
-            "$ASTRA_RELEASE_STORE_PASSWORD" \\
-            "$ASTRA_RELEASE_KEY_ALIAS" \\
-            "$ASTRA_RELEASE_KEY_PASSWORD"; do
+          for value in "$ASTRA_RELEASE_KEYSTORE_BASE64" "$ASTRA_RELEASE_STORE_PASSWORD" "$ASTRA_RELEASE_KEY_ALIAS" "$ASTRA_RELEASE_KEY_PASSWORD"; do
             if [ -n "$value" ]; then provided=$((provided + 1)); fi
           done
 
