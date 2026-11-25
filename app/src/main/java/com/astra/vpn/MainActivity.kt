@@ -6012,7 +6012,8 @@ class MainActivity : Activity() {
                     }
                 )
             }
-        }
+            }
+        }.getOrNull()
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
