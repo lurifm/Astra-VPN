@@ -45,6 +45,18 @@ class SubscriptionDownloadBudgetTest {
         assertThrows(IllegalStateException::class.java) { budget.consume(1) }
     }
 
+    @Test fun batchBudgetAllowsTwoMiBPerSubscription() {
+        val budget = SubscriptionDownloadBudget.forSubscriptionCount(3, timeoutMillis = 1_000)
+        repeat(3) { budget.consume((2L * 1024L * 1024L).toInt()) }
+        assertEquals(0L, budget.remainingBytes())
+    }
+
+    @Test fun batchBudgetRejectsNegativeSubscriptionCount() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SubscriptionDownloadBudget.forSubscriptionCount(-1)
+        }
+    }
+
     @Test fun refusesInvalidBudgetConfiguration() {
         assertThrows(IllegalArgumentException::class.java) { SubscriptionDownloadBudget(maxBytes = -1) }
         assertThrows(IllegalArgumentException::class.java) { SubscriptionDownloadBudget(timeoutMillis = 0) }

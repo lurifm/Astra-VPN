@@ -1952,6 +1952,8 @@ class MainActivity : Activity() {
             var updated = 0
             var totalProfiles = 0
             val errors = mutableListOf<String>()
+            // Share one deadline across the foreground batch without reducing each source's byte cap.
+            val downloadBudget = SubscriptionDownloadBudget.forSubscriptionCount(sources.size)
             sources.forEachIndexed { index, source ->
                 val result = runCatching {
                     SubscriptionRefreshCoordinator.refreshExisting(
@@ -1967,7 +1969,8 @@ class MainActivity : Activity() {
                                 recordHistorySuccess = { SubscriptionRefreshHistory.recordSuccess(settingsPrefs, source) },
                                 recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settingsPrefs, source) }
                             )
-                        }
+                        },
+                        downloadBudget = downloadBudget
                     )
                 }
                 result.onSuccess { count ->

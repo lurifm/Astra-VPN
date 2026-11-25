@@ -1,10 +1,10 @@
 package com.astra.vpn
 
 /**
- * Aggregate network budget shared by all HTTPS subscriptions in one file batch.
+ * Aggregate network budget shared by all HTTPS subscriptions in one refresh batch.
  * The monotonic-clock deadline does not reset between URLs.
  */
-internal class SubscriptionDownloadBudget(
+class SubscriptionDownloadBudget(
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
     timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
     private val clockNanos: () -> Long = System::nanoTime
@@ -26,7 +26,7 @@ internal class SubscriptionDownloadBudget(
         require(byteCount >= 0) { "Размер блока не может быть отрицательным" }
         ensureTimeRemaining()
         require(byteCount.toLong() <= maxBytes - downloadedBytes) {
-            "Общий объём загружаемых подписок превышает 2 МБ"
+            "Общий объём загружаемых подписок превышает установленный лимит"
         }
         downloadedBytes += byteCount.toLong()
     }
@@ -54,6 +54,14 @@ internal class SubscriptionDownloadBudget(
     }
 
     companion object {
+        /** One shared deadline with a normal per-subscription response allowance. */
+        fun forSubscriptionCount(count: Int, timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS): SubscriptionDownloadBudget {
+            require(count >= 0) { "Количество подписок не может быть отрицательным" }
+            val maxBytes = if (count.toLong() > Long.MAX_VALUE / DEFAULT_MAX_BYTES) Long.MAX_VALUE
+                else count.toLong() * DEFAULT_MAX_BYTES
+            return SubscriptionDownloadBudget(maxBytes, timeoutMillis)
+        }
+
         const val DEFAULT_MAX_BYTES = 2L * 1024L * 1024L
         const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val NANOS_PER_MILLI = 1_000_000L

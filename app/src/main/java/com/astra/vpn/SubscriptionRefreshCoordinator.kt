@@ -35,8 +35,12 @@ object SubscriptionRefreshCoordinator {
         result.getOrThrow()
     }
 
-    fun refresh(store: ProfileStore, sourceUrl: String): Int = synchronized(lock) {
-        val parsed = SubscriptionParser.importDetailed(sourceUrl)
+    fun refresh(
+        store: ProfileStore,
+        sourceUrl: String,
+        downloadBudget: SubscriptionDownloadBudget = SubscriptionDownloadBudget()
+    ): Int = synchronized(lock) {
+        val parsed = SubscriptionParser.importDetailed(sourceUrl, downloadBudget)
         store.replaceSubscription(sourceUrl, parsed.links, parsed.metadata)
         parsed.links.size
     }
@@ -50,11 +54,12 @@ object SubscriptionRefreshCoordinator {
         store: ProfileStore,
         sourceUrl: String,
         onAttempt: () -> Unit = {},
-        onResult: (Result<Int?>) -> Unit = {}
+        onResult: (Result<Int?>) -> Unit = {},
+        downloadBudget: SubscriptionDownloadBudget = SubscriptionDownloadBudget()
     ): Int? = executeSerialized(
         onAttempt = onAttempt,
         operation = {
-            val parsed = SubscriptionParser.importDetailed(sourceUrl)
+            val parsed = SubscriptionParser.importDetailed(sourceUrl, downloadBudget)
             if (!store.replaceSubscriptionIfPresent(sourceUrl, parsed.links, parsed.metadata)) null
             else parsed.links.size
         },

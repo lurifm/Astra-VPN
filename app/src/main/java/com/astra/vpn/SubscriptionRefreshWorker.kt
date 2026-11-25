@@ -51,6 +51,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
             var serverCount = 0
             var failures = 0
             val failedSources = linkedSetOf<String>()
+            // One monotonic deadline spans the worker batch; each source retains its 2 MiB cap.
+            val downloadBudget = SubscriptionDownloadBudget.forSubscriptionCount(targets.size)
             for (index in targets.indices) {
                 val source = targets[index]
                 // A stopped worker must not silently lose subscriptions it had not
@@ -74,7 +76,8 @@ class SubscriptionRefreshWorker(context: Context, params: WorkerParameters) : Wo
                                 recordHistorySuccess = { SubscriptionRefreshHistory.recordSuccess(settings, source) },
                                 recordHistoryFailure = { SubscriptionRefreshHistory.recordFailure(settings, source) }
                             )
-                        }
+                        },
+                        downloadBudget = downloadBudget
                     )
                     if (count == null) continue
                     updated++

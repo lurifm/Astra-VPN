@@ -22,7 +22,7 @@ object SubscriptionParser {
 
     fun importText(input: String): List<String> = importDetailed(input).links
 
-    fun importDetailed(input: String): ParsedSubscription = importDetailed(input, null)
+    fun importDetailed(input: String): ParsedSubscription = importDetailed(input, SubscriptionDownloadBudget())
 
     internal fun importDetailed(
         input: String,
