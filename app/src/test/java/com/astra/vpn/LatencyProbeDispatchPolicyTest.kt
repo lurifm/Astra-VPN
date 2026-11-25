@@ -73,27 +73,35 @@ class LatencyProbeDispatchPolicyTest {
     }
 }
 
-class NativeUrlTestTimingPolicyTest {
-    @Test fun retainsNativeSlotAfterUiTimeoutUntilNativeDeadline() {
-        assertTrue(NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() > 0L)
-        assertTrue(
-            NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS +
-                NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs() >=
-                NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS
-        )
+class LatencyEngineRecyclePolicyTest {
+    @Test fun serverDeadlineIsExactlyTenSecondsAndRecycleHasSeparateBound() {
+        assertEquals(10_000L, LatencyEngineRecyclePolicy.SERVER_TIMEOUT_MS)
+        assertEquals(12_000L, LatencyEngineRecyclePolicy.RECYCLE_TIMEOUT_MS)
     }
 
-    @Test fun nativeBudgetMatchesPinnedSingBoxTimeoutPhases() {
-        assertEquals(10_000L, NativeUrlTestTimingPolicy.DNS_TIMEOUT_MS)
-        assertEquals(5_000L, NativeUrlTestTimingPolicy.TCP_CONNECT_TIMEOUT_MS)
-        assertEquals(15_000L, NativeUrlTestTimingPolicy.HTTP_CLIENT_TIMEOUT_MS)
-        assertEquals(1_000L, NativeUrlTestTimingPolicy.SAFETY_MARGIN_MS)
-        assertEquals(31_000L, NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS)
+    @Test fun recycleStartsOnlyWhenServiceIsActiveAndNotAlreadyRecycling() {
+        assertTrue(LatencyEngineRecyclePolicy.shouldStartRecycle(false, false))
+        assertFalse(LatencyEngineRecyclePolicy.shouldStartRecycle(true, false))
+        assertFalse(LatencyEngineRecyclePolicy.shouldStartRecycle(false, true))
     }
 
-    @Test fun nativeCooldownMatchesPinnedSingBoxTimeoutBudget() {
-        assertEquals(10_000L, NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS)
-        assertEquals(22_000L, NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
-        assertEquals(32_000L, NativeUrlTestTimingPolicy.SERVER_TIMEOUT_MS + NativeUrlTestTimingPolicy.cooldownAfterUiTimeoutMs())
+    @Test fun dispatchWaitsForRecycleAndHandoverToFinish() {
+        assertTrue(LatencyEngineRecyclePolicy.shouldDispatch(false, false, false))
+        assertFalse(LatencyEngineRecyclePolicy.shouldDispatch(false, true, false))
+        assertFalse(LatencyEngineRecyclePolicy.shouldDispatch(false, false, true))
+        assertFalse(LatencyEngineRecyclePolicy.shouldDispatch(true, false, false))
+    }
+
+    @Test fun oldEngineResultsAreRejectedDuringAndAfterRecycle() {
+        assertFalse(LatencyEngineRecyclePolicy.shouldAcceptResult(true, 4L, 4L))
+        assertFalse(LatencyEngineRecyclePolicy.shouldAcceptResult(false, 3L, 4L))
+        assertTrue(LatencyEngineRecyclePolicy.shouldAcceptResult(false, 4L, 4L))
+    }
+
+    @Test fun handoverRetryPolicyRemainsBoundedWhenUnderlayIsValidated() {
+        assertTrue(LatencyEngineRecyclePolicy.shouldRequeueAfterHandover(0, true))
+        assertTrue(LatencyEngineRecyclePolicy.shouldRequeueAfterHandover(1, true))
+        assertFalse(LatencyEngineRecyclePolicy.shouldRequeueAfterHandover(2, true))
+        assertTrue(LatencyEngineRecyclePolicy.shouldRequeueAfterHandover(5, false))
     }
 }
