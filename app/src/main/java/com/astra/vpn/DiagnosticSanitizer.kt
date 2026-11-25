@@ -7,9 +7,18 @@ internal object DiagnosticSanitizer {
     // Native diagnostics may include subscription links with bearer tokens in the query,
     // or protocols not covered by profileUri. Redact every remaining absolute URI.
     private val absoluteUri = Regex("(?i)\\b[a-z][a-z0-9+.-]*://\\S+")
+    // Diagnostics can also print structured key/value fields outside a URI.
+    private val secretFields = Regex(
+        """(?i)(["']?(?:token|password|passwd|secret|uuid|private[_-]?key|authorization|api[_-]?key|access[_-]?key)["']?\\s*[:=]\\s*["']?)([^"'\\s,;&}]+)"""
+    )
+    private val bearerAuthorization = Regex(
+        """(?i)(\\bauthorization\\s*[:=]\\s*)(?:bearer\\s+)?[^\\s,;]+"""
+    )
 
     fun sanitize(message: String): String = message
         .replace(profileUri, "<profile-uri-redacted>")
         .replace(inlineCredentials, "$1<credentials-redacted>@")
         .replace(absoluteUri, "<uri-redacted>")
+        .replace(bearerAuthorization, "$1<redacted>")
+        .replace(secretFields, "$1<redacted>")
 }

@@ -37,4 +37,26 @@ class DiagnosticSanitizerTest {
         val input = "dns resolve timeout after 8000ms"
         assertTrue(DiagnosticSanitizer.sanitize(input).contains(input))
     }
+    @Test fun redactsStandaloneSecretFieldsInPlainTextAndJson() {
+        val input = """connect failed token=abc123 password: hunter2 {"api_key":"key-789","private_key":"pem-data"}"""
+        val output = DiagnosticSanitizer.sanitize(input)
+        assertFalse(output.contains("abc123"))
+        assertFalse(output.contains("hunter2"))
+        assertFalse(output.contains("key-789"))
+        assertFalse(output.contains("pem-data"))
+        assertTrue(output.contains("token=<redacted>"))
+        assertTrue(output.contains("password: <redacted>"))
+    }
+
+    @Test fun redactsBearerAuthorizationHeaders() {
+        val output = DiagnosticSanitizer.sanitize("request failed Authorization: Bearer eyJhbGciOiJIUzI1NiJ9")
+        assertFalse(output.contains("eyJhbGciOiJIUzI1NiJ9"))
+        assertTrue(output.contains("Authorization: <redacted>"))
+    }
+
+    @Test fun preservesNonSecretKeyValueDiagnostics() {
+        val input = "connect timeout=8000ms retry=2 status=503"
+        assertTrue(DiagnosticSanitizer.sanitize(input).contains(input))
+    }
+
 }
