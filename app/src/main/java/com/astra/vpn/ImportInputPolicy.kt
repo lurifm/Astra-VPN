@@ -46,9 +46,13 @@ internal object ImportInputPolicy {
         }
     }
 
+    fun isWithinUtf8ByteLimit(value: String, limit: Int): Boolean {
+        require(limit in 0..MAX_TOTAL_BYTES)
+        return value.length <= limit && utf8ByteCountWithinLimit(value, limit)
+    }
+
     fun validateTextSize(value: String) {
-        require(value.length <= MAX_TOTAL_BYTES &&
-            utf8ByteCountWithinLimit(value, MAX_TOTAL_BYTES)) {
+        require(isWithinUtf8ByteLimit(value, MAX_TOTAL_BYTES)) {
             "Текст импорта слишком большой (максимум 2 МБ)"
         }
     }

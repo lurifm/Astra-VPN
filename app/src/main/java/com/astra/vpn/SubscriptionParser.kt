@@ -70,7 +70,7 @@ object SubscriptionParser {
     }
 
     internal fun validateInputSize(input: String) {
-        require(input.toByteArray(Charsets.UTF_8).size <= MAX_RESPONSE_BYTES) {
+        require(ImportInputPolicy.isWithinUtf8ByteLimit(input, MAX_RESPONSE_BYTES)) {
             "Текст подписки слишком большой (максимум 2 МБ)"
         }
     }
@@ -212,6 +212,6 @@ object SubscriptionParser {
     }
 
     private const val MAX_EXPIRY_EPOCH_SECONDS = 253402300799L // 9999-12-31T23:59:59Z
-    private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+    private const val MAX_RESPONSE_BYTES = ImportInputPolicy.MAX_TOTAL_BYTES
     private const val MAX_REDIRECTS = 5
 }

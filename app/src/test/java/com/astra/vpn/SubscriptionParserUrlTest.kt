@@ -44,6 +44,26 @@ class SubscriptionParserUrlTest {
         }
     }
 
+    @Test fun validatesCyrillicAtTheExactUtf8ByteLimit() {
+        SubscriptionParser.validateInputSize("я".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 2))
+        try {
+            SubscriptionParser.validateInputSize("я".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 2 + 1))
+            fail("Expected oversized UTF-8 text to be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected UTF-8 byte limit.
+        }
+    }
+
+    @Test fun validatesSupplementaryCharactersAtTheExactUtf8ByteLimit() {
+        SubscriptionParser.validateInputSize("😀".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 4))
+        try {
+            SubscriptionParser.validateInputSize("😀".repeat(ImportInputPolicy.MAX_TOTAL_BYTES / 4 + 1))
+            fail("Expected oversized UTF-8 text to be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected UTF-8 byte limit.
+        }
+    }
+
     private fun assertRejected(value: String) {
         try {
             SubscriptionParser.validateSubscriptionUrl(value)
