@@ -322,7 +322,18 @@ class AstraPlatform(
             }
         }
         defaultNetworkCallback = callback
-        connectivity.registerDefaultNetworkCallback(callback)
+        // Track every Internet-capable physical network, not only Android's
+        // current default. During Wi-Fi/cellular handover an alternate network
+        // may remain blocked while still advertising INTERNET and VALIDATED.
+        // Its blocked-status callback must update the shared registry before
+        // resolveUnderlyingNetwork/probeNetworkCandidates can select it.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .build()
+        connectivity.registerNetworkCallback(request, callback)
         refreshDefaultInterface()
     }
 
