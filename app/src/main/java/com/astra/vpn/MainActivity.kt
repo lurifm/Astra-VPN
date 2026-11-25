@@ -370,6 +370,14 @@ class MainActivity : Activity() {
             network: android.net.Network,
             linkProperties: android.net.LinkProperties
         ) = onPhysicalNetworkChanged()
+
+        // A network can become blocked by system policy without a transport or
+        // capability transition. Treat that as a route change so health probes
+        // are invalidated and recovery state is refreshed immediately.
+        override fun onBlockedStatusChanged(
+            network: android.net.Network,
+            blocked: Boolean
+        ) = onPhysicalNetworkChanged()
     }
 
     private val physicalNetworkChangeDebounce = Runnable {
