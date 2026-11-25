@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import java.util.concurrent.Executors
 
 /**
  * User-started foreground observer and executor for conservative banking transitions.
@@ -23,10 +24,16 @@ import android.os.Looper
  */
 internal class BankingForegroundMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    // UsageEvents may replay a full day after process recreation. Keep this
+    // potentially expensive query off the main thread on a serial worker.
+    private val queryExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "AstraBankingUsageQuery").apply { isDaemon = true }
+    }
     private val activeActivities = linkedSetOf<String>()
     private val observationPolicy = BankingForegroundObservationPolicy()
     private var lastQueryTime = 0L
-    private var running = false
+    @Volatile private var running = false
+    @Volatile private var monitorGeneration = 0L
 
     private val poll = object : Runnable {
         override fun run() {
@@ -38,24 +45,34 @@ internal class BankingForegroundMonitorService : Service() {
                 cancelAutomationAndStop()
                 return
             }
-            val observed = runCatching { readForegroundPackage() }
-                .onFailure { SafeLog.w(TAG, "Usage events unavailable", it) }
-                .getOrNull()
-            // Require two consecutive non-ambiguous observations before publishing
-            // a foreground change. Null means unknown (transition, split-screen,
-            // missing Usage Access), never proof that a banking app was closed.
-            observationPolicy.observe(observed)?.let { stablePackage ->
-                val observedAt = System.currentTimeMillis()
-                sendBroadcast(
-                    Intent(ACTION_OBSERVATION)
-                        .setPackage(packageName)
-                        .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
-                        .putExtra(EXTRA_OBSERVED_AT, observedAt)
-                )
-                runCatching { executeBankingTransition(stablePackage, observedAt) }
-                    .onFailure { SafeLog.e(TAG, "Banking transition failed closed", it) }
+            val queryGeneration = monitorGeneration
+            // queryEvents() and replaying the initial 24-hour history can be expensive.
+            queryExecutor.execute {
+                val observed = runCatching { readForegroundPackage() }
+                    .onFailure { SafeLog.w(TAG, "Usage events unavailable", it) }
+                    .getOrNull()
+                handler.post {
+                    // Ignore results produced before stop/restart or service teardown.
+                    if (!running || monitorGeneration != queryGeneration) return@post
+                    // Require two consecutive non-ambiguous observations before publishing
+                    // a foreground change. Null means unknown (transition, split-screen,
+                    // missing Usage Access), never proof that a banking app was closed.
+                    observationPolicy.observe(observed)?.let { stablePackage ->
+                        val observedAt = System.currentTimeMillis()
+                        sendBroadcast(
+                            Intent(ACTION_OBSERVATION)
+                                .setPackage(packageName)
+                                .putExtra(EXTRA_FOREGROUND_PACKAGE, stablePackage)
+                                .putExtra(EXTRA_OBSERVED_AT, observedAt)
+                        )
+                        runCatching { executeBankingTransition(stablePackage, observedAt) }
+                            .onFailure { SafeLog.e(TAG, "Banking transition failed closed", it) }
+                    }
+                    if (running && monitorGeneration == queryGeneration) {
+                        handler.postDelayed(this, POLL_INTERVAL_MS)
+                    }
+                }
             }
-            handler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
 
@@ -75,6 +92,7 @@ internal class BankingForegroundMonitorService : Service() {
                     ProfileStore(this).clearBankPauseSnapshot()
                 }.onFailure { SafeLog.e(TAG, "Не удалось очистить банковскую автопаузу при выключении функции", it) }
                 running = false
+                monitorGeneration += 1L
                 handler.removeCallbacksAndMessages(null)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -110,11 +128,18 @@ internal class BankingForegroundMonitorService : Service() {
     private fun startMonitoringIfNeeded() {
         if (running) return
         running = true
-        activeActivities.clear()
+        val generation = monitorGeneration + 1L
+        monitorGeneration = generation
         observationPolicy.reset()
-        lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
-        handler.removeCallbacks(poll)
-        handler.post(poll)
+        handler.removeCallbacksAndMessages(null)
+        // Reset UsageEvents state before the first query on the same serial worker.
+        queryExecutor.execute {
+            activeActivities.clear()
+            lastQueryTime = (System.currentTimeMillis() - INITIAL_LOOKBACK_MS).coerceAtLeast(0L)
+            handler.post {
+                if (running && monitorGeneration == generation) poll.run()
+            }
+        }
     }
 
     /**
@@ -131,6 +156,7 @@ internal class BankingForegroundMonitorService : Service() {
             ProfileStore(this).clearBankPauseSnapshot()
         }.onFailure { SafeLog.e(TAG, "Не удалось отменить банковскую автоматизацию", it) }
         running = false
+        monitorGeneration += 1L
         handler.removeCallbacksAndMessages(null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -413,7 +439,9 @@ internal class BankingForegroundMonitorService : Service() {
 
     override fun onDestroy() {
         running = false
+        monitorGeneration += 1L
         handler.removeCallbacksAndMessages(null)
+        queryExecutor.shutdownNow()
         super.onDestroy()
     }
 
