@@ -297,6 +297,7 @@ class MainActivity : Activity() {
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor()
+    private val appTrafficStatsExecutor = Executors.newSingleThreadExecutor()
     private val appTrafficStatsGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private var appTrafficStatsFuture: java.util.concurrent.Future<*>? = null
     private var appTrafficStatsDialog: android.app.Dialog? = null
@@ -5650,14 +5651,15 @@ class MainActivity : Activity() {
         outboundTrafficRefresh = { renderOutboundTraffic(outboundContainer) }
         outboundTrafficRefresh?.invoke()
         content.addView(outboundContainer, matchWidth().apply { bottomMargin = dp(8) })
+        val hasUsageAccess = hasAppUsageAccess()
         content.addView(TextView(this).apply {
-            text = if (hasAppUsageAccess()) {
+            text = if (hasUsageAccess) {
                 "Статистика приложений: доступ разрешён"
             } else {
                 "Статистика приложений: нужен дополнительный доступ Android"
             }
             textSize = 12f
-            setTextColor(if (hasAppUsageAccess()) GREEN else AMBER)
+            setTextColor(if (hasUsageAccess) GREEN else AMBER)
             setPadding(dp(12), dp(10), dp(12), dp(8))
         })
         content.addView(TextView(this).apply {
@@ -5688,8 +5690,7 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
             setOnClickListener { loadAppTrafficStats(appTrafficContainer) }
         })
-        if (hasAppUsageAccess()) loadAppTrafficStats(appTrafficContainer)
-        else appTrafficContainer.addView(TextView(this).apply {
+        if (!hasUsageAccess) appTrafficContainer.addView(TextView(this).apply {
             text = "Топ приложений по трафику появится здесь после предоставления доступа."
             textSize = 12f
             setTextColor(0xFFD8E0F2.toInt())
@@ -5711,6 +5712,7 @@ class MainActivity : Activity() {
             appTrafficStatsFuture?.cancel(true)
             appTrafficStatsFuture = null
         }
+        if (hasUsageAccess) loadAppTrafficStats(appTrafficContainer)
     }
 
     /** Refreshes the partial libbox outbound snapshot while the dialog is open. */
@@ -5784,15 +5786,18 @@ class MainActivity : Activity() {
         // A newer refresh supersedes the previous one; stale results are discarded.
         val generation = appTrafficStatsGeneration.incrementAndGet()
         appTrafficStatsFuture?.cancel(true)
-        appTrafficStatsFuture = runCatching {
-            diagnosticsExecutor.submit {
+        appTrafficStatsFuture = appTrafficStatsExecutor.submit {
             val now = System.currentTimeMillis()
             val dayMs = 24L * 60L * 60L * 1000L
             val result = runCatching {
                 val current = AppTrafficStatsReader.readPeriod(this, now - dayMs, now)
-                val previous = runCatching {
+                val previous = try {
                     AppTrafficStatsReader.readPeriod(this, now - 2L * dayMs, now - dayMs)
-                }.getOrNull()
+                } catch (cancelled: java.util.concurrent.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
                 val weekly = AppTrafficStatsReader.readLastSevenDays(this, now)
                 Triple(current, previous, weekly)
             }
@@ -6012,8 +6017,7 @@ class MainActivity : Activity() {
                     }
                 )
             }
-            }
-        }.getOrNull()
+        }
     }
 
     private fun requestPhoneStatePermissionIfNeeded() {
@@ -8033,6 +8037,10 @@ class MainActivity : Activity() {
         autoSelectExecutor.shutdownNow()
         healthCheckExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        appTrafficStatsGeneration.incrementAndGet()
+        appTrafficStatsFuture?.cancel(true)
+        appTrafficStatsFuture = null
+        appTrafficStatsExecutor.shutdownNow()
         super.onDestroy()
     }
 
