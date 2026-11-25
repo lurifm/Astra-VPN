@@ -57,6 +57,12 @@ class LatencyProbeDispatchPolicyTest {
             previouslyTimedOut = false,
             handoverPending = true
         ))
+        assertFalse(LatencyProbeDispatchPolicy.shouldAcceptOutboundUpdate(
+            isInFlight = true,
+            alreadyCompleted = false,
+            previouslyTimedOut = false,
+            engineRecycleInProgress = true
+        ))
     }
 
     @Test fun rejectsOutboundHistoryOlderThanCurrentDispatch() {
