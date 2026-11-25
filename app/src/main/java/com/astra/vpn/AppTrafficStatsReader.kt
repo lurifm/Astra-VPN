@@ -70,13 +70,18 @@ internal object AppTrafficStatsReader {
         val dateFormat = java.text.SimpleDateFormat("EE", java.util.Locale.getDefault())
         val result = mutableListOf<DailySnapshot>()
         repeat(7) {
+            check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
             val start = calendar.timeInMillis
             val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
                 .format(calendar.time).toInt()
             calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
             val end = minOf(calendar.timeInMillis, now)
             val apps = if (start < end) {
-                runCatching { readPeriod(context, start, end).apps }.getOrDefault(emptyList())
+                try {
+                    readPeriod(context, start, end).apps
+                } catch (cancelled: java.util.concurrent.CancellationException) {
+                    throw cancelled
+                }
             } else {
                 emptyList()
             }
@@ -88,6 +93,7 @@ internal object AppTrafficStatsReader {
     }
 
     fun readPeriod(context: Context, start: Long, end: Long): Result {
+        check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
         check(hasAccess(context)) { "Для статистики приложений нужен доступ Usage Access" }
         require(start < end) { "Некорректный период статистики" }
         val now = end
@@ -104,6 +110,7 @@ internal object AppTrafficStatsReader {
                 stats = manager.querySummary(networkType, null, start, now)
                 val bucket = NetworkStats.Bucket()
                 while (stats.hasNextBucket()) {
+                    check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
                     if (!stats.getNextBucket(bucket)) break
                     val uid = bucket.uid
                     if (uid < 0) continue
@@ -120,6 +127,7 @@ internal object AppTrafficStatsReader {
         try { collect(ConnectivityManager.TYPE_WIFI, false) } catch (_: Exception) { }
         try { collect(ConnectivityManager.TYPE_MOBILE, true) } catch (_: Exception) { }
 
+        check(!Thread.currentThread().isInterrupted) { "Чтение статистики отменено" }
         val labels = HashMap<Int, String>()
         val pm = context.packageManager
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
