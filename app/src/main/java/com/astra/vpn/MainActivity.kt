@@ -312,9 +312,7 @@ class MainActivity : Activity() {
     }
     private val monitorExecutor = Executors.newSingleThreadExecutor()
     private val monitorHandler = Handler(Looper.getMainLooper())
-    private var lastRxBytes = TrafficStats.UNSUPPORTED.toLong()
-    private var lastTxBytes = TrafficStats.UNSUPPORTED.toLong()
-    private var lastTrafficAt = 0L
+    private val deviceTrafficRateTracker = DeviceTrafficRateTracker()
     // Network type and carrier metadata change infrequently; avoid querying telephony every frame.
     private var lastNetworkLabelAt = 0L
     private val healthCheckExecutor = Executors.newSingleThreadExecutor()
@@ -5417,36 +5415,37 @@ class MainActivity : Activity() {
         // The device-wide graph remains explicitly separate from VPN-only measurements.
         updateVpnTrafficMonitor()
 
-        val now = System.currentTimeMillis()
         val rx = TrafficStats.getTotalRxBytes()
         val tx = TrafficStats.getTotalTxBytes()
         if (rx == TrafficStats.UNSUPPORTED.toLong() || tx == TrafficStats.UNSUPPORTED.toLong()) {
+            deviceTrafficRateTracker.reset()
             monitorDownload.text = "↓ недоступно"
             monitorUpload.text = "↑ недоступно"
             return
         }
         updateDailyTraffic(rx, tx)
-        if (lastTrafficAt > 0L && lastRxBytes >= 0L && lastTxBytes >= 0L) {
-            val elapsed = ((now - lastTrafficAt).coerceAtLeast(1L)) / 1000.0
-            val down = ((rx - lastRxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            val up = ((tx - lastTxBytes).coerceAtLeast(0L) * 8.0 / elapsed / 1_000_000.0).toFloat()
-            monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
-            monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
-            speedGraph.addSample(down, up)
-            monitorSpeedDiagnostics.text = LiveSpeedDiagnostics.summary(
-                down.toDouble(), up.toDouble(), connected, 0L
-            )
-            val stats = speedGraph.currentStats()
-            monitorSpeedStats.text = String.format(
-                java.util.Locale.US,
-                "Средняя: ↓ %.2f / ↑ %.2f Мбит/с   ·   Пик: ↓ %.2f / ↑ %.2f",
-                stats.averageDownloadMbps, stats.averageUploadMbps,
-                stats.peakDownloadMbps, stats.peakUploadMbps
-            )
-        }
-        lastRxBytes = rx
-        lastTxBytes = tx
-        lastTrafficAt = now
+        // Use elapsedRealtime rather than wall-clock time. A manual clock change
+        // or a long Activity pause must not create a false speed spike/dip.
+        val rate = deviceTrafficRateTracker.update(
+            rxBytes = rx,
+            txBytes = tx,
+            nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        ) ?: return
+        val down = rate.downloadMbps.toFloat()
+        val up = rate.uploadMbps.toFloat()
+        monitorDownload.text = "↓ " + String.format(java.util.Locale.US, "%.2f Мбит/с", down)
+        monitorUpload.text = "↑ " + String.format(java.util.Locale.US, "%.2f Мбит/с", up)
+        speedGraph.addSample(down, up)
+        monitorSpeedDiagnostics.text = LiveSpeedDiagnostics.summary(
+            down.toDouble(), up.toDouble(), connected, 0L
+        )
+        val stats = speedGraph.currentStats()
+        monitorSpeedStats.text = String.format(
+            java.util.Locale.US,
+            "Средняя: ↓ %.2f / ↑ %.2f Мбит/с   ·   Пик: ↓ %.2f / ↑ %.2f",
+            stats.averageDownloadMbps, stats.averageUploadMbps,
+            stats.peakDownloadMbps, stats.peakUploadMbps
+        )
     }
 
     /**
