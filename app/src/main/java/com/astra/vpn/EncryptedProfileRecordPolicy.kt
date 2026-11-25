@@ -12,6 +12,7 @@ internal object EncryptedProfileRecordPolicy {
             key == "bank_pause_profile_encrypted" ||
             key == "active_tunnel_profile_encrypted" ||
             key == "selected_profile_encrypted" ||
+            key == "throughput_session_profile_encrypted" ||
             key.startsWith("profile_") ||
             key.startsWith("subscription_profile_") ||
             key.startsWith("subscription_source_")

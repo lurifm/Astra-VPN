@@ -11,7 +11,8 @@ class EncryptedProfileRecordPolicyTest {
             "recovery_profile_encrypted",
             "bank_pause_profile_encrypted",
             "active_tunnel_profile_encrypted",
-            "selected_profile_encrypted"
+            "selected_profile_encrypted",
+            "throughput_session_profile_encrypted"
         )
 
         encryptedKeys.forEach { key ->
