@@ -18,8 +18,12 @@ internal object ProfileSelectionRefreshPolicy {
     /** Detect profiles whose subscription URI rotated while they remained active. */
     fun matchesRemovedProfile(profile: String?, removedProfiles: Collection<String>): Boolean {
         if (profile.isNullOrBlank() || removedProfiles.isEmpty()) return false
-        return removedProfiles.any { removed ->
-            profile == removed || ProfileSelectionMatcher.sharesEndpoint(profile, removed)
-        }
+        if (profile in removedProfiles) return true
+        // A rotated URI is attributable to this deletion only when exactly one
+        // removed profile has the same endpoint. Multiple credentials on one
+        // endpoint are ambiguous; stopping another profile would be destructive.
+        return removedProfiles.count { removed ->
+            ProfileSelectionMatcher.sharesEndpoint(profile, removed)
+        } == 1
     }
 }
