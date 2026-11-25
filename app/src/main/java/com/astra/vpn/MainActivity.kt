@@ -6460,6 +6460,15 @@ class MainActivity : Activity() {
             .setTitle("Расширенные сетевые параметры")
             .setView(content)
             .setNegativeButton("Отмена", null)
+            .setNeutralButton("По умолчанию") { _, _ ->
+                settingsPrefs.edit()
+                    .remove("advanced_mtu")
+                    .remove("advanced_multiplex")
+                    .remove("advanced_direct_ru")
+                    .remove("advanced_dns_cache")
+                    .apply()
+                Toast.makeText(this, "Возвращены параметры по умолчанию", Toast.LENGTH_SHORT).show()
+            }
             .setPositiveButton("Сохранить") { _, _ ->
                 settingsPrefs.edit()
                     .putInt("advanced_mtu", SingBoxAdvancedOptions.MIN_MTU + mtu.progress)
