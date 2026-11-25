@@ -22,4 +22,21 @@ class ProfileSelectionRefreshPolicyTest {
     @Test fun leavesNoSelectionWhenThereWasNoPreviousSelection() {
         assertNull(ProfileSelectionRefreshPolicy.resolve(null, "new", false))
     }
+    @Test fun recognizesActiveProfileAfterSubscriptionCredentialRotation() {
+        val active = "vless://old-token@node.example:443?security=tls#Germany"
+        val removed = listOf("vless://new-token@node.example:443?security=reality#Germany")
+        org.junit.Assert.assertTrue(ProfileSelectionRefreshPolicy.matchesRemovedProfile(active, removed))
+    }
+
+    @Test fun doesNotGuessWhenRemovedEndpointsAreAmbiguous() {
+        val active = "vless://old@node.example:443#Germany"
+        val removed = listOf("vless://one@node.example:443#Germany", "vless://two@node.example:443#Germany")
+        org.junit.Assert.assertFalse(ProfileSelectionRefreshPolicy.matchesRemovedProfile(active, removed))
+    }
+
+    @Test fun ignoresUnrelatedProfilesWhenDeletingSubscription() {
+        val active = "vless://token@other.example:443#Sweden"
+        val removed = listOf("vless://new@node.example:443#Germany")
+        org.junit.Assert.assertFalse(ProfileSelectionRefreshPolicy.matchesRemovedProfile(active, removed))
+    }
 }

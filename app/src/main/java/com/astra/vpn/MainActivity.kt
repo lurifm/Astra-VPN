@@ -2261,9 +2261,11 @@ class MainActivity : Activity() {
             .setPositiveButton("Удалить") { _, _ ->
                 runCatching { profileStore.removeSubscription(item.sourceUrl) }
                     .onSuccess { removed ->
-                        val removesActiveProfile = activeProfile?.let { it in removed } == true
-                        val removesPendingProfile = pendingProfile?.let { it in removed } == true ||
-                            selectedProfile?.let { it in removed } == true
+                        // Refresh may rotate a subscription URI while the live tunnel keeps its old URI.
+                        // Stable endpoint matching ensures deleting that subscription also stops its tunnel.
+                        val removesActiveProfile = ProfileSelectionRefreshPolicy.matchesRemovedProfile(activeProfile, removed)
+                        val removesPendingProfile = ProfileSelectionRefreshPolicy.matchesRemovedProfile(pendingProfile, removed) ||
+                            ProfileSelectionRefreshPolicy.matchesRemovedProfile(selectedProfile, removed)
                         // Removing a subscription while Android's VPN consent is open must
                         // invalidate the captured config; otherwise a late RESULT_OK could
                         // start a profile that has already been deleted.
