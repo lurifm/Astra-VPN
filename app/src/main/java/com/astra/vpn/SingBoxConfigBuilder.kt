@@ -159,7 +159,7 @@ object SingBoxConfigBuilder {
     }
 
     private fun buildVless(uri: Uri, server: String, port: Int): JSONObject {
-        val userInfo = uri.userInfo?.let(Uri::decode)
+        val userInfo = uri.encodedUserInfo?.let(Uri::decode)
         val uuid = userInfo?.substringBefore(':')?.takeIf { it.isNotBlank() }
             ?: error("В ссылке VLESS отсутствует UUID")
         val security = uri.getQueryParameter("security").orEmpty().lowercase()
@@ -208,7 +208,7 @@ object SingBoxConfigBuilder {
     }
 
     private fun buildHysteria2(uri: Uri, server: String, port: Int): JSONObject {
-        val userInfo = uri.userInfo?.let(Uri::decode)
+        val userInfo = uri.encodedUserInfo?.let(Uri::decode)
         val password = userInfo?.substringAfter(':', userInfo)
             ?.takeIf { it.isNotBlank() } ?: error("В Hysteria2-ссылке отсутствует пароль")
         val outbound = JSONObject()
@@ -232,7 +232,7 @@ object SingBoxConfigBuilder {
         this?.lowercase() in setOf("1", "true", "yes")
 
     private fun buildTuic(uri: Uri, server: String, port: Int): JSONObject {
-        val credentials = uri.userInfo?.let(Uri::decode)
+        val credentials = uri.encodedUserInfo?.let(Uri::decode)
             ?: error("В TUIC-ссылке отсутствуют данные входа")
         val uuid = credentials.substringBefore(':')
         val password = credentials.substringAfter(':', "")
