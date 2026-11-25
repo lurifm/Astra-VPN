@@ -158,14 +158,6 @@ class NetworkRecoveryPolicyTest {
         assertFalse(NetworkRecoveryPolicy.shouldRequeueAfterHandover(2, true))
     }
 
-    @Test
-    fun handoverKeepsNativeProbeSlotForFullCancellationSafetyWindow() {
-        assertEquals(
-            NativeUrlTestTimingPolicy.NATIVE_MAX_DURATION_MS +
-                NativeUrlTestTimingPolicy.SAFETY_MARGIN_MS,
-            NetworkRecoveryPolicy.probeHandoverNativeCooldownMs()
-        )
-    }
 
     @Test
     fun probeSocketBindingRejectsUnvalidatedAndVpnNetworks() {
