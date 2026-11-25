@@ -1,6 +1,8 @@
 package com.astra.vpn
 
 import android.app.Application
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import io.nekohasekai.libbox.Libbox
@@ -9,14 +11,59 @@ import org.json.JSONObject
 import java.util.Locale
 
 class AstraApplication : Application() {
+    private val throughputEventLock = Any()
+    private var pendingThroughputEvent: Intent? = null
+    private val throughputEventReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            if (action != AstraThroughputProbeService.ACTION_RESULT &&
+                action != AstraThroughputProbeService.ACTION_ERROR
+            ) return
+            synchronized(throughputEventLock) { pendingThroughputEvent = Intent(intent) }
+        }
+    }
+
+    fun takePendingThroughputEvent(): Intent? = synchronized(throughputEventLock) {
+        pendingThroughputEvent?.also { pendingThroughputEvent = null }
+    }
+
+    fun acknowledgeThroughputEvent(sessionId: String) {
+        synchronized(throughputEventLock) {
+            if (pendingThroughputEvent?.getStringExtra(AstraThroughputProbeService.EXTRA_SESSION) == sessionId) {
+                pendingThroughputEvent = null
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        if (isMainProcess()) {
+            val filter = IntentFilter().apply {
+                addAction(AstraThroughputProbeService.ACTION_RESULT)
+                addAction(AstraThroughputProbeService.ACTION_ERROR)
+            }
+            runCatching {
+                androidx.core.content.ContextCompat.registerReceiver(
+                    this, throughputEventReceiver, filter,
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+                )
+            }.onFailure { SafeLog.w(TAG, "Не удалось зарегистрировать mailbox измерения скорости", it) }
+        }
         runCatching {
             setupLibbox()
         }.onFailure { error ->
             SafeLog.e(TAG, "Не удалось инициализировать sing-box", error)
         }
+    }
+
+    private fun isMainProcess(): Boolean {
+        val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName()
+        } else {
+            getSystemService(android.app.ActivityManager::class.java).runningAppProcesses
+                ?.firstOrNull { it.pid == android.os.Process.myPid() }?.processName ?: packageName
+        }
+        return processName == packageName
     }
 
     private fun setupLibbox() {
@@ -62,3 +109,19 @@ class AstraApplication : Application() {
         private const val TAG = "AstraApplication"
     }
 }
+
+
+/** In-memory only: profile links are never written to saved-instance disk state. */
+internal data class ThroughputRetainedState(
+    val sessionId: String?,
+    val profile: String?,
+    val inFlight: Boolean,
+    val batchActive: Boolean,
+    val batchQueue: List<String>,
+    val batchGeneration: Long,
+    val batchTotal: Int,
+    val batchCompleted: Int,
+    val fastestCandidates: List<String>,
+    val selectingFastest: Boolean,
+    val tilePendingStart: Boolean
+)

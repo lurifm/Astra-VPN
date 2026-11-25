@@ -128,6 +128,7 @@ class MainActivity : Activity() {
                 intent?.action != AstraThroughputProbeService.ACTION_ERROR) return
             val session = intent.getStringExtra(AstraThroughputProbeService.EXTRA_SESSION)
             if (session.isNullOrBlank() || session != activeThroughputSessionId) return
+            (application as? AstraApplication)?.acknowledgeThroughputEvent(session)
             val profile = activeThroughputProfile
             activeThroughputSessionId = null
             activeThroughputProfile = null
@@ -634,6 +635,19 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (lastCustomNonConfigurationInstance as? ThroughputRetainedState)?.let { retained ->
+            activeThroughputSessionId = retained.sessionId
+            activeThroughputProfile = retained.profile
+            throughputProbeInFlight = retained.inFlight
+            throughputBatchActive = retained.batchActive
+            throughputBatchQueue.addAll(retained.batchQueue)
+            throughputBatchGeneration = retained.batchGeneration
+            throughputBatchTotal = retained.batchTotal
+            throughputBatchCompleted = retained.batchCompleted
+            fastestSelectionCandidates = retained.fastestCandidates
+            selectingFastest = retained.selectingFastest
+            tilePendingStart = retained.tilePendingStart
+        }
         // Restore the service-event high-water mark before registering the receiver.
         // Activity recreation must not make an older delayed broadcast look current.
         latestVpnServiceRequestGeneration = getSharedPreferences(
@@ -4337,6 +4351,13 @@ class MainActivity : Activity() {
             receiverRegistered = true
         }
         restorePendingLatencyResult()
+        // Bridge the brief gap between old and replacement Activity receivers.
+        (application as? AstraApplication)?.takePendingThroughputEvent()?.let {
+            throughputReceiver.onReceive(this, it)
+        }
+        if (throughputBatchActive && activeThroughputSessionId == null) {
+            scheduleNextThroughputBatchProbe()
+        }
         // The foreground Activity may legally start the user-enabled monitor.
         // Do not start it in the background or without the special Usage Access grant.
         if (settingsPrefs.getBoolean("banking_auto_pause_enabled", false) &&
@@ -8003,6 +8024,21 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     private fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
+    override fun onRetainCustomNonConfigurationInstance(): Any =
+        ThroughputRetainedState(
+            sessionId = activeThroughputSessionId,
+            profile = activeThroughputProfile,
+            inFlight = throughputProbeInFlight,
+            batchActive = throughputBatchActive,
+            batchQueue = throughputBatchQueue.toList(),
+            batchGeneration = throughputBatchGeneration,
+            batchTotal = throughputBatchTotal,
+            batchCompleted = throughputBatchCompleted,
+            fastestCandidates = fastestSelectionCandidates.toList(),
+            selectingFastest = selectingFastest,
+            tilePendingStart = tilePendingStart
+        )
+
     override fun onDestroy() {
         cancelConnectRetry(resetAttempts = false)
         tunnelHealthCheckGeneration.advance()
@@ -8013,7 +8049,10 @@ class MainActivity : Activity() {
         searchRenderHandler.removeCallbacks(searchRenderTask)
         monitorHandler.removeCallbacks(monitorTick)
         outboundTrafficRefresh = null
-        if (activeThroughputSessionId != null || throughputBatchActive) {
+        // Keep service-owned work alive across configuration changes.
+        if (!isChangingConfigurations &&
+            (activeThroughputSessionId != null || throughputBatchActive)
+        ) {
             cancelThroughputProbe(showToast = false, refreshUi = false)
         }
         throughputBatchHandler.removeCallbacksAndMessages(null)
