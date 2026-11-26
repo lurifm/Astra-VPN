@@ -4035,7 +4035,7 @@ class MainActivity : Activity() {
                             pingInfo[profile] = "н/д"
                         }
                         val diagnostic = LatencyFailureDiagnostic.describe(failure)
-                        SafeLog.e("AstraLatencyTest", "Service start rejected ($diagnostic)")
+                        SafeLog.e("AstraLatencyTest", "Service start rejected ($diagnostic)", failure)
                         Toast.makeText(
                             this,
                             "Не удалось запустить проверку: $diagnostic",
