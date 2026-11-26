@@ -15,7 +15,7 @@ class SingBoxConfigBuilderDnsTest {
         assertEquals("https", remote.getString("type"))
         assertEquals("1.1.1.1", remote.getString("server"))
         assertEquals("cloudflare-dns.com", remote.getJSONObject("tls").getString("server_name"))
-        assertEquals("direct", remote.getString("detour"))
+        assertFalse(remote.has("detour"))
         assertEquals("dns-remote", dns.getString("final"))
     }
 
@@ -30,7 +30,7 @@ class SingBoxConfigBuilderDnsTest {
         assertEquals("dns-fallback", fallback.getString("tag"))
         assertEquals("8.8.8.8", fallback.getString("server"))
         assertEquals("dns.google", fallback.getJSONObject("tls").getString("server_name"))
-        assertEquals("direct", fallback.getString("detour"))
+        assertFalse(fallback.has("detour"))
 
         val primaryEvaluate = rules.getJSONObject(0)
         assertEquals("evaluate", primaryEvaluate.getString("action"))
