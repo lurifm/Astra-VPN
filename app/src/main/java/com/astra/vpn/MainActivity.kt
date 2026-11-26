@@ -4022,7 +4022,7 @@ class MainActivity : Activity() {
                             physicalNetwork,
                             sessionId
                         )
-                    }.onFailure {
+                    }.onFailure { failure ->
                         activeLatencySessionId = null
                         getSharedPreferences(LATENCY_PREFS, MODE_PRIVATE).edit()
                             .remove(KEY_LATENCY_SESSION_ID).apply()
@@ -4034,7 +4034,13 @@ class MainActivity : Activity() {
                             latencyMs.remove(profile)
                             pingInfo[profile] = "н/д"
                         }
-                        Toast.makeText(this, "Не удалось запустить проверку серверов", Toast.LENGTH_SHORT).show()
+                        val diagnostic = LatencyFailureDiagnostic.describe(failure)
+                        SafeLog.e("AstraLatencyTest", "Service start rejected ($diagnostic)")
+                        Toast.makeText(
+                            this,
+                            "Не удалось запустить проверку: $diagnostic",
+                            Toast.LENGTH_LONG
+                        ).show()
                         renderProfiles()
                     }
                 }.onFailure {

@@ -172,13 +172,14 @@ internal class AstraLatencyTestService : VpnService(), CommandServerHandler {
                     runCatching { commandServer.close() }
                 }
             } catch (failure: Exception) {
-                Log.e(TAG, "Не удалось запустить изолированную проверку (" + failure.javaClass.simpleName + ")")
+                val diagnostic = LatencyFailureDiagnostic.describe(failure)
+                Log.e(TAG, "Isolated probe engine startup failed ($diagnostic)")
                 if (stopped.get()) {
                     runCatching { createdClient?.disconnect() }
                     runCatching { createdServer?.closeService() }
                     runCatching { createdServer?.close() }
                 } else {
-                    failIfActive("Не удалось запустить проверку серверов")
+                    failIfActive("Ошибка запуска движка Ping: $diagnostic")
                 }
             }
         }
