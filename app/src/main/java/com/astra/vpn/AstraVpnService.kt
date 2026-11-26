@@ -485,13 +485,20 @@ class AstraVpnService : VpnService(), CommandServerHandler {
     private fun failStartRequest(requestToken: Long, userMessage: String, error: Throwable? = null) {
         synchronized(lifecycleLock) {
             if (stopping || !startRequestGeneration.isCurrent(requestToken)) return
-            if (error != null) {
-                Log.e(TAG, "Ошибка запуска VPN (" + error.javaClass.simpleName + ")")
+            val diagnostic = error?.let(LatencyFailureDiagnostic::describe)
+            if (diagnostic != null) {
+                // Keep native details useful for diagnosis without exposing profile URIs or credentials.
+                Log.e(TAG, "Ошибка запуска VPN: $diagnostic")
             } else {
                 Log.e(TAG, userMessage)
             }
             stopTunnel()
-            publishState(STATE_ERROR, userMessage)
+            val reportedMessage = if (diagnostic.isNullOrBlank()) {
+                userMessage
+            } else {
+                "$userMessage\\nДиагностика: $diagnostic"
+            }
+            publishState(STATE_ERROR, reportedMessage)
         }
     }
 
