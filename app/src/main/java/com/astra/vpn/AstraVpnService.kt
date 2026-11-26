@@ -496,7 +496,7 @@ class AstraVpnService : VpnService(), CommandServerHandler {
             val reportedMessage = if (diagnostic.isNullOrBlank()) {
                 userMessage
             } else {
-                "$userMessage\\nДиагностика: $diagnostic"
+                "$userMessage\nДиагностика: $diagnostic"
             }
             publishState(STATE_ERROR, reportedMessage)
         }
