@@ -68,7 +68,6 @@ internal object SingBoxUrlTestConfig {
                 .put("server_name", "cloudflare-dns.com"))
             // This DNS connection must leave through the physical interface,
             // never through a tested proxy outbound or the active VPN tunnel.
-            .put("detour", "direct")
 
         val config = JSONObject()
             .put("log", JSONObject().put("level", "debug"))
